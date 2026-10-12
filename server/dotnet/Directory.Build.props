@@ -1,0 +1,26 @@
+<Project>
+  <!-- Repository-wide compiler policy (CLAUDE.md rule 8). Projects only add what differs. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnalysisLevel>latest-all</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <RootNamespace>Sa.$(MSBuildProjectName.Replace(" ", "_"))</RootNamespace>
+    <Deterministic>true</Deterministic>
+    <!-- Required by IDE0005 (unused usings) to run at build time; CS1591 (missing XML doc) is not a goal. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- CA1812: DI and host instantiate internal types reflectively.
+         CA1515: public types are fine in application projects.
+         CA2007: ConfigureAwait(false) is noise in ASP.NET Core / generic host code (no SynchronizationContext).
+         CS1591: XML documentation is written where it adds meaning, not on every member. -->
+    <NoWarn>$(NoWarn);CA1812;CA1515;CA2007;CS1591</NoWarn>
+  </PropertyGroup>
+</Project>

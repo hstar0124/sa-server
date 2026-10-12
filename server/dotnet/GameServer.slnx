@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/GameBackend.IntegrationTests/GameBackend.IntegrationTests.csproj" />
+    <Project Path="tests/GameBackend.Tests/GameBackend.Tests.csproj" />
+  </Folder>
+  <Project Path="Contracts/Contracts.csproj" />
+  <Project Path="EventWorker/EventWorker.csproj" />
+  <Project Path="GameBackend/GameBackend.csproj" />
+  <Project Path="Migrator/Migrator.csproj" />
+</Solution>
