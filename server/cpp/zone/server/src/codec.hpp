@@ -68,6 +68,10 @@ struct ZoneAuthority {
     const backend::v1::RecordKillResponse& response);
 [[nodiscard]] backend::v1::PickupItemRequest ToPickupItemRequest(
     const sim::PickupReservation& pickup, common::WorldId world, const ZoneAuthority& authority);
+// The 16-byte idempotency key the Backend stores for a pickup: a digest of the character, the
+// ownership epoch of its session and the client's request id.
+[[nodiscard]] std::string PickupRequestKey(const sim::PickupReservation& pickup,
+                                           common::OwnerEpoch epoch);
 [[nodiscard]] sim::PickupOutcome ToPickupOutcome(backend::v1::PickupOutcome outcome);
 
 // The inventory and wallet of one character as the host mirrors them for its client. The

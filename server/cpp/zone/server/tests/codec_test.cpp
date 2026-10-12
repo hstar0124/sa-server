@@ -161,7 +161,16 @@ TEST(Codec, KillRecordAndReservationCarryTheZonesAuthority) {
     EXPECT_EQ(pickup.request_id().size(), common::ItemInstanceId::kBytes);
     const backend::v1::PickupItemRequest again =
         ToPickupItemRequest(reservation, common::WorldId{1}, authority);
-    EXPECT_EQ(again.request_id(), pickup.request_id()) << "the same client request keeps its key";
+    EXPECT_EQ(again.request_id(), pickup.request_id()) << "a retry in the session keeps its key";
+    const ZoneAuthority next_session{.zone_instance = authority.zone_instance,
+                                     .epoch = authority.epoch.Next()};
+    EXPECT_NE(ToPickupItemRequest(reservation, common::WorldId{1}, next_session).request_id(),
+              pickup.request_id())
+        << "a later session restarting its counter at the same request id gets a new key";
+    sim::PickupReservation other_request = reservation;
+    other_request.request_id = common::RequestId{10};
+    EXPECT_NE(ToPickupItemRequest(other_request, common::WorldId{1}, authority).request_id(),
+              pickup.request_id());
 }
 
 TEST(Codec, BackendAnswersMapToSimulationTypes) {

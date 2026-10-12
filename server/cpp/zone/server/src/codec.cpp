@@ -1,10 +1,12 @@
 #include "codec.hpp"
 
 #include "sa/common/bytes.hpp"
+#include "sa/common/hmac.hpp"
 
 #include <array>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 
 namespace sa::zone::codec {
@@ -239,21 +241,30 @@ backend::v1::PickupItemRequest ToPickupItemRequest(const sim::PickupReservation&
                                                    common::WorldId world,
                                                    const ZoneAuthority& authority) {
     backend::v1::PickupItemRequest out;
-    // The client's per-session request id is widened into the 16-byte key the Backend stores:
-    // character id and request id together are unique for one character's lifetime.
-    std::array<std::byte, common::ItemInstanceId::kBytes> key{};
-    const std::uint64_t character = pickup.character.value();
-    const std::uint64_t request = pickup.request_id.value();
-    for (std::size_t i = 0; i < sizeof character; ++i) {
-        key.at(i) = static_cast<std::byte>((character >> (8 * i)) & 0xFFU);
-        key.at(i + sizeof character) = static_cast<std::byte>((request >> (8 * i)) & 0xFFU);
-    }
-    out.set_request_id(common::ToWireString(key));
+    out.set_request_id(PickupRequestKey(pickup, authority.epoch));
     out.set_world_id(world.value());
-    out.set_character_id(character);
+    out.set_character_id(pickup.character.value());
     Fill(*out.mutable_authority(), authority);
     out.set_item_instance_id(pickup.instance.ToWire());
     return out;
+}
+
+std::string PickupRequestKey(const sim::PickupReservation& pickup, common::OwnerEpoch epoch) {
+    // The client's request id is unique only within one session; the ownership epoch changes on
+    // every entry, so (character, epoch, request) names one command for the character's lifetime.
+    // A retry within the session reproduces the same key; a new session cannot collide with an
+    // old one even when its counter restarts at the same number.
+    std::array<std::byte, sizeof(std::uint64_t) * 3> material{};
+    std::size_t offset = 0;
+    for (const std::uint64_t value :
+         {pickup.character.value(), epoch.value(), pickup.request_id.value()}) {
+        for (std::size_t i = 0; i < sizeof value; ++i) {
+            material.at(offset++) = static_cast<std::byte>((value >> (8 * i)) & 0xFFU);
+        }
+    }
+    static constexpr std::string_view kDomain = "pickup-request";
+    const common::HmacSha256Digest digest = common::HmacSha256(common::AsBytes(kDomain), material);
+    return common::ToWireString(std::span{digest}.first(common::ItemInstanceId::kBytes));
 }
 
 sim::PickupOutcome ToPickupOutcome(backend::v1::PickupOutcome outcome) {
