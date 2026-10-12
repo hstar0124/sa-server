@@ -34,8 +34,17 @@ public:
 sim::ContentBundle TestContent() {
     sim::ContentBundle c;
     c.version = "test";
-    c.classes[sim::ClassId{1}] =
-        sim::ClassDefinition{.id = sim::ClassId{1}, .name = "w", .max_hp = 100, .max_mp = 10};
+    c.skills[sim::SkillId{1}] = sim::SkillDefinition{.id = sim::SkillId{1},
+                                                     .name = "strike",
+                                                     .kind = sim::SkillKind::kTargeted,
+                                                     .cooldown = std::chrono::milliseconds{500},
+                                                     .range_m = 2.5F,
+                                                     .damage = 20};
+    c.classes[sim::ClassId{1}] = sim::ClassDefinition{.id = sim::ClassId{1},
+                                                      .name = "w",
+                                                      .max_hp = 100,
+                                                      .max_mp = 10,
+                                                      .skills = {sim::SkillId{1}}};
     return c;
 }
 
@@ -229,6 +238,44 @@ TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     EXPECT_EQ(FirstSnapshotTo(gateway_a).despawned_size(), 1) << "a is told b left";
     EXPECT_EQ(zone.stats().players, 1U);
     EXPECT_EQ(host.stats().detaches, 1U);
+}
+
+TEST(ZoneHost, AttachWithAClassTheContentLacksIsRejected) {
+    sim::Zone zone = MakeZone();
+    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeSink sink;
+    internal::v1::SessionAttach bad_class = AttachFor("s2", 2);
+    bad_class.set_class_id(99);
+
+    host.Attach(sink, bad_class);
+
+    EXPECT_EQ(Only(sink, ZoneToGateway::kSessionRejected).session_rejected().reason(),
+              internal::v1::REJECT_REASON_UNKNOWN_CLASS);
+    EXPECT_EQ(host.session_count(), 0U);
+}
+
+TEST(ZoneHost, CastSkillYieldsACommandResultOnTheNextTick) {
+    sim::Zone zone = MakeZone();
+    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeSink sink;
+    host.Attach(sink, AttachFor("s1", 1));
+    sink.sent.clear();
+
+    internal::v1::SessionInput input;
+    input.set_gateway_session_id("s1");
+    input.mutable_message()->mutable_cast_skill()->set_request_id(1);
+    input.mutable_message()->mutable_cast_skill()->set_skill_id(1);
+    input.mutable_message()->mutable_cast_skill()->set_target_entity_id(4242);  // no such monster
+    host.Input(input);
+    zone.Tick();
+    host.OnTick(zone.current_tick());  // tick 1: events go out even without a snapshot
+
+    const auto& result =
+        Only(sink, ZoneToGateway::kSessionOutput).session_output().message().command_result();
+    EXPECT_EQ(result.request_id(), 1U);
+    EXPECT_EQ(result.status(), game::v1::COMMAND_STATUS_REJECTED);
+    EXPECT_EQ(result.reject_code(), game::v1::REJECT_CODE_INVALID_TARGET);
+    EXPECT_EQ(host.stats().events_sent, 1U);
 }
 
 TEST(ZoneHost, LinkClosureAndEvictionRemoveEveryoneOnThatLink) {
