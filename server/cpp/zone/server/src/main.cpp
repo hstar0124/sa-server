@@ -74,12 +74,37 @@ private:
     std::chrono::seconds interval_;
 };
 
+// Loads everything the zone reads from game-data; any failure is fatal at start-up.
+struct LoadedWorld {
+    sa::zone::sim::MapData map;
+    sa::zone::sim::MovementRules rules;
+    sa::zone::sim::CombatRules combat;
+    sa::zone::sim::ContentBundle content;
+};
+
+std::optional<LoadedWorld> LoadWorld(const sa::zone::ZoneServerConfig& config) {
+    auto map = sa::zone::data::LoadMap(config.map_file);
+    auto rules = sa::zone::data::LoadMovementRules(config.movement_rules_file);
+    auto combat = sa::zone::data::LoadCombatRules(config.movement_rules_file);
+    auto content = sa::zone::data::LoadContent(config.content_dir);
+    for (const sa::zone::data::LoadError* err :
+         {map ? nullptr : &map.error(), rules ? nullptr : &rules.error(),
+          combat ? nullptr : &combat.error(), content ? nullptr : &content.error()}) {
+        if (err != nullptr) {
+            spdlog::critical("game-data: {}", err->message);
+            return std::nullopt;
+        }
+    }
+    return LoadedWorld{
+        .map = std::move(*map), .rules = *rules, .combat = *combat, .content = std::move(*content)};
+}
+
 int Run(int argc, char** argv);
 
 }  // namespace
 
-// Asio and spdlog report unrecoverable start-up failures (port in use, bad address) as
-// exceptions; they end the process with a logged message instead of std::terminate.
+// Asio and gRPC report unrecoverable start-up failures (port in use, bad address) as exceptions;
+// they end the process with a logged message instead of std::terminate.
 int main(int argc, char** argv) {
     try {
         return Run(argc, argv);
@@ -111,27 +136,31 @@ int Run(int argc, char** argv) {
 
     sa::common::InitLogging("zone", config->logging);
 
-    auto map = sa::zone::data::LoadMap(config->map_file);
-    if (!map) {
-        spdlog::critical("map: {}", map.error().message);
-        return EXIT_FAILURE;
-    }
-    auto rules = sa::zone::data::LoadMovementRules(config->movement_rules_file);
-    if (!rules) {
-        spdlog::critical("movement rules: {}", rules.error().message);
+    auto world = LoadWorld(*config);
+    if (!world) {
         return EXIT_FAILURE;
     }
 
     const std::uint64_t seed = ResolveSeed(config->rng_seed);
     spdlog::info(
-        "starting world_id={} zone_id={} hz={} snapshot_hz={} map={}x{} obstacles={} seed={}",
+        "starting world_id={} zone_id={} hz={} snapshot_hz={} map={}x{} obstacles={} "
+        "monster_spawns={} "
+        "content={} seed={}",
         config->world_id.value(), config->zone_id.value(), config->simulation_rate.hz,
-        config->snapshot_rate.hz, map->size.x, map->size.y, map->obstacles.size(), seed);
+        config->snapshot_rate.hz, world->map.size.x, world->map.size.y, world->map.obstacles.size(),
+        world->map.monster_spawns.size(), world->content.version, seed);
 
-    sa::zone::sim::Zone zone{sa::zone::sim::ZoneConfig{.world_id = config->world_id,
-                                                       .zone_id = config->zone_id,
-                                                       .simulation_rate = config->simulation_rate},
-                             std::move(*map), *rules, sa::zone::sim::Rng{seed}};
+    auto created = sa::zone::sim::Zone::Create(
+        sa::zone::sim::ZoneConfig{.world_id = config->world_id,
+                                  .zone_id = config->zone_id,
+                                  .simulation_rate = config->simulation_rate},
+        std::move(world->map), world->rules, world->combat, std::move(world->content),
+        sa::zone::sim::Rng{seed});
+    if (!created) {
+        spdlog::critical("zone: {}", created.error());
+        return EXIT_FAILURE;
+    }
+    sa::zone::sim::Zone& zone = *created;
 
     asio::io_context io;
 

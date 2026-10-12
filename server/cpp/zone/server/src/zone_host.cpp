@@ -60,7 +60,13 @@ void ZoneHost::Attach(LinkSink& sink, const internal::v1::SessionAttach& attach)
     }
 
     const common::CharacterId character{attach.character_id()};
-    const common::EntityId entity = zone_.SpawnPlayer(character, attach.class_id());
+    const auto spawned = zone_.SpawnPlayer(character, sim::ClassId{attach.class_id()});
+    if (!spawned) {
+        spdlog::warn("attach refused: class {} is not in the content bundle", attach.class_id());
+        Reject(sink, session_id, internal::v1::REJECT_REASON_UNKNOWN_CLASS);
+        return;
+    }
+    const common::EntityId entity = *spawned;
     const Session session{.sink = &sink,
                           .entity = entity,
                           .character = character,
