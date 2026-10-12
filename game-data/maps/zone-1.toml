@@ -1,0 +1,24 @@
+# Zone 1 "meadow". Coordinates in metres, origin bottom-left.
+[map]
+id = 1
+name = "meadow"
+width = 200.0
+height = 200.0
+# Spatial-grid cell edge for AOI queries. Should be close to the AOI radius so a query touches ~9 cells.
+cell_size = 25.0
+
+# Static obstacles as axis-aligned boxes [min_x, min_y, max_x, max_y]. Players slide along them.
+obstacles = [
+  [ 80.0,  80.0, 120.0,  90.0],   # wall
+  [ 80.0,  90.0,  90.0, 120.0],   # wall
+  [ 30.0, 150.0,  50.0, 170.0],   # rock
+  [150.0,  30.0, 170.0,  50.0],   # rock
+]
+
+# Where new players appear. One is chosen by the zone's seeded RNG.
+spawn_points = [
+  [20.0, 20.0],
+  [180.0, 20.0],
+  [20.0, 180.0],
+  [180.0, 180.0],
+]

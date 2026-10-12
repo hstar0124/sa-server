@@ -1,0 +1,13 @@
+# Movement and interest-management rules. Initial proposals (design document 7.3-7.4), not tuned.
+[movement]
+max_speed_mps = 6.0
+
+[aoi]
+# Entities within enter_radius become visible; they stay visible until beyond leave_radius.
+# The gap stops an entity hovering on the boundary from flapping in and out every tick.
+enter_radius_m = 40.0
+leave_radius_m = 45.0
+
+[input]
+# How many queued commands one tick processes before deferring the rest (design document 7.2).
+commands_per_tick_budget = 4096
