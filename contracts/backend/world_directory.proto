@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package sa.backend.v1;
+
+option csharp_namespace = "Sa.Backend.V1";
+
+// Authoritative record of which process may act for which character (design document 14,
+// ADR-0005). Callers are the Gateway and Zone processes; every call carries a deadline.
+service WorldDirectory {
+  // Gateway submits a ticket whose signature and expiry it has already verified. In one
+  // transaction the Backend consumes the ticket, rejects a second live session for the
+  // character, and assigns the character to a zone with a live lease.
+  rpc RedeemEntryTicket(RedeemEntryTicketRequest) returns (RedeemEntryTicketResponse);
+  // Gateway reports that a session ended (disconnect, kick, zone eviction).
+  rpc EndSession(EndSessionRequest) returns (EndSessionResponse);
+  // Zone process announces itself and keeps its lease alive. Ownership is only granted to zones
+  // whose lease has not expired; an expired lease ends the zone's authority (14.3).
+  rpc RenewZoneLease(RenewZoneLeaseRequest) returns (RenewZoneLeaseResponse);
+  // Gateway process lease. Sessions belong to a gateway lease: when it expires they are dead.
+  rpc RenewGatewayLease(RenewGatewayLeaseRequest) returns (RenewGatewayLeaseResponse);
+}
+
+message ZoneInstanceRef {
+  uint64 world_id = 1;
+  uint32 zone_id = 2;
+  // Zone process generation. A restart gets a new one even under the same pod name.
+  bytes zone_instance_id = 3;
+}
+
+// What a zone needs to materialise the character. Persistent state beyond this (inventory,
+// wallet) is fetched by the zone from the Backend in stage 5.
+message CharacterProfile {
+  uint64 character_id = 1;
+  string name = 2;
+  uint32 class_id = 3;
+}
+
+message RedeemEntryTicketRequest {
+  bytes ticket_id = 1;
+  uint64 account_id = 2;
+  uint64 character_id = 3;
+  uint64 world_id = 4;
+  bytes gateway_instance_id = 5;
+  bytes gateway_session_id = 6;
+}
+
+enum RedeemOutcome {
+  REDEEM_OUTCOME_UNSPECIFIED = 0;
+  REDEEM_OUTCOME_GRANTED = 1;
+  REDEEM_OUTCOME_ALREADY_REDEEMED = 2;
+  REDEEM_OUTCOME_UNKNOWN_TICKET = 3;          // not issued by this Backend (or purged)
+  REDEEM_OUTCOME_ACTIVE_SESSION_EXISTS = 4;
+  REDEEM_OUTCOME_CHARACTER_NOT_OWNED = 5;
+  REDEEM_OUTCOME_NO_ZONE_AVAILABLE = 6;       // no zone with a live lease serves the world
+  REDEEM_OUTCOME_UNKNOWN_GATEWAY = 7;         // the gateway holds no live lease
+  REDEEM_OUTCOME_EXPIRED = 8;                 // the Backend clock says the ticket is past expiry
+}
+
+message RedeemEntryTicketResponse {
+  RedeemOutcome outcome = 1;
+  ZoneInstanceRef zone = 2;
+  uint64 owner_epoch = 3;
+  CharacterProfile character = 4;
+}
+
+message EndSessionRequest {
+  bytes gateway_session_id = 1;
+  string reason = 2;  // free text for the audit trail, e.g. "client_disconnected"
+}
+
+message EndSessionResponse {
+  bool ended = 1;  // false when the session was unknown or already ended
+}
+
+message RenewZoneLeaseRequest {
+  ZoneInstanceRef zone = 1;
+}
+
+message RenewZoneLeaseResponse {
+  bool renewed = 1;
+  // Server-side expiry (Unix ms). The zone interprets it conservatively (clock skew, latency).
+  uint64 lease_expires_at_ms = 2;
+}
+
+message RenewGatewayLeaseRequest {
+  bytes gateway_instance_id = 1;
+}
+
+message RenewGatewayLeaseResponse {
+  bool renewed = 1;
+  uint64 lease_expires_at_ms = 2;
+}

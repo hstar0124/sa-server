@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package sa.game.v1;
+
+option csharp_namespace = "Sa.Game.V1";
+
+// 2D 위치·방향. 단위는 미터, 좌표계는 Zone 로컬.
+message Vec2 {
+  float x = 1;
+  float y = 2;
+}
+
+enum EntityKind {
+  ENTITY_KIND_UNSPECIFIED = 0;
+  ENTITY_KIND_PLAYER = 1;
+  ENTITY_KIND_MONSTER = 2;
+  ENTITY_KIND_DROPPED_ITEM = 3;
+  ENTITY_KIND_PROJECTILE = 4;
+}
