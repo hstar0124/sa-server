@@ -34,4 +34,16 @@ std::optional<std::vector<std::byte>> DecodeBase64(std::string_view text) {
     return out;
 }
 
+std::string EncodeBase64(std::span<const std::byte> bytes) {
+    // 4 output chars per 3 input bytes, rounded up, plus the terminating NUL EVP writes.
+    std::string out((((bytes.size() + 2) / 3) * 4) + 1, char{});
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+    const int written = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(out.data()),
+                                        reinterpret_cast<const unsigned char*>(bytes.data()),
+                                        static_cast<int>(bytes.size()));
+    // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+    out.resize(static_cast<std::size_t>(written));
+    return out;
+}
+
 }  // namespace sa::common
