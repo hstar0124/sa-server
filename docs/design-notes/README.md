@@ -1,0 +1,11 @@
+# 설계 노트
+
+구현 절차가 아니라 **왜 이렇게 만들었는지**를 설명하는 글이다. 개발 규칙은 [CLAUDE.md](../../CLAUDE.md), 결정 기록은 [ADR](../adr/), 원 설계는 [Server_Architecture.md](../Server_Architecture.md)에 있고, 이 디렉터리는 그 사이의 생각을 담는다. 수치는 측정 전까지 설계 가정이며, 측정 결과는 `docs/reports/`에 따로 남긴다.
+
+| 노트 | 질문 |
+|---|---|
+| [01 전송 계층: TCP, WebSocket, UDP](01-transport.md) | 왜 클라이언트 링크가 WebSocket이 아니라 TCP인가. UDP로 가면 무엇이 바뀌나 |
+| [02 UDP 유실 보정과 틱 레이트](02-udp-loss-and-tick-rate.md) | 패킷이 사라지면 화면이 끊기나. 20 Hz가 어디에 영향을 주나 |
+| [03 밀집 전투의 확장성](03-dense-combat.md) | 보스전·길드전처럼 한 곳에 몰리면 무엇이 먼저 터지고 어떻게 막나 |
+| [04 입장 경로와 소유권](04-entry-and-ownership.md) | 티켓 한 장, 세션 하나, 소유 Zone 하나를 어떻게 보장하나 |
+| [05 순수 시뮬레이션 코어](05-pure-simulation.md) | Zone 로직이 소켓·시계·난수를 모르게 만든 이유와 얻은 것 |
