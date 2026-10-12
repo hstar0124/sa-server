@@ -20,21 +20,30 @@ common::Vec2 TargetOf(const Wanderer& w) {
 }
 
 Observation At(common::Vec2 position, std::uint64_t tick = 0) {
-    return Observation{.self_position = position, .map_size = kMap, .visible = {}, .tick = tick};
+    return Observation{.self_position = position,
+                       .map_size = kMap,
+                       .self_hp = 1,
+                       .self_max_hp = 1,
+                       .visible = {},
+                       .tick = tick};
+}
+
+common::Vec2 Dir(Intent intent) {
+    return intent.direction;
 }
 
 TEST(Wanderer, SameSeedProducesSameTargets) {
     Wanderer a{7, WandererParams{}};
     Wanderer b{7, WandererParams{}};
     for (int i = 0; i < 20; ++i) {
-        ASSERT_EQ(a.Decide(At({50.0F, 50.0F})), b.Decide(At({50.0F, 50.0F})));
+        ASSERT_EQ(Dir(a.Decide(At({50.0F, 50.0F}))), Dir(b.Decide(At({50.0F, 50.0F}))));
     }
     EXPECT_EQ(a.target(), b.target());
 }
 
 TEST(Wanderer, HeadsTowardItsTargetWithAUnitVector) {
     Wanderer w{1, WandererParams{}};
-    const common::Vec2 dir = w.Decide(At({50.0F, 50.0F}));
+    const common::Vec2 dir = Dir(w.Decide(At({50.0F, 50.0F})));
     ASSERT_TRUE(w.target().has_value());
     EXPECT_NEAR(dir.Length(), 1.0F, 1e-5F);
     const common::Vec2 expected = (TargetOf(w) - common::Vec2{50.0F, 50.0F}).Normalized();
@@ -52,7 +61,7 @@ TEST(Wanderer, TargetsStayInsideTheMarginAndArrivalPicksANewOne) {
     EXPECT_LE(first.y, 90.0F);
 
     // Teleport onto the target: the brain registers arrival and stops for this tick.
-    EXPECT_EQ(w.Decide(At(first)), common::Vec2{});
+    EXPECT_EQ(Dir(w.Decide(At(first))), common::Vec2{});
     EXPECT_EQ(w.targets_reached(), 1U);
     (void)w.Decide(At(first));
     ASSERT_TRUE(w.target().has_value());
@@ -75,11 +84,11 @@ TEST(Wanderer, IdlesAfterArrivalWhenConfigured) {
     Wanderer w{9, WandererParams{.idle_ticks_min = 3, .idle_ticks_max = 3}};
     (void)w.Decide(At({50.0F, 50.0F}));
     const common::Vec2 target = TargetOf(w);
-    EXPECT_EQ(w.Decide(At(target)), common::Vec2{});  // arrival tick
+    EXPECT_EQ(Dir(w.Decide(At(target))), common::Vec2{});  // arrival tick
     for (int i = 0; i < 3; ++i) {
-        EXPECT_EQ(w.Decide(At(target)), common::Vec2{}) << "idle tick " << i;
+        EXPECT_EQ(Dir(w.Decide(At(target))), common::Vec2{}) << "idle tick " << i;
     }
-    EXPECT_NE(w.Decide(At(target)), common::Vec2{}) << "moving again";
+    EXPECT_NE(Dir(w.Decide(At(target))), common::Vec2{}) << "moving again";
 }
 
 }  // namespace
