@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-cache,readwrite
+
+jobs:
+  cpp:
+    name: C++ (${{ matrix.preset }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [dev, asan, tidy]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-14 ninja-build clang-format-18 clang-tidy-18 pkg-config autoconf automake libtool bison flex
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+          sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-18 100
+
+      - name: Checkout vcpkg at the manifest baseline
+        run: |
+          BASELINE=$(python3 -c "import json;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$BASELINE"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        if: matrix.preset != 'tidy'
+        run: ctest --preset ${{ matrix.preset }}
+
+      - name: clang-format check
+        if: matrix.preset == 'dev'
+        run: |
+          find server/cpp tools -type f \( -name '*.hpp' -o -name '*.cpp' \) -print0 \
+            | xargs -0 clang-format-18 --dry-run --Werror
+
+  dotnet:
+    name: .NET
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore
+        run: dotnet restore server/dotnet/GameServer.slnx
+      - name: Build (warnings are errors)
+        run: dotnet build server/dotnet/GameServer.slnx --no-restore --configuration Release
+      - name: Test
+        run: dotnet test server/dotnet/GameServer.slnx --no-build --configuration Release
+      - name: Format check
+        run: dotnet format server/dotnet/GameServer.slnx --verify-no-changes --no-restore
