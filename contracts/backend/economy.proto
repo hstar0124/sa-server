@@ -9,9 +9,11 @@ option csharp_namespace = "Sa.Backend.V1";
 // Persistent assets (see README "자산과 멱등성"). Every mutation is one PostgreSQL transaction
 // in the Backend; the zone only reserves in memory and waits for the committed answer.
 service Economy {
-  // The zone reports a monster death it adjudicated. The Backend verifies the zone's authority
-  // over the killer and the content version, then stores the receipt, the dropped items and the
-  // gold credit together. A repeated kill_id returns the original drops without granting again.
+  // The zone reports a monster death it adjudicated together with the items it rolled. The
+  // Backend verifies the zone's authority over the killer, the content version and that every
+  // rolled item is allowed by the monster's drop table, then stores the receipt, the items and
+  // the gold credit (taken from the drop table, never from the request) in one transaction.
+  // A repeated kill_id returns the original drops that are still on the ground, granting nothing.
   rpc RecordKill(RecordKillRequest) returns (RecordKillResponse);
   // Moves one ground item into the character's inventory. Idempotent on request_id: a retry
   // after a lost response returns the stored outcome; a different body under the same id is refused.
@@ -39,7 +41,6 @@ message RecordKillRequest {
   uint32 monster_template_id = 5;
   string content_version = 6;
   repeated DropRoll drops = 7;
-  uint64 gold = 8;
 }
 
 enum KillOutcome {
@@ -48,7 +49,7 @@ enum KillOutcome {
   KILL_OUTCOME_ALREADY_RECORDED = 2;        // same kill_id seen before; items echoed, nothing granted
   KILL_OUTCOME_STALE_AUTHORITY = 3;         // the zone no longer owns the killer (epoch or instance differ)
   KILL_OUTCOME_CONTENT_VERSION_MISMATCH = 4;
-  KILL_OUTCOME_UNKNOWN_TEMPLATE = 5;        // monster or item template the Backend does not know
+  KILL_OUTCOME_UNKNOWN_TEMPLATE = 5;        // monster unknown, or an item the monster's drop table does not allow
 }
 
 message DroppedItem {
@@ -61,6 +62,7 @@ message RecordKillResponse {
   KillOutcome outcome = 1;
   repeated DroppedItem items = 2;
   uint64 gold_balance = 3;  // killer's balance after the credit
+  uint64 gold_granted = 4;  // zero unless RECORDED
 }
 
 message PickupItemRequest {
@@ -74,11 +76,11 @@ message PickupItemRequest {
 enum PickupOutcome {
   PICKUP_OUTCOME_UNSPECIFIED = 0;
   PICKUP_OUTCOME_ACQUIRED = 1;
-  PICKUP_OUTCOME_ALREADY_TAKEN = 2;         // someone else committed first, or the item is not on the ground
+  PICKUP_OUTCOME_ALREADY_TAKEN = 2;         // someone else committed first: the item is no longer on the ground
   PICKUP_OUTCOME_INVENTORY_FULL = 3;
   PICKUP_OUTCOME_STALE_AUTHORITY = 4;
   PICKUP_OUTCOME_REQUEST_MISMATCH = 5;      // same request_id, different body
-  PICKUP_OUTCOME_UNKNOWN_ITEM = 6;
+  PICKUP_OUTCOME_UNKNOWN_ITEM = 6;          // no such item on the ground of the zone that owns the character
 }
 
 message InventoryItem {
