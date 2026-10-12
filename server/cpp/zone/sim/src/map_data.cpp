@@ -24,6 +24,15 @@ std::expected<void, std::string> MapData::Validate() const {
             return std::unexpected(std::format("obstacle {} lies outside the map", i));
         }
     }
+    for (std::size_t i = 0; i < monster_spawns.size(); ++i) {
+        const MonsterSpawn& spawn = monster_spawns[i];
+        if (!bounds.Contains(spawn.position)) {
+            return std::unexpected(std::format("monster spawn {} lies outside the map", i));
+        }
+        if (spawn.count == 0) {
+            return std::unexpected(std::format("monster spawn {} has count 0", i));
+        }
+    }
     for (std::size_t i = 0; i < spawn_points.size(); ++i) {
         if (!bounds.Contains(spawn_points[i])) {
             return std::unexpected(std::format("spawn point {} lies outside the map", i));
@@ -32,6 +41,16 @@ std::expected<void, std::string> MapData::Validate() const {
             if (box.Contains(spawn_points[i])) {
                 return std::unexpected(std::format("spawn point {} lies inside an obstacle", i));
             }
+        }
+    }
+    return {};
+}
+
+std::expected<void, std::string> MapData::ValidateAgainst(const ContentBundle& content) const {
+    for (std::size_t i = 0; i < monster_spawns.size(); ++i) {
+        if (!content.monsters.contains(monster_spawns[i].template_id)) {
+            return std::unexpected(std::format("monster spawn {} references unknown template {}", i,
+                                               monster_spawns[i].template_id.value()));
         }
     }
     return {};
