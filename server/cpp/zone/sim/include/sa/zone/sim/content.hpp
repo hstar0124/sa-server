@@ -18,6 +18,7 @@ namespace sa::zone::sim {
 using SkillId = common::StrongId<struct SkillIdTag, std::uint32_t>;
 using ClassId = common::StrongId<struct ClassIdTag, std::uint32_t>;
 using MonsterTemplateId = common::StrongId<struct MonsterTemplateIdTag, std::uint32_t>;
+using ItemTemplateId = common::StrongId<struct ItemTemplateIdTag, std::uint32_t>;
 
 enum class SkillKind : std::uint8_t {
     kTargeted,    // needs an entity target within range_m
@@ -59,11 +60,30 @@ struct MonsterDefinition {
     std::chrono::milliseconds respawn{};
 };
 
+struct ItemDefinition {
+    ItemTemplateId id;
+    std::string name;
+    bool stackable = false;
+};
+
+struct DropEntry {
+    ItemTemplateId item;
+    float chance = 0.0F;  // 0..1, rolled independently per entry
+};
+
+struct DropTable {
+    MonsterTemplateId monster;
+    std::int64_t gold = 0;
+    std::vector<DropEntry> entries;
+};
+
 struct ContentBundle {
     std::string version;
     std::unordered_map<SkillId, SkillDefinition> skills;
     std::unordered_map<ClassId, ClassDefinition> classes;
     std::unordered_map<MonsterTemplateId, MonsterDefinition> monsters;
+    std::unordered_map<ItemTemplateId, ItemDefinition> items;
+    std::unordered_map<MonsterTemplateId, DropTable> drops;
 
     // Internal consistency: positive vitals, known skill references, projectile fields present.
     [[nodiscard]] std::expected<void, std::string> Validate() const;
@@ -72,6 +92,15 @@ struct ContentBundle {
 struct CombatRules {
     std::uint32_t monster_think_hz = 0;
     std::chrono::milliseconds player_respawn{};
+
+    [[nodiscard]] std::expected<void, std::string> Validate() const;
+};
+
+struct EconomyRules {
+    std::uint32_t inventory_capacity = 0;
+    float pickup_range_m = 0.0F;
+    std::chrono::milliseconds ground_item_despawn{};
+    std::string primary_currency;
 
     [[nodiscard]] std::expected<void, std::string> Validate() const;
 };

@@ -246,6 +246,24 @@ std::expected<sim::CombatRules, LoadError> CombatFromTable(const toml::table& ta
     return rules;
 }
 
+std::expected<sim::EconomyRules, LoadError> EconomyFromTable(const toml::table& table) {
+    const auto capacity = RequireU32(table, "inventory.capacity");
+    const auto range = RequireFloat(table, "pickup.range_m");
+    const auto despawn = RequireMs(table, "pickup.despawn_ms");
+    const auto currency = RequireString(table, "currency.primary");
+    if (auto err = FirstError(capacity, range, despawn, currency)) {
+        return std::unexpected(*err);
+    }
+    sim::EconomyRules rules{.inventory_capacity = *capacity,
+                            .pickup_range_m = *range,
+                            .ground_item_despawn = *despawn,
+                            .primary_currency = *currency};
+    if (auto valid = rules.Validate(); !valid) {
+        return std::unexpected(LoadError{"invalid economy rules: " + valid.error()});
+    }
+    return rules;
+}
+
 // ---- content
 // ----------------------------------------------------------------------------------------
 
@@ -361,30 +379,84 @@ std::expected<void, LoadError> ParseMonsterTable(const toml::table& t, sim::Cont
     return {};
 }
 
-std::expected<sim::ContentBundle, LoadError> ContentFromTables(const toml::table& version,
-                                                               const toml::table& classes,
-                                                               const toml::table& skills,
-                                                               const toml::table& monsters) {
+std::expected<void, LoadError> ParseItemTable(const toml::table& t, sim::ContentBundle& bundle) {
+    const auto id = RequireU32(t, "id");
+    const auto name = RequireString(t, "name");
+    if (auto err = FirstError(id, name)) {
+        return std::unexpected(LoadError{"items: " + err->message});
+    }
+    const sim::ItemDefinition item{.id = sim::ItemTemplateId{*id},
+                                   .name = *name,
+                                   .stackable = t.at_path("stackable").value_or(false)};
+    if (!bundle.items.emplace(item.id, item).second) {
+        return std::unexpected(LoadError{std::format("duplicate item id {}", *id)});
+    }
+    return {};
+}
+
+std::expected<void, LoadError> ParseDropTable(const toml::table& t, sim::ContentBundle& bundle) {
+    const auto monster = RequireU32(t, "monster_template_id");
+    const auto gold = RequireInt(t, "gold");
+    if (auto err = FirstError(monster, gold)) {
+        return std::unexpected(LoadError{"drop_tables: " + err->message});
+    }
+    sim::DropTable table{.monster = sim::MonsterTemplateId{*monster}, .gold = *gold};
+    auto entries =
+        ForEachTable(t, "entries", [&](const toml::table& e) -> std::expected<void, LoadError> {
+            const auto item = RequireU32(e, "item_template_id");
+            const auto chance = RequireFloat(e, "chance");
+            if (auto err = FirstError(item, chance)) {
+                return std::unexpected(
+                    LoadError{std::format("drop_tables[{}]: {}", *monster, err->message)});
+            }
+            table.entries.push_back(
+                sim::DropEntry{.item = sim::ItemTemplateId{*item}, .chance = *chance});
+            return {};
+        });
+    if (!entries) {
+        return std::unexpected(entries.error());
+    }
+    if (!bundle.drops.emplace(table.monster, std::move(table)).second) {
+        return std::unexpected(
+            LoadError{std::format("duplicate drop table for monster {}", *monster)});
+    }
+    return {};
+}
+
+// Every content file, already parsed; the bundle is assembled and cross-validated from these.
+struct ContentTables {
+    const toml::table& version;
+    const toml::table& classes;
+    const toml::table& skills;
+    const toml::table& monsters;
+    const toml::table& items;
+    const toml::table& drops;
+};
+
+std::expected<sim::ContentBundle, LoadError> ContentFromTables(const ContentTables& tables) {
     sim::ContentBundle bundle;
-    const auto ver = RequireString(version, "content.version");
+    const auto ver = RequireString(tables.version, "content.version");
     if (!ver) {
         return std::unexpected(ver.error());
     }
     bundle.version = *ver;
     auto parse = [&bundle](const toml::table& t, auto parser) { return parser(t, bundle); };
-    if (auto r = ForEachTable(skills, "skills",
-                              [&](const toml::table& t) { return parse(t, ParseSkillTable); });
-        !r) {
+    const auto section = [&](const toml::table& table, std::string_view key, auto parser) {
+        return ForEachTable(table, key, [&](const toml::table& t) { return parse(t, parser); });
+    };
+    if (auto r = section(tables.skills, "skills", ParseSkillTable); !r) {
         return std::unexpected(r.error());
     }
-    if (auto r = ForEachTable(classes, "classes",
-                              [&](const toml::table& t) { return parse(t, ParseClassTable); });
-        !r) {
+    if (auto r = section(tables.classes, "classes", ParseClassTable); !r) {
         return std::unexpected(r.error());
     }
-    if (auto r = ForEachTable(monsters, "monsters",
-                              [&](const toml::table& t) { return parse(t, ParseMonsterTable); });
-        !r) {
+    if (auto r = section(tables.monsters, "monsters", ParseMonsterTable); !r) {
+        return std::unexpected(r.error());
+    }
+    if (auto r = section(tables.items, "items", ParseItemTable); !r) {
+        return std::unexpected(r.error());
+    }
+    if (auto r = section(tables.drops, "drop_tables", ParseDropTable); !r) {
         return std::unexpected(r.error());
     }
     if (auto valid = bundle.Validate(); !valid) {
@@ -428,29 +500,50 @@ std::expected<sim::CombatRules, LoadError> ParseCombatRules(std::string_view tom
     return table ? CombatFromTable(*table) : std::unexpected(table.error());
 }
 
+std::expected<sim::EconomyRules, LoadError> LoadEconomyRules(const std::filesystem::path& file) {
+    auto table = ParseFile(file);
+    return table ? EconomyFromTable(*table) : std::unexpected(table.error());
+}
+
+std::expected<sim::EconomyRules, LoadError> ParseEconomyRules(std::string_view toml_text) {
+    auto table = ParseText(toml_text, "economy rules text");
+    return table ? EconomyFromTable(*table) : std::unexpected(table.error());
+}
+
 std::expected<sim::ContentBundle, LoadError> LoadContent(const std::filesystem::path& root) {
     auto version = ParseFile(root / "version.toml");
     auto classes = ParseFile(root / "classes" / "classes.toml");
     auto skills = ParseFile(root / "skills" / "skills.toml");
     auto monsters = ParseFile(root / "monsters" / "monsters.toml");
-    if (auto err = FirstError(version, classes, skills, monsters)) {
+    auto items = ParseFile(root / "items" / "items.toml");
+    auto drops = ParseFile(root / "drops" / "drops.toml");
+    if (auto err = FirstError(version, classes, skills, monsters, items, drops)) {
         return std::unexpected(*err);
     }
-    return ContentFromTables(*version, *classes, *skills, *monsters);
+    return ContentFromTables({.version = *version,
+                              .classes = *classes,
+                              .skills = *skills,
+                              .monsters = *monsters,
+                              .items = *items,
+                              .drops = *drops});
 }
 
-std::expected<sim::ContentBundle, LoadError> ParseContent(std::string_view version_toml,
-                                                          std::string_view classes_toml,
-                                                          std::string_view skills_toml,
-                                                          std::string_view monsters_toml) {
-    auto version = ParseText(version_toml, "version text");
-    auto classes = ParseText(classes_toml, "classes text");
-    auto skills = ParseText(skills_toml, "skills text");
-    auto monsters = ParseText(monsters_toml, "monsters text");
-    if (auto err = FirstError(version, classes, skills, monsters)) {
+std::expected<sim::ContentBundle, LoadError> ParseContent(const ContentTexts& texts) {
+    auto version = ParseText(texts.version, "version text");
+    auto classes = ParseText(texts.classes, "classes text");
+    auto skills = ParseText(texts.skills, "skills text");
+    auto monsters = ParseText(texts.monsters, "monsters text");
+    auto items = ParseText(texts.items, "items text");
+    auto drops = ParseText(texts.drops, "drops text");
+    if (auto err = FirstError(version, classes, skills, monsters, items, drops)) {
         return std::unexpected(*err);
     }
-    return ContentFromTables(*version, *classes, *skills, *monsters);
+    return ContentFromTables({.version = *version,
+                              .classes = *classes,
+                              .skills = *skills,
+                              .monsters = *monsters,
+                              .items = *items,
+                              .drops = *drops});
 }
 
 }  // namespace sa::zone::data

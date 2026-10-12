@@ -51,6 +51,32 @@ std::expected<void, std::string> ValidateMonster(const MonsterDefinition& monste
     return {};
 }
 
+std::expected<void, std::string> ValidateDrops(
+    const DropTable& table,
+    const std::unordered_map<MonsterTemplateId, MonsterDefinition>& monsters,
+    const std::unordered_map<ItemTemplateId, ItemDefinition>& items) {
+    if (!monsters.contains(table.monster)) {
+        return std::unexpected(
+            std::format("drop table references unknown monster {}", table.monster.value()));
+    }
+    if (table.gold < 0) {
+        return std::unexpected(
+            std::format("drop table for monster {} has negative gold", table.monster.value()));
+    }
+    for (const DropEntry& entry : table.entries) {
+        if (!items.contains(entry.item)) {
+            return std::unexpected(
+                std::format("drop table for monster {} references unknown item {}",
+                            table.monster.value(), entry.item.value()));
+        }
+        if (entry.chance < 0.0F || entry.chance > 1.0F) {
+            return std::unexpected(
+                std::format("drop chance for item {} is outside [0, 1]", entry.item.value()));
+        }
+    }
+    return {};
+}
+
 }  // namespace
 
 std::expected<void, std::string> ContentBundle::Validate() const {
@@ -71,6 +97,27 @@ std::expected<void, std::string> ContentBundle::Validate() const {
         if (auto result = ValidateMonster(monster); !result) {
             return result;
         }
+    }
+    for (const auto& [id, table] : drops) {
+        if (auto result = ValidateDrops(table, monsters, items); !result) {
+            return result;
+        }
+    }
+    return {};
+}
+
+std::expected<void, std::string> EconomyRules::Validate() const {
+    if (inventory_capacity == 0) {
+        return std::unexpected("inventory.capacity must be positive");
+    }
+    if (pickup_range_m <= 0.0F) {
+        return std::unexpected("pickup.range_m must be positive");
+    }
+    if (ground_item_despawn.count() <= 0) {
+        return std::unexpected("pickup.despawn_ms must be positive");
+    }
+    if (primary_currency.empty()) {
+        return std::unexpected("currency.primary must be set");
     }
     return {};
 }
