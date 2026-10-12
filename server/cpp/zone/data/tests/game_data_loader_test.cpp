@@ -62,3 +62,102 @@ commands_per_tick_budget = 10
 
 }  // namespace
 }  // namespace sa::zone::data
+
+namespace sa::zone::data {
+namespace {
+
+TEST(GameDataLoader, ShippedContentBundleIsValidAndMatchesTheMap) {
+    const auto content = LoadContent(kGameData);
+    ASSERT_TRUE(content.has_value()) << content.error().message;
+    EXPECT_FALSE(content->version.empty());
+    EXPECT_GE(content->skills.size(), 3U);
+    EXPECT_GE(content->classes.size(), 1U);
+    EXPECT_GE(content->monsters.size(), 1U);
+
+    const auto map = LoadMap(kGameData / "maps" / "zone-1.toml");
+    ASSERT_TRUE(map.has_value());
+    EXPECT_FALSE(map->monster_spawns.empty());
+    EXPECT_TRUE(map->ValidateAgainst(*content).has_value());
+
+    const auto combat = LoadCombatRules(kGameData / "rules" / "movement.toml");
+    ASSERT_TRUE(combat.has_value()) << combat.error().message;
+    EXPECT_GT(combat->monster_think_hz, 0U);
+}
+
+constexpr std::string_view kVersion = "[content]\nversion = \"test\"\n";
+constexpr std::string_view kSkills = R"(
+[[skills]]
+id = 1
+name = "strike"
+kind = "targeted"
+cost_mp = 0
+cooldown_ms = 500
+cast_time_ms = 0
+range_m = 2.0
+damage = 10
+)";
+constexpr std::string_view kMonsters = R"(
+[[monsters]]
+template_id = 7
+name = "rat"
+max_hp = 10
+speed_mps = 2.0
+aggro_radius_m = 5.0
+leash_radius_m = 10.0
+attack_range_m = 1.0
+attack_damage = 1
+attack_cooldown_ms = 1000
+respawn_ms = 1000
+)";
+
+TEST(GameDataLoader, ContentRejectsUnknownSkillReferencesAndBadProjectiles) {
+    const auto unknown_skill =
+        ParseContent(kVersion,
+                     "[[classes]]\nid = 1\nname = \"w\"\nmax_hp = 10\nmax_mp = 0\nmp_regen_per_sec "
+                     "= 0.0\nskills = [99]\n",
+                     kSkills, kMonsters);
+    EXPECT_FALSE(unknown_skill.has_value());
+
+    const auto projectile_without_speed = ParseContent(kVersion, "", R"(
+[[skills]]
+id = 3
+name = "arrow"
+kind = "projectile"
+cost_mp = 1
+cooldown_ms = 1
+cast_time_ms = 0
+range_m = 10.0
+damage = 1
+)",
+                                                       kMonsters);
+    EXPECT_FALSE(projectile_without_speed.has_value());
+
+    const auto ok = ParseContent(kVersion,
+                                 "[[classes]]\nid = 1\nname = \"w\"\nmax_hp = 10\nmax_mp = "
+                                 "0\nmp_regen_per_sec = 0.0\nskills = [1]\n",
+                                 kSkills, kMonsters);
+    ASSERT_TRUE(ok.has_value()) << ok.error().message;
+    EXPECT_EQ(ok->skills.at(sim::SkillId{1}).cooldown.count(), 500);
+}
+
+TEST(GameDataLoader, MapRejectsSpawnOfUnknownMonsterTemplate) {
+    const auto map = ParseMap(R"(
+[map]
+width = 10.0
+height = 10.0
+cell_size = 5.0
+obstacles = []
+spawn_points = [[5.0, 5.0]]
+[[monster_spawns]]
+template_id = 42
+position = [2.0, 2.0]
+count = 1
+)");
+    ASSERT_TRUE(map.has_value()) << map.error().message;
+    const auto content = ParseContent(kVersion, "", kSkills, kMonsters);
+    ASSERT_TRUE(content.has_value());
+    EXPECT_FALSE(map->ValidateAgainst(*content).has_value());
+}
+
+}  // namespace
+}  // namespace sa::zone::data
