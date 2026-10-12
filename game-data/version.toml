@@ -1,4 +1,4 @@
 # Content version (see README "전투"): zone and backend must agree on it. Bump whenever any
 # file under game-data/ changes in a way that alters simulation results or rewards.
 [content]
-version = "2026.10.12-1"
+version = "2026.10.12-2"
