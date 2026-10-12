@@ -17,6 +17,8 @@ export async function loadContracts() {
     ServerMessage: root.lookupType('sa.game.v1.ServerMessage'),
     ProtocolVersion: root.lookupEnum('sa.game.v1.ProtocolVersion'),
     KickReason: root.lookupEnum('sa.game.v1.KickReason'),
+    RejectCode: root.lookupEnum('sa.game.v1.RejectCode'),
+    EntityKind: root.lookupEnum('sa.game.v1.EntityKind'),
   };
 }
 
@@ -26,6 +28,7 @@ export class GatewayLink {
     this.handlers = handlers;  // { onWelcome, onSnapshot, onPong, onKick, onClose }
     this.socket = null;
     this.inputSeq = 0;
+    this.requestId = 0;
   }
 
   connect(url, ticketBase64) {
@@ -50,6 +53,15 @@ export class GatewayLink {
 
   sendPing(nonce) { this.#send({ ping: { nonce, client_time_ms: Date.now() } }); }
 
+  // Targeted skill at an entity, or a projectile skill along a direction. Returns the request id.
+  sendCast(skillId, target) {
+    this.requestId += 1;
+    const body = { request_id: this.requestId, skill_id: skillId };
+    if (typeof target === 'object' && 'x' in target) body.direction = target; else body.target_entity_id = target;
+    this.#send({ cast_skill: body });
+    return this.requestId;
+  }
+
   #send(body) {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
     const message = this.contracts.ClientMessage.create(body);
@@ -63,6 +75,8 @@ export class GatewayLink {
       case 'world_snapshot': this.handlers.onSnapshot?.(message.world_snapshot); break;
       case 'pong': this.handlers.onPong?.(message.pong); break;
       case 'kick': this.handlers.onKick?.(this.contracts.KickReason.valuesById[message.kick.reason]); break;
+      case 'command_result': this.handlers.onCommandResult?.(message.command_result, this.contracts.RejectCode.valuesById[message.command_result.reject_code]); break;
+      case 'combat_event': this.handlers.onCombatEvent?.(message.combat_event); break;
       default: break;
     }
   }
