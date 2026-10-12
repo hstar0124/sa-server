@@ -1,0 +1,26 @@
+# Monster templates. The AI (design document 8.1) is Idle -> Chase -> Attack -> Return, Dead on
+# hp 0; these numbers tune it. Decisions run at think_hz, movement every simulation tick.
+
+[[monsters]]
+template_id = 101
+name = "slime"
+max_hp = 60
+speed_mps = 3.0
+aggro_radius_m = 8.0
+leash_radius_m = 25.0
+attack_range_m = 1.5
+attack_damage = 8
+attack_cooldown_ms = 1500
+respawn_ms = 10000
+
+[[monsters]]
+template_id = 102
+name = "wolf"
+max_hp = 120
+speed_mps = 6.5
+aggro_radius_m = 14.0
+leash_radius_m = 35.0
+attack_range_m = 1.8
+attack_damage = 15
+attack_cooldown_ms = 1200
+respawn_ms = 15000

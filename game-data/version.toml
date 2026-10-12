@@ -1,0 +1,4 @@
+# Content version (design document 8.1): zone and backend must agree on it. Bump whenever any
+# file under game-data/ changes in a way that alters simulation results or rewards.
+[content]
+version = "2026.10.12-1"
