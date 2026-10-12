@@ -28,7 +28,8 @@ up() {
   dotnet run --project server/dotnet/Migrator --no-build -- --connection "$CONN" --scripts database/migrations >"$DEV_DIR/migrator.log" 2>&1
   (
     cd server/dotnet/GameBackend
-    Database__ConnectionString="$CONN" Auth__SigningKey="$JWT_KEY" WorldDirectory__TicketSigningKey="$TICKET_KEY" \
+    Database__ConnectionString="$CONN" Auth__SigningKey="$JWT_KEY" WorldDirectory__TicketSigningKey="$TICKET_KEY"  \
+    Economy__ContentDir="$PWD/game-data" \
     Auth__CredentialAttemptsPerMinutePerAddress=6000 \
       Cors__AllowedOrigins__0="$VIEWER_ORIGIN" exec bin/Debug/net10.0/GameBackend
   ) >"$DEV_DIR/backend.log" 2>&1 &

@@ -30,7 +30,8 @@ dotnet run --project server/dotnet/Migrator --no-build -- --connection "$CONN" -
 
 (
   cd server/dotnet/GameBackend
-  Database__ConnectionString="$CONN" Auth__SigningKey="$JWT_KEY" WorldDirectory__TicketSigningKey="$TICKET_KEY" \
+  Database__ConnectionString="$CONN" Auth__SigningKey="$JWT_KEY" WorldDirectory__TicketSigningKey="$TICKET_KEY"  \
+    Economy__ContentDir="$PWD/game-data" \
     Auth__CredentialAttemptsPerMinutePerAddress=6000 \
     exec bin/Debug/net10.0/GameBackend
 ) >"$RUN_DIR/backend.log" 2>&1 &
