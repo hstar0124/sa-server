@@ -612,7 +612,8 @@
           "Dapper": "[2.1.89, )",
           "Grpc.AspNetCore": "[2.84.0, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.12, )",
-          "Npgsql": "[10.0.3, )"
+          "Npgsql": "[10.0.3, )",
+          "Tomlyn": "[2.10.1, )"
         }
       },
       "Google.Protobuf": {
@@ -715,6 +716,12 @@
           "Microsoft.Extensions.Logging.Configuration": "10.0.12",
           "Microsoft.Extensions.Options": "10.0.12"
         }
+      },
+      "Tomlyn": {
+        "type": "CentralTransitive",
+        "requested": "[2.10.1, )",
+        "resolved": "2.10.1",
+        "contentHash": "ykjOY3IpYmC4SpPcAZRTl/w2jTmhPMDydHq8xcV7tTBAQ22nKBsOkPqauIrZlMjHm03cmKfV23UOPscKp+J4Og=="
       }
     }
   }
