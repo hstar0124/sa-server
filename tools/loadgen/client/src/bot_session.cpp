@@ -84,8 +84,9 @@ void BotSession::Fail(std::string what) {
 void BotSession::OnConnected() {
     report_.connected = true;
     connect_timer_.cancel();
-    connection_->Start(common::FramedConnection::Callbacks{
-        .on_frame = [self = shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
+    connection_->Start(common::MessageConnection::Callbacks{
+        .on_message = [self =
+                           shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
         .on_closed = [self = shared_from_this()](const std::error_code& ec) { self->OnClosed(ec); },
     });
     game::v1::ClientMessage hello;
