@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sa/bot/wanderer.hpp"
+#include "sa/bot/observation.hpp"
 #include "sa/common/framed_connection.hpp"
 
 #include "profile.hpp"
@@ -32,8 +32,8 @@ public:
         std::vector<std::byte> signed_ticket;
     };
 
-    BotSession(asio::io_context& io, const LoadProfile& profile, std::uint64_t seed, Target target,
-               BotReport& report);
+    BotSession(asio::io_context& io, const LoadProfile& profile, std::unique_ptr<bot::Brain> brain,
+               Target target, BotReport& report);
 
     void Start();
     void Stop();  // graceful: stop timers, close the socket
@@ -58,9 +58,10 @@ private:
     asio::steady_timer ping_timer_;
     asio::steady_timer connect_timer_;
     std::shared_ptr<common::FramedConnection> connection_;
-    bot::Wanderer brain_;
+    std::unique_ptr<bot::Brain> brain_;
     WorldModel world_;
     std::uint32_t next_input_seq_ = 1;
+    std::uint64_t next_request_id_ = 0;
     std::uint32_t ping_nonce_ = 0;
     std::chrono::steady_clock::time_point ping_sent_at_;
     bool stopped_ = false;

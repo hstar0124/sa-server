@@ -1,3 +1,5 @@
+#include "sa/bot/fighter.hpp"
+#include "sa/bot/wanderer.hpp"
 #include "sa/common/config_source.hpp"
 #include "sa/common/logging.hpp"
 
@@ -15,6 +17,7 @@
 #include <cstdlib>
 #include <exception>
 #include <format>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -32,9 +35,33 @@ std::string BotUsername(const sa::loadgen::LoadProfile& profile, std::uint32_t i
     return std::format("{}_{:08x}", profile.account_prefix, static_cast<std::uint32_t>(rng()));
 }
 
-std::string BotCharacterName(std::uint64_t seed, std::uint32_t index) {
-    std::mt19937_64 rng{seed + index};
-    return std::format("Bot{:06x}", static_cast<std::uint32_t>(rng()) & 0xFFFFFFU);
+// The character name follows the account, so two profiles can never claim each other's names.
+std::string BotCharacterName(const std::string& username) {
+    return std::format("Bot{:06x}",
+                       static_cast<std::uint32_t>(std::hash<std::string>{}(username)) & 0xFFFFFFU);
+}
+
+// Blocking HTTP before the clock starts: accounts, characters and tickets for every bot.
+void Provision(const sa::loadgen::LoadProfile& profile,
+               std::vector<sa::loadgen::BotReport>& reports,
+               std::vector<sa::loadgen::BotSession::Target>& targets) {
+    const sa::loadgen::BackendApi api{profile.backend_base_url};
+    for (std::uint32_t i = 0; i < profile.bot_count(); ++i) {
+        reports[i].index = i;
+        reports[i].username = BotUsername(profile, i);
+        auto grant = api.ProvisionAndEnter(reports[i].username, profile.password, profile.world_id,
+                                           BotCharacterName(reports[i].username), profile.class_id);
+        if (!grant) {
+            reports[i].failure = grant.error().message;
+            spdlog::warn("bot {} provisioning failed: {}", i, grant.error().message);
+            continue;
+        }
+        reports[i].provisioned = true;
+        targets[i] = sa::loadgen::BotSession::Target{
+            .host = profile.gateway_host.empty() ? grant->gateway.host : profile.gateway_host,
+            .port = profile.gateway_port == 0 ? grant->gateway.port : profile.gateway_port,
+            .signed_ticket = std::move(grant->signed_ticket)};
+    }
 }
 
 int Run(int argc, char** argv);
@@ -70,45 +97,35 @@ int Run(int argc, char** argv) {
     }
     sa::common::InitLogging("loadgen", sa::common::LoggingConfig::FromConfig(*source).value_or(
                                            sa::common::LoggingConfig{}));
-    spdlog::info("seed={} bots={} duration={}s backend={}", profile->seed, profile->bot_count,
-                 profile->duration.count(), profile->backend_base_url);
+    spdlog::info("seed={} wanderers={} fighters={} duration={}s backend={}", profile->seed,
+                 profile->wanderers, profile->fighters, profile->duration.count(),
+                 profile->backend_base_url);
 
-    // ---- provisioning (blocking HTTP, before the clock starts) ----
-    std::vector<sa::loadgen::BotReport> reports(profile->bot_count);
+    std::vector<sa::loadgen::BotReport> reports(profile->bot_count());
     std::vector<sa::loadgen::BotSession::Target> targets(
-        profile->bot_count);  // valid where provisioned
-    const sa::loadgen::BackendApi api{profile->backend_base_url};
-    for (std::uint32_t i = 0; i < profile->bot_count; ++i) {
-        reports[i].index = i;
-        reports[i].username = BotUsername(*profile, i);
-        auto grant =
-            api.ProvisionAndEnter(reports[i].username, profile->password, profile->world_id,
-                                  BotCharacterName(profile->seed, i), profile->class_id);
-        if (!grant) {
-            reports[i].failure = grant.error().message;
-            spdlog::warn("bot {} provisioning failed: {}", i, grant.error().message);
-            continue;
-        }
-        reports[i].provisioned = true;
-        targets[i] = sa::loadgen::BotSession::Target{
-            .host = profile->gateway_host.empty() ? grant->gateway.host : profile->gateway_host,
-            .port = profile->gateway_port == 0 ? grant->gateway.port : profile->gateway_port,
-            .signed_ticket = std::move(grant->signed_ticket)};
-    }
-    spdlog::info(
-        "provisioned {}/{} bots",
-        sa::loadgen::RunReport::Aggregate(reports, profile->min_bots_seeing_others).provisioned,
-        profile->bot_count);
+        profile->bot_count());  // valid where provisioned
+    Provision(*profile, reports, targets);
+    spdlog::info("provisioned {}/{} bots",
+                 sa::loadgen::RunReport::Aggregate(reports, profile->min_bots_seeing_others,
+                                                   profile->min_kills)
+                     .provisioned,
+                 profile->bot_count());
 
     // ---- the run ----
     asio::io_context io;
     std::vector<std::shared_ptr<sa::loadgen::BotSession>> sessions;
-    for (std::uint32_t i = 0; i < profile->bot_count; ++i) {
+    for (std::uint32_t i = 0; i < profile->bot_count(); ++i) {
         if (!reports[i].provisioned) {
             continue;
         }
-        sessions.push_back(std::make_shared<sa::loadgen::BotSession>(
-            io, *profile, profile->seed + i, targets[i], reports[i]));
+        std::unique_ptr<sa::bot::Brain> brain;
+        if (profile->IsFighter(i)) {
+            brain = std::make_unique<sa::bot::Fighter>(profile->seed + i, profile->fighter);
+        } else {
+            brain = std::make_unique<sa::bot::Wanderer>(profile->seed + i, profile->wanderer);
+        }
+        sessions.push_back(std::make_shared<sa::loadgen::BotSession>(io, *profile, std::move(brain),
+                                                                     targets[i], reports[i]));
     }
     for (const auto& session : sessions) {
         session->Start();
@@ -140,8 +157,8 @@ int Run(int argc, char** argv) {
     });
     io.run();
 
-    const sa::loadgen::RunReport report =
-        sa::loadgen::RunReport::Aggregate(reports, profile->min_bots_seeing_others);
+    const sa::loadgen::RunReport report = sa::loadgen::RunReport::Aggregate(
+        reports, profile->min_bots_seeing_others, profile->min_kills);
     std::cout << report.ToText();
     for (const sa::loadgen::BotReport& b : reports) {
         if (!b.failure.empty()) {
