@@ -2,6 +2,7 @@
 add_library(sa_zone_host STATIC
   src/codec.cpp
   src/zone_host.cpp
+  src/economy_client.cpp
   src/gateway_link.cpp)
 add_library(sa::zone_host ALIAS sa_zone_host)
 sa_apply_policy(sa_zone_host)

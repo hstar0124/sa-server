@@ -24,8 +24,7 @@ void Zone::ApplyCast(const CastCommand& command) {
 
     // Step 1: a retried request answers exactly as before and changes nothing.
     if (const auto previous = player.recent_requests.Find(command.request_id)) {
-        Deliver(command.player,
-                CommandResultEvent{.request_id = command.request_id, .reason = *previous});
+        Deliver(command.player, *previous);
         return;
     }
 
@@ -33,8 +32,9 @@ void Zone::ApplyCast(const CastCommand& command) {
     const SkillDefinition* skill = skill_it == content_.skills.end() ? nullptr : &skill_it->second;
     const RejectReason reason = skill == nullptr ? RejectReason::kUnknownSkill
                                                  : ValidateCast(player, *skill, command.target);
-    player.recent_requests.Remember(command.request_id, reason);
-    Deliver(command.player, CommandResultEvent{.request_id = command.request_id, .reason = reason});
+    const auto result = CommandResultEvent::Decided(command.request_id, reason);
+    player.recent_requests.Remember(result);
+    Deliver(command.player, result);
     if (reason != RejectReason::kNone) {
         ++stats_.casts_rejected;
         return;
@@ -242,7 +242,7 @@ void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, Skill
     }
     ++stats_.kills;
     if (const auto m = monsters_.find(target); m != monsters_.end()) {
-        OnMonsterDeath(target);
+        OnMonsterDeath(target, attacker);
     } else if (const auto p = players_.find(target); p != players_.end()) {
         OnPlayerDeath(target, p->second);
     }
@@ -252,7 +252,7 @@ void Zone::OnPlayerDeath(common::EntityId /*id*/, Player& player) {
     player.cast.reset();
     player.velocity = {};
     player.desired_direction = {};
-    player.respawn_at = TicksFromNow(combat_.player_respawn);
+    player.respawn_at = TicksFromNow(rules_.combat.player_respawn);
 }
 
 void Zone::RespawnPlayers() {

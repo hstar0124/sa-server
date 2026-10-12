@@ -23,22 +23,20 @@ bool SortedContains(const std::vector<common::EntityId>& sorted, common::EntityI
 
 // ---- construction -------------------------------------------------------------------------------
 
-std::expected<Zone, std::string> Zone::Create(ZoneConfig config, MapData map, MovementRules rules,
-                                              CombatRules combat, ContentBundle content, Rng rng) {
+std::expected<Zone, std::string> Zone::Create(ZoneConfig config, MapData map, ZoneRules rules,
+                                              ContentBundle content, Rng rng) {
     if (auto valid = map.ValidateAgainst(content); !valid) {
         return std::unexpected(valid.error());
     }
-    Zone zone{config, std::move(map), rules, combat, std::move(content), rng};
+    Zone zone{config, std::move(map), std::move(rules), std::move(content), rng};
     zone.PopulateMonsterSlots();
     return zone;
 }
 
-Zone::Zone(ZoneConfig config, MapData map, MovementRules rules, CombatRules combat,
-           ContentBundle content, Rng rng)
+Zone::Zone(ZoneConfig config, MapData map, ZoneRules rules, ContentBundle content, Rng rng)
     : config_(config),
       map_(std::move(map)),
-      rules_(rules),
-      combat_(combat),
+      rules_(std::move(rules)),
       content_(std::move(content)),
       rng_(rng),
       dt_seconds_(std::chrono::duration<float>(config.simulation_rate.Period()).count()),
@@ -103,14 +101,17 @@ void Zone::Submit(Command command) {
 }
 
 void Zone::DrainCommands() {
-    std::uint32_t budget = rules_.commands_per_tick_budget;
+    std::uint32_t budget = rules_.movement.commands_per_tick_budget;
     while (!pending_.empty() && budget > 0) {
         std::visit(
             [this](const auto& c) {
-                if constexpr (std::is_same_v<std::decay_t<decltype(c)>, MoveCommand>) {
+                using T = std::decay_t<decltype(c)>;
+                if constexpr (std::is_same_v<T, MoveCommand>) {
                     ApplyMove(c);
-                } else {
+                } else if constexpr (std::is_same_v<T, CastCommand>) {
                     ApplyCast(c);
+                } else {
+                    ApplyPickup(c);
                 }
             },
             pending_.front());
@@ -153,6 +154,7 @@ void Zone::Tick() {
     RegenerateMp();
     RespawnPlayers();  // ApplyDamageBuffsAndDeaths: deferred effects
     RespawnMonsters();
+    ExpireGroundItems();
     UpdateInterestSets();  // UpdateInterestSets
     stats_.monsters = monsters_.size();
     stats_.projectiles = projectiles_.size();
@@ -177,7 +179,7 @@ void Zone::IntegratePlayers() {
             player.velocity = {};
             continue;
         }
-        player.velocity = player.desired_direction * rules_.max_speed_mps;
+        player.velocity = player.desired_direction * rules_.movement.max_speed_mps;
         const common::Vec2 target = player.position + player.velocity * dt_seconds_;
         const common::Vec2 resolved = ResolveCollisions(player.position, target);
         if (resolved != player.position) {
@@ -242,10 +244,10 @@ void Zone::UpdateInterestSets() {
 
 void Zone::RecomputeInterest(common::EntityId self, Player& player) {
     scratch_.clear();
-    grid_.QueryCandidates(player.position, rules_.aoi_leave_radius_m, scratch_);
+    grid_.QueryCandidates(player.position, rules_.movement.aoi_leave_radius_m, scratch_);
 
-    const float enter_sq = rules_.aoi_enter_radius_m * rules_.aoi_enter_radius_m;
-    const float leave_sq = rules_.aoi_leave_radius_m * rules_.aoi_leave_radius_m;
+    const float enter_sq = rules_.movement.aoi_enter_radius_m * rules_.movement.aoi_enter_radius_m;
+    const float leave_sq = rules_.movement.aoi_leave_radius_m * rules_.movement.aoi_leave_radius_m;
 
     std::vector<common::EntityId> next;
     next.reserve(player.interest.size() + 4);
@@ -312,6 +314,10 @@ std::vector<DeliveredEvent> Zone::DrainEvents() {
     return std::exchange(outbox_, {});
 }
 
+std::vector<HostRequest> Zone::DrainHostRequests() {
+    return std::exchange(host_requests_, {});
+}
+
 bool Zone::SortedContainsInterest(const Player& player, common::EntityId entity) {
     return SortedContains(player.interest, entity);
 }
@@ -340,6 +346,9 @@ std::optional<common::Vec2> Zone::PositionOf(common::EntityId entity) const {
     }
     if (const auto pr = projectiles_.find(entity); pr != projectiles_.end()) {
         return pr->second.position;
+    }
+    if (const auto item = items_.find(entity); item != items_.end()) {
+        return item->second.position;
     }
     return std::nullopt;
 }
@@ -373,6 +382,12 @@ std::optional<EntitySnapshot> Zone::SnapshotOf(common::EntityId entity) const {
                               .position = projectile.position,
                               .velocity = projectile.velocity};
     }
+    if (const auto item = items_.find(entity); item != items_.end()) {
+        return EntitySnapshot{.id = entity,
+                              .kind = EntityKind::kDroppedItem,
+                              .template_id = item->second.def->id.value(),
+                              .position = item->second.position};
+    }
     return std::nullopt;
 }
 
@@ -404,17 +419,31 @@ std::vector<common::EntityId> Zone::LiveMonsters() const {
 // ---- recent requests
 // -----------------------------------------------------------------------------------
 
-std::optional<RejectReason> Zone::RecentRequests::Find(common::RequestId id) const {
+std::optional<CommandResultEvent> Zone::RecentRequests::Find(common::RequestId id) const {
     const auto filled = std::span{ring_}.first(size_);
-    const auto it =
-        std::ranges::find_if(filled, [id](const auto& entry) { return entry.first == id; });
-    return it == filled.end() ? std::nullopt : std::optional{it->second};
+    const auto it = std::ranges::find(filled, id, &CommandResultEvent::request_id);
+    return it == filled.end() ? std::nullopt : std::optional{*it};
 }
 
-void Zone::RecentRequests::Remember(common::RequestId id, RejectReason reason) {
-    ring_.at(next_) = {id, reason};
+void Zone::RecentRequests::Remember(const CommandResultEvent& result) {
+    const auto filled = std::span{ring_}.first(size_);
+    if (const auto it =
+            std::ranges::find(filled, result.request_id, &CommandResultEvent::request_id);
+        it != filled.end()) {
+        *it = result;  // revised verdict for the same request (pending -> final)
+        return;
+    }
+    ring_.at(next_) = result;
     next_ = (next_ + 1) % kCapacity;
     size_ = std::min(size_ + 1, kCapacity);
+}
+
+void Zone::RecentRequests::Forget(common::RequestId id) {
+    const auto filled = std::span{ring_}.first(size_);
+    if (const auto it = std::ranges::find(filled, id, &CommandResultEvent::request_id);
+        it != filled.end()) {
+        it->request_id = common::RequestId{};  // the none id never matches a client request
+    }
 }
 
 }  // namespace sa::zone::sim

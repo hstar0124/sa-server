@@ -48,4 +48,27 @@ struct CastCommand {
     SkillTarget target;
 };
 
+// Reach for an item lying in the zone (design document 6.3 PickupItem, 8.2).
+struct PickupCommand {
+    common::EntityId player;
+    common::RequestId request_id;
+    common::EntityId item;
+};
+
+// An item the Backend has committed to the ground of this zone; becomes a kDroppedItem entity.
+struct GroundItem {
+    common::ItemInstanceId instance;
+    ItemTemplateId item;
+    common::Vec2 position;
+};
+
+// The Backend's verdict on a reservation, as the host reports it back to the zone.
+enum class PickupOutcome : std::uint8_t {
+    kAcquired,
+    kAlreadyTaken,   // somebody else committed first: the item leaves the ground
+    kInventoryFull,  // the item stays; the reservation is released
+    kUnknownItem,    // the Backend never had it: the item leaves the ground
+    kUnavailable,    // no answer; the reservation is released and the client may retry
+};
+
 }  // namespace sa::zone::sim
