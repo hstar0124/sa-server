@@ -10,7 +10,8 @@ public sealed record BackendSettings(
     int MaxCharactersPerWorld = 4,
     TimeSpan? GatewayLeaseDuration = null,
     TimeSpan? ZoneLeaseDuration = null,
-    TimeSpan? TicketLifetime = null);
+    TimeSpan? TicketLifetime = null,
+    int? CredentialAttemptsPerMinute = null);
 
 /// <summary>In-process GameBackend bound to the fixture database. Settings mirror production keys.</summary>
 public sealed class BackendFactory(string connectionString, BackendSettings? settings = null) : WebApplicationFactory<Program>
@@ -34,6 +35,7 @@ public sealed class BackendFactory(string connectionString, BackendSettings? set
             ["Database:ConnectionString"] = connectionString,
             ["Auth:SigningKey"] = _jwtKey,
             ["WorldDirectory:TicketSigningKey"] = Convert.ToBase64String(_ticketKey),
+            ["Economy:ContentDir"] = RepositoryPaths.GameData,
             ["Characters:MaxCharactersPerWorld"] = _settings.MaxCharactersPerWorld.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["Logging:LogLevel:Default"] = "Warning",
         };
@@ -50,6 +52,11 @@ public sealed class BackendFactory(string connectionString, BackendSettings? set
         if (_settings.TicketLifetime is { } ticket)
         {
             values["WorldDirectory:TicketLifetime"] = ticket.ToString();
+        }
+
+        if (_settings.CredentialAttemptsPerMinute is { } attempts)
+        {
+            values["Auth:CredentialAttemptsPerMinutePerAddress"] = attempts.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(values));

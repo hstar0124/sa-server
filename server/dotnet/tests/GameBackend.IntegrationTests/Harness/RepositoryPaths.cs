@@ -5,6 +5,9 @@ internal static class RepositoryPaths
 {
     public static string Migrations { get; } = Path.Combine(FindRoot(), "database", "migrations");
 
+    /// <summary>The content tree the Backend validates kills against; the same files the zones load.</summary>
+    public static string GameData { get; } = Path.Combine(FindRoot(), "game-data");
+
     private static string FindRoot()
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
