@@ -50,5 +50,7 @@ CheckOptions:
   readability-identifier-naming.GlobalConstantPrefix: k
   readability-identifier-naming.TemplateParameterCase: CamelCase
   readability-function-cognitive-complexity.Threshold: 25
+  # gtest assertions expand to branches; the metric is about the code under test.
+  readability-function-cognitive-complexity.IgnoreMacros: true
   # Pure interfaces declare only a virtual destructor; they are never copied through the base.
   cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
