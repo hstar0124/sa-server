@@ -32,6 +32,10 @@ internal sealed class WorldDirectoryOptions
     [Range(1, 65535)]
     public int GatewayPort { get; init; } = 7777;
 
+    /// <summary>WebSocket port of the same gateway, for browser clients (ADR-0004).</summary>
+    [Range(1, 65535)]
+    public int GatewayWebSocketPort { get; init; } = 7778;
+
     public byte[] DecodedTicketSigningKey() => Convert.FromBase64String(TicketSigningKey);
 }
 
