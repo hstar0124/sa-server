@@ -2,15 +2,18 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <iterator>
-#include <ranges>
+#include <span>
+#include <type_traits>
+#include <utility>
 
 namespace sa::zone::sim {
 namespace {
 
-// Half-width of the player's footprint used for terrain tests; kept out of game-data because it
-// is a property of the collision model, not of the content.
-constexpr float kPlayerRadiusM = 0.4F;
+// Half-width of a player's or monster's footprint for terrain tests; a property of the collision
+// model, not of the content.
+constexpr float kBodyRadiusM = 0.4F;
 
 bool SortedContains(const std::vector<common::EntityId>& sorted, common::EntityId id) {
     return std::ranges::binary_search(sorted, id);
@@ -18,27 +21,65 @@ bool SortedContains(const std::vector<common::EntityId>& sorted, common::EntityI
 
 }  // namespace
 
-Zone::Zone(ZoneConfig config, MapData map, MovementRules rules, Rng rng)
+// ---- construction -------------------------------------------------------------------------------
+
+std::expected<Zone, std::string> Zone::Create(ZoneConfig config, MapData map, MovementRules rules,
+                                              CombatRules combat, ContentBundle content, Rng rng) {
+    if (auto valid = map.ValidateAgainst(content); !valid) {
+        return std::unexpected(valid.error());
+    }
+    Zone zone{config, std::move(map), rules, combat, std::move(content), rng};
+    zone.PopulateMonsterSlots();
+    return zone;
+}
+
+Zone::Zone(ZoneConfig config, MapData map, MovementRules rules, CombatRules combat,
+           ContentBundle content, Rng rng)
     : config_(config),
       map_(std::move(map)),
       rules_(rules),
+      combat_(combat),
+      content_(std::move(content)),
       rng_(rng),
       dt_seconds_(std::chrono::duration<float>(config.simulation_rate.Period()).count()),
       grid_(map_.size, map_.cell_size) {}
 
-// ---- membership -----------------------------------------------------------------------------
-
-common::EntityId Zone::SpawnPlayer(common::CharacterId character, std::uint32_t class_id,
-                                   std::optional<common::Vec2> position) {
+common::EntityId Zone::AllocateEntityId() {
     const common::EntityId id = next_entity_id_;
     next_entity_id_ = next_entity_id_.Next();
+    return id;
+}
 
+common::TickIndex Zone::TicksFromNow(std::chrono::milliseconds duration) const {
+    const auto period = config_.simulation_rate.Period();
+    const auto ticks =
+        (std::chrono::duration_cast<Duration>(duration) + period - Duration{1}) / period;
+    return common::TickIndex{tick_.value() +
+                             static_cast<std::uint64_t>(std::max<std::int64_t>(0, ticks))};
+}
+
+// ---- membership
+// -----------------------------------------------------------------------------------
+
+std::optional<common::EntityId> Zone::SpawnPlayer(common::CharacterId character, ClassId class_id,
+                                                  std::optional<common::Vec2> position) {
+    const auto cls = content_.classes.find(class_id);
+    if (cls == content_.classes.end()) {
+        return std::nullopt;
+    }
     common::Vec2 at = position.value_or(common::Vec2{});
     if (!position) {
         const auto index = rng_.Range<std::size_t>(0, map_.spawn_points.size() - 1);
         at = map_.spawn_points[index];
     }
-    players_.emplace(id, Player{.character = character, .class_id = class_id, .position = at});
+    const common::EntityId id = AllocateEntityId();
+    Player player{.character = character, .cls = &cls->second, .position = at};
+    player.vitals = Vitals{.hp = cls->second.max_hp,
+                           .max_hp = cls->second.max_hp,
+                           .mp = cls->second.max_mp,
+                           .max_mp = cls->second.max_mp};
+    players_.emplace(id, std::move(player));
+    kinds_.emplace(id, EntityKind::kPlayer);
     grid_.Insert(id, at);
     stats_.players = players_.size();
     return id;
@@ -48,21 +89,31 @@ void Zone::DespawnPlayer(common::EntityId player) {
     if (players_.erase(player) == 0) {
         return;
     }
+    kinds_.erase(player);
     grid_.Remove(player);
     stats_.players = players_.size();
     // Observers learn about the departure through their next interest recomputation.
 }
 
-// ---- input ----------------------------------------------------------------------------------
+// ---- input
+// --------------------------------------------------------------------------------------------
 
-void Zone::Submit(MoveCommand command) {
+void Zone::Submit(Command command) {
     pending_.push_back(command);
 }
 
 void Zone::DrainCommands() {
     std::uint32_t budget = rules_.commands_per_tick_budget;
     while (!pending_.empty() && budget > 0) {
-        ApplyMove(pending_.front());
+        std::visit(
+            [this](const auto& c) {
+                if constexpr (std::is_same_v<std::decay_t<decltype(c)>, MoveCommand>) {
+                    ApplyMove(c);
+                } else {
+                    ApplyCast(c);
+                }
+            },
+            pending_.front());
         pending_.pop_front();
         --budget;
     }
@@ -82,23 +133,47 @@ void Zone::ApplyMove(const MoveCommand& command) {
         return;
     }
     player.last_input_seq = command.input_seq;
-    player.desired_direction = command.direction.Normalized();
+    // The dead have no intent: an input sent while dead must not make the respawned body walk.
+    player.desired_direction =
+        player.vitals.IsAlive() ? command.direction.Normalized() : common::Vec2{};
     ++stats_.commands_applied;
 }
 
-// ---- simulation -----------------------------------------------------------------------------
+// ---- simulation
+// ---------------------------------------------------------------------------------------
 
 void Zone::Tick() {
     tick_ = tick_.Next();
-    DrainCommands();
-    Integrate();
-    UpdateInterestSets();
+    ResetTickFlags();
+    DrainCommands();      // 7.2 ValidateAndApplyCommands
+    ResolveCasts();       // casts whose cast time elapsed
+    IntegratePlayers();   // UpdateMovementAndCollision
+    UpdateMonsters();     // UpdateScheduledAi
+    UpdateProjectiles();  // UpdateCastsAndProjectiles
+    RegenerateMp();
+    RespawnPlayers();  // ApplyDamageBuffsAndDeaths: deferred effects
+    RespawnMonsters();
+    UpdateInterestSets();  // UpdateInterestSets
+    stats_.monsters = monsters_.size();
+    stats_.projectiles = projectiles_.size();
 }
 
-void Zone::Integrate() {
+void Zone::ResetTickFlags() {
     for (auto& [id, player] : players_) {
         player.moved_this_tick = false;
-        if (player.desired_direction.IsZero()) {
+        player.vitals_changed_this_tick = false;
+    }
+    for (auto& [id, monster] : monsters_) {
+        monster.moved_this_tick = false;
+        monster.vitals_changed_this_tick = false;
+    }
+}
+
+void Zone::IntegratePlayers() {
+    for (auto& [id, player] : players_) {
+        // Casting roots the caster; the intent is kept and applied once the cast resolves.
+        const bool rooted = player.cast.has_value() || !player.vitals.IsAlive();
+        if (rooted || player.desired_direction.IsZero()) {
             player.velocity = {};
             continue;
         }
@@ -116,20 +191,20 @@ void Zone::Integrate() {
 }
 
 bool Zone::Blocked(common::Vec2 point) const {
-    if (point.x < kPlayerRadiusM || point.y < kPlayerRadiusM ||
-        point.x > map_.size.x - kPlayerRadiusM || point.y > map_.size.y - kPlayerRadiusM) {
+    if (point.x < kBodyRadiusM || point.y < kBodyRadiusM || point.x > map_.size.x - kBodyRadiusM ||
+        point.y > map_.size.y - kBodyRadiusM) {
         return true;
     }
-    const common::Vec2 footprint{kPlayerRadiusM, kPlayerRadiusM};
+    const common::Vec2 footprint{kBodyRadiusM, kBodyRadiusM};
     return std::ranges::any_of(map_.obstacles, [&](const common::Aabb& box) {
         const common::Aabb grown{.min = box.min - footprint, .max = box.max + footprint};
         return grown.Contains(point);
     });
 }
 
-// Axis-separated resolution: try the full move, then each axis alone so the player slides along
-// walls instead of sticking to them. Movement per tick is far smaller than any obstacle, so
-// tunnelling is not a concern at the configured speeds.
+// Axis-separated resolution: try the full move, then each axis alone so bodies slide along walls
+// instead of sticking. Movement per tick is far smaller than any obstacle, so tunnelling is not a
+// concern at the configured speeds.
 common::Vec2 Zone::ResolveCollisions(common::Vec2 from, common::Vec2 to) const {
     if (!Blocked(to)) {
         return to;
@@ -145,7 +220,19 @@ common::Vec2 Zone::ResolveCollisions(common::Vec2 from, common::Vec2 to) const {
     return from;
 }
 
-// ---- interest management ---------------------------------------------------------------------
+// One tick of travel from `from` toward `goal`, never overshooting it.
+common::Vec2 Zone::StepTowards(common::Vec2 from, common::Vec2 goal, float speed_mps) const {
+    const common::Vec2 delta = goal - from;
+    const float distance = delta.Length();
+    const float step = speed_mps * dt_seconds_;
+    if (distance <= step) {
+        return ResolveCollisions(from, goal);
+    }
+    return ResolveCollisions(from, from + delta.Normalized() * step);
+}
+
+// ---- interest management
+// ---------------------------------------------------------------------------
 
 void Zone::UpdateInterestSets() {
     for (auto& [id, player] : players_) {
@@ -166,11 +253,11 @@ void Zone::RecomputeInterest(common::EntityId self, Player& player) {
         if (candidate == self) {
             continue;
         }
-        const auto other = players_.find(candidate);
-        if (other == players_.end()) {
+        const auto position = PositionOf(candidate);
+        if (!position) {
             continue;
         }
-        const float d_sq = common::DistanceSq(player.position, other->second.position);
+        const float d_sq = common::DistanceSq(player.position, *position);
         const bool was_visible = SortedContains(player.interest, candidate);
         if (d_sq <= enter_sq || (was_visible && d_sq <= leave_sq)) {
             next.push_back(candidate);
@@ -180,14 +267,17 @@ void Zone::RecomputeInterest(common::EntityId self, Player& player) {
     player.interest = std::move(next);
 }
 
-// ---- output -----------------------------------------------------------------------------------
+// ---- output
+// -----------------------------------------------------------------------------------------
 
-EntitySnapshot Zone::MakeSnapshot(common::EntityId id, const Player& player) {
-    return EntitySnapshot{.id = id,
-                          .kind = EntityKind::kPlayer,
-                          .template_id = player.class_id,
-                          .position = player.position,
-                          .velocity = player.velocity};
+bool Zone::ChangedThisTick(common::EntityId entity) const {
+    if (const auto p = players_.find(entity); p != players_.end()) {
+        return p->second.moved_this_tick || p->second.vitals_changed_this_tick;
+    }
+    if (const auto m = monsters_.find(entity); m != monsters_.end()) {
+        return m->second.moved_this_tick || m->second.vitals_changed_this_tick;
+    }
+    return projectiles_.contains(entity);  // projectiles move every tick
 }
 
 PlayerView Zone::CollectView(common::EntityId player_id) {
@@ -198,35 +288,133 @@ PlayerView Zone::CollectView(common::EntityId player_id) {
     }
     Player& player = it->second;
     view.last_processed_input_seq = player.last_input_seq;
+    view.self = SnapshotOf(player_id).value_or(EntitySnapshot{});
+    view.self_vitals = player.vitals;
 
     // interest and known are both sorted: despawned = known \ interest in one merge pass.
     std::ranges::set_difference(player.known, player.interest, std::back_inserter(view.despawned));
-
     for (const common::EntityId id : player.interest) {
-        const auto other = players_.find(id);
-        if (other == players_.end()) {
-            continue;
-        }
         if (!SortedContains(player.known, id)) {
-            view.spawned.push_back(MakeSnapshot(id, other->second));
-        } else if (other->second.moved_this_tick) {
-            view.updated.push_back(MakeSnapshot(id, other->second));
+            if (auto snapshot = SnapshotOf(id)) {
+                view.spawned.push_back(*snapshot);
+            }
+        } else if (ChangedThisTick(id)) {
+            if (auto snapshot = SnapshotOf(id)) {
+                view.updated.push_back(*snapshot);
+            }
         }
     }
     player.known = player.interest;
     return view;
 }
 
-// ---- inspection -------------------------------------------------------------------------------
+std::vector<DeliveredEvent> Zone::DrainEvents() {
+    return std::exchange(outbox_, {});
+}
 
-std::optional<common::Vec2> Zone::PositionOf(common::EntityId player) const {
-    const auto it = players_.find(player);
-    return it == players_.end() ? std::nullopt : std::optional{it->second.position};
+bool Zone::SortedContainsInterest(const Player& player, common::EntityId entity) {
+    return SortedContains(player.interest, entity);
+}
+
+void Zone::Deliver(common::EntityId recipient, ZoneEvent event) {
+    outbox_.push_back(DeliveredEvent{.recipient = recipient, .event = event});
+}
+
+void Zone::DeliverToObservers(common::EntityId subject, const ZoneEvent& event) {
+    for (const auto& [id, player] : players_) {
+        if (id == subject || SortedContains(player.interest, subject)) {
+            Deliver(id, event);
+        }
+    }
+}
+
+// ---- inspection
+// ----------------------------------------------------------------------------------------
+
+std::optional<common::Vec2> Zone::PositionOf(common::EntityId entity) const {
+    if (const auto p = players_.find(entity); p != players_.end()) {
+        return p->second.position;
+    }
+    if (const auto m = monsters_.find(entity); m != monsters_.end()) {
+        return m->second.position;
+    }
+    if (const auto pr = projectiles_.find(entity); pr != projectiles_.end()) {
+        return pr->second.position;
+    }
+    return std::nullopt;
 }
 
 std::optional<EntitySnapshot> Zone::SnapshotOf(common::EntityId entity) const {
-    const auto it = players_.find(entity);
-    return it == players_.end() ? std::nullopt : std::optional{MakeSnapshot(entity, it->second)};
+    if (const auto p = players_.find(entity); p != players_.end()) {
+        const Player& player = p->second;
+        return EntitySnapshot{.id = entity,
+                              .kind = EntityKind::kPlayer,
+                              .template_id = player.cls->id.value(),
+                              .position = player.position,
+                              .velocity = player.velocity,
+                              .hp = player.vitals.hp,
+                              .max_hp = player.vitals.max_hp};
+    }
+    if (const auto m = monsters_.find(entity); m != monsters_.end()) {
+        const Monster& monster = m->second;
+        return EntitySnapshot{.id = entity,
+                              .kind = EntityKind::kMonster,
+                              .template_id = monster.def->id.value(),
+                              .position = monster.position,
+                              .velocity = monster.velocity,
+                              .hp = monster.vitals.hp,
+                              .max_hp = monster.vitals.max_hp};
+    }
+    if (const auto pr = projectiles_.find(entity); pr != projectiles_.end()) {
+        const Projectile& projectile = pr->second;
+        return EntitySnapshot{.id = entity,
+                              .kind = EntityKind::kProjectile,
+                              .template_id = projectile.skill->id.value(),
+                              .position = projectile.position,
+                              .velocity = projectile.velocity};
+    }
+    return std::nullopt;
+}
+
+std::optional<Vitals> Zone::VitalsOf(common::EntityId entity) const {
+    if (const auto p = players_.find(entity); p != players_.end()) {
+        return p->second.vitals;
+    }
+    if (const auto m = monsters_.find(entity); m != monsters_.end()) {
+        return m->second.vitals;
+    }
+    return std::nullopt;
+}
+
+std::optional<EntityKind> Zone::KindOf(common::EntityId entity) const {
+    const auto it = kinds_.find(entity);
+    return it == kinds_.end() ? std::nullopt : std::optional{it->second};
+}
+
+std::vector<common::EntityId> Zone::LiveMonsters() const {
+    std::vector<common::EntityId> out;
+    out.reserve(monsters_.size());
+    for (const auto& [id, _] : monsters_) {
+        out.push_back(id);
+    }
+    std::ranges::sort(out);
+    return out;
+}
+
+// ---- recent requests
+// -----------------------------------------------------------------------------------
+
+std::optional<RejectReason> Zone::RecentRequests::Find(common::RequestId id) const {
+    const auto filled = std::span{ring_}.first(size_);
+    const auto it =
+        std::ranges::find_if(filled, [id](const auto& entry) { return entry.first == id; });
+    return it == filled.end() ? std::nullopt : std::optional{it->second};
+}
+
+void Zone::RecentRequests::Remember(common::RequestId id, RejectReason reason) {
+    ring_.at(next_) = {id, reason};
+    next_ = (next_ + 1) % kCapacity;
+    size_ = std::min(size_ + 1, kCapacity);
 }
 
 }  // namespace sa::zone::sim

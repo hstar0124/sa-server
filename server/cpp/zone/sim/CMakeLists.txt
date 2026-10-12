@@ -4,7 +4,9 @@ add_library(sa_zone_sim STATIC
   src/map_data.cpp
   src/content.cpp
   src/spatial_grid.cpp
-  src/zone.cpp)
+  src/zone.cpp
+  src/zone_combat.cpp
+  src/zone_monsters.cpp)
 add_library(sa::zone_sim ALIAS sa_zone_sim)
 sa_apply_policy(sa_zone_sim)
 
@@ -22,6 +24,8 @@ if(SA_BUILD_TESTS)
       tests/spatial_grid_test.cpp
       tests/zone_movement_test.cpp
       tests/zone_interest_test.cpp
+      tests/zone_combat_test.cpp
+      tests/zone_monster_test.cpp
       tests/test_maps.hpp
     LIBS sa::zone_sim)
 endif()
