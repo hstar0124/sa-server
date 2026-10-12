@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "sa-server",
+  "version-string": "0.1.0",
+  "description": "MMORPG server: C++ gateway/zone, C# backend/worker",
+  "dependencies": [
+    "grpc",
+    "protobuf",
+    "asio",
+    "spdlog",
+    "tomlplusplus",
+    "gtest",
+    "cpr",
+    "nlohmann-json",
+    "openssl"
+  ],
+  "builtin-baseline": "e456309491fd875487bf02b8a0dca76c1b1b00cc"
+}
