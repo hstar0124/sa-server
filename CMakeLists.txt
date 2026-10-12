@@ -31,6 +31,8 @@ find_package(asio CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(tomlplusplus CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(cpr CONFIG REQUIRED)            # loadgen's HTTP client for the Backend API
+find_package(nlohmann_json CONFIG REQUIRED)
 
 if(SA_BUILD_TESTS)
   find_package(GTest CONFIG REQUIRED)
