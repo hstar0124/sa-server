@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package sa.backend.v1;
+
+import "game/common.proto";
+
+option csharp_namespace = "Sa.Backend.V1";
+
+// Persistent assets (design document 8.2, 9-11). Every mutation is one PostgreSQL transaction
+// in the Backend; the zone only reserves in memory and waits for the committed answer.
+service Economy {
+  // The zone reports a monster death it adjudicated. The Backend verifies the zone's authority
+  // over the killer and the content version, then stores the receipt, the dropped items and the
+  // gold credit together. A repeated kill_id returns the original drops without granting again.
+  rpc RecordKill(RecordKillRequest) returns (RecordKillResponse);
+  // Moves one ground item into the character's inventory. Idempotent on request_id: a retry
+  // after a lost response returns the stored outcome; a different body under the same id is refused.
+  rpc PickupItem(PickupItemRequest) returns (PickupItemResponse);
+  // Inventory and wallet, read by the zone on entry and by clients for their UI.
+  rpc GetCharacterAssets(GetCharacterAssetsRequest) returns (GetCharacterAssetsResponse);
+}
+
+// Which zone process claims to act for the character, and under which ownership generation.
+message ZoneAuthority {
+  bytes zone_instance_id = 1;
+  uint64 owner_epoch = 2;
+}
+
+message DropRoll {
+  uint32 item_template_id = 1;
+  sa.game.v1.Vec2 position = 2;
+}
+
+message RecordKillRequest {
+  bytes kill_id = 1;              // 16 bytes, minted by the zone per monster lifecycle
+  uint64 world_id = 2;
+  uint64 killer_character_id = 3;
+  ZoneAuthority authority = 4;
+  uint32 monster_template_id = 5;
+  string content_version = 6;
+  repeated DropRoll drops = 7;
+  uint64 gold = 8;
+}
+
+enum KillOutcome {
+  KILL_OUTCOME_UNSPECIFIED = 0;
+  KILL_OUTCOME_RECORDED = 1;
+  KILL_OUTCOME_ALREADY_RECORDED = 2;        // same kill_id seen before; items echoed, nothing granted
+  KILL_OUTCOME_STALE_AUTHORITY = 3;         // the zone no longer owns the killer (epoch or instance differ)
+  KILL_OUTCOME_CONTENT_VERSION_MISMATCH = 4;
+  KILL_OUTCOME_UNKNOWN_TEMPLATE = 5;        // monster or item template the Backend does not know
+}
+
+message DroppedItem {
+  bytes item_instance_id = 1;
+  uint32 item_template_id = 2;
+  sa.game.v1.Vec2 position = 3;
+}
+
+message RecordKillResponse {
+  KillOutcome outcome = 1;
+  repeated DroppedItem items = 2;
+  uint64 gold_balance = 3;  // killer's balance after the credit
+}
+
+message PickupItemRequest {
+  bytes request_id = 1;           // 16 bytes, idempotency key
+  uint64 world_id = 2;
+  uint64 character_id = 3;
+  ZoneAuthority authority = 4;
+  bytes item_instance_id = 5;
+}
+
+enum PickupOutcome {
+  PICKUP_OUTCOME_UNSPECIFIED = 0;
+  PICKUP_OUTCOME_ACQUIRED = 1;
+  PICKUP_OUTCOME_ALREADY_TAKEN = 2;         // someone else committed first, or the item is not on the ground
+  PICKUP_OUTCOME_INVENTORY_FULL = 3;
+  PICKUP_OUTCOME_STALE_AUTHORITY = 4;
+  PICKUP_OUTCOME_REQUEST_MISMATCH = 5;      // same request_id, different body
+  PICKUP_OUTCOME_UNKNOWN_ITEM = 6;
+}
+
+message InventoryItem {
+  bytes item_instance_id = 1;
+  uint32 item_template_id = 2;
+  uint32 slot_no = 3;
+}
+
+message WalletEntry {
+  string currency = 1;
+  uint64 balance = 2;
+}
+
+message PickupItemResponse {
+  PickupOutcome outcome = 1;
+  InventoryItem item = 2;          // on ACQUIRED
+  uint32 inventory_version = 3;
+}
+
+message GetCharacterAssetsRequest {
+  uint64 world_id = 1;
+  uint64 character_id = 2;
+}
+
+message GetCharacterAssetsResponse {
+  repeated InventoryItem items = 1;
+  repeated WalletEntry wallet = 2;
+  uint32 inventory_capacity = 3;
+  uint32 inventory_version = 4;
+}

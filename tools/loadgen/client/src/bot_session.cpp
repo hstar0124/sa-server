@@ -140,6 +140,10 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
             world_.OnCombatEvent(message.combat_event());
             report_.combat = world_.combat();
             return;
+        case ServerMessage::kInventoryUpdate:
+            // Inventory tracking belongs to the looter brain; the fighter and wanderer do not
+            // act on it, so the update is accepted without changing the world model.
+            return;
         case ServerMessage::BODY_NOT_SET:
             Fail("empty server message");
             return;
