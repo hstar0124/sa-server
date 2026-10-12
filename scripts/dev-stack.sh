@@ -8,6 +8,7 @@
 # same keys are reused across restarts within one session.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+ROOT="$PWD"
 
 DEV_DIR="${SA_DEV_DIR:-/tmp/sa-dev}"
 BUILD=build/dev
@@ -29,7 +30,7 @@ up() {
   (
     cd server/dotnet/GameBackend
     Database__ConnectionString="$CONN" Auth__SigningKey="$JWT_KEY" WorldDirectory__TicketSigningKey="$TICKET_KEY"  \
-    Economy__ContentDir="$PWD/game-data" \
+    Economy__ContentDir="$ROOT/game-data" \
     Auth__CredentialAttemptsPerMinutePerAddress=6000 \
       Cors__AllowedOrigins__0="$VIEWER_ORIGIN" exec bin/Debug/net10.0/GameBackend
   ) >"$DEV_DIR/backend.log" 2>&1 &

@@ -7,6 +7,7 @@
 # Requires: a dev build (cmake --preset dev / dotnet build), docker compose, deploy/compose/.env.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+ROOT="$PWD"
 
 PROFILE="${1:-tools/loadgen/client/profiles/smoke.toml}"
 BUILD=build/dev
@@ -31,7 +32,7 @@ dotnet run --project server/dotnet/Migrator --no-build -- --connection "$CONN" -
 (
   cd server/dotnet/GameBackend
   Database__ConnectionString="$CONN" Auth__SigningKey="$JWT_KEY" WorldDirectory__TicketSigningKey="$TICKET_KEY"  \
-    Economy__ContentDir="$PWD/game-data" \
+    Economy__ContentDir="$ROOT/game-data" \
     Auth__CredentialAttemptsPerMinutePerAddress=6000 \
     exec bin/Debug/net10.0/GameBackend
 ) >"$RUN_DIR/backend.log" 2>&1 &
