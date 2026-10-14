@@ -97,9 +97,14 @@ jobs:
           wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
           sudo bash /tmp/llvm.sh "$LLVM_MAJOR"
           sudo apt-get install -y --no-install-recommends "clang-tidy-$LLVM_MAJOR" "clang-format-$LLVM_MAJOR"
-          sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy "/usr/bin/clang-tidy-$LLVM_MAJOR" 100
-          sudo update-alternatives --install /usr/bin/clang-format clang-format "/usr/bin/clang-format-$LLVM_MAJOR" 100
-          clang-tidy --version | head -1
+          # The image's /usr/bin/clang-tidy is a plain link to LLVM 18 that update-alternatives will not
+          # replace; put ours first on PATH and refuse to continue on any other major (issues/005).
+          sudo ln -sf "/usr/bin/clang-tidy-$LLVM_MAJOR" /usr/local/bin/clang-tidy
+          sudo ln -sf "/usr/bin/clang-format-$LLVM_MAJOR" /usr/local/bin/clang-format
+          for tool in clang-tidy clang-format; do
+            "$tool" --version | tee /dev/stderr | grep -q "version $LLVM_MAJOR\." \
+              || { echo "::error::$tool is not LLVM $LLVM_MAJOR"; exit 1; }
+          done
 
       # Kitware's release archive: PyPI's cmake wheels skip some patch versions (3.31.8 among them).
       - name: Pin CMake
