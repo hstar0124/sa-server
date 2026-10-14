@@ -1,0 +1,42 @@
+# build outputs
+/build/
+/out/
+cmake-build-*/
+bin/
+obj/
+*.o
+*.a
+*.so
+
+# .NET
+*.user
+*.suo
+.vs/
+TestResults/
+artifacts/
+
+# vcpkg (manifest mode installs into build/)
+vcpkg_installed/
+
+# tooling
+.cache/
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+compile_commands.json
+
+# secrets and local overrides
+*.local.toml
+*.local.json
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# core dumps
+core
+core.[0-9]*
