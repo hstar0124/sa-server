@@ -1,6 +1,6 @@
 # 001 CI의 tidy 잡이 로컬에서 통과한 코드에 실패
 
-- 상태: 해결 (`ci: pin LLVM 21 ...` 커밋)
+- 상태: 해결 (`ci: pin LLVM 21 ...` 커밋, 실제 적용은 [005](005-ci-ran-clang-tidy-18-despite-the-pin.md)에서)
 - 발견: [01 저장소 도구](../features/01-repo-tooling.md), 2026-10-14
 - 영향: CI가 빨간 채로 병합이 이어지면 "tidy 통과"가 로컬 주장에 그친다
 

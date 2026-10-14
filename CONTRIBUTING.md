@@ -13,10 +13,12 @@
 - [ ] C#: `dotnet build` 경고 0, 통합 테스트(Testcontainers) 통과, `dotnet format --verify-no-changes`.
 - [ ] end-to-end: `scripts/e2e-local.sh <프로필>` PASS(3단계 이후).
 - [ ] 단계 끝이면 `scripts/bench/capacity.sh` 50~2,000 재측정, 보고서에 비교(7단계 이후).
+- [ ] 검증은 **커밋된 트리**로 한다: `git stash -u` 뒤 빌드하거나 별도 worktree(`git worktree add`)에서 빌드한다. 작업 트리에만 있는 파일에 기대지 않는다.
 - [ ] README 진행 상태·증명 목록 갱신.
 - [ ] 릴리스: `release/x.y.z` PR → `main` 병합 → 태그 `vx.y.z` → Release 노트(그 단계 피처 문서 요약) → `develop`에 다시 병합.
 
 ## 도구 버전
-- GCC 14(gcc-toolset-14), CMake 프리셋, vcpkg `builtin-baseline` 고정.
+- GCC 14(gcc-toolset-14), vcpkg `builtin-baseline` 고정.
+- CMake 3.31.8. CI는 `.github/workflows/ci.yml`의 `CMAKE_VERSION`으로 같은 버전을 설치한다.
 - LLVM(clang-tidy·clang-format) major는 로컬과 CI(`.github/workflows/ci.yml`의 `LLVM_MAJOR`)가 같아야 한다. 지금은 21.
 - .NET 10 SDK.
