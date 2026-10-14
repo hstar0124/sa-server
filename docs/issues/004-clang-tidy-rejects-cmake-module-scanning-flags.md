@@ -26,7 +26,7 @@ CMake의 C++ 모듈 스캔 기본값(`CMAKE_CXX_SCAN_FOR_MODULES`)이 켜진 채
 
 ## 해결
 1. 루트 `CMakeLists.txt`에 `set(CMAKE_CXX_SCAN_FOR_MODULES OFF)`. 모듈을 쓰지 않으니 스캔도 필요 없다. CMake 버전과 관계없이 문제를 없앤다.
-2. CI의 CMake를 로컬과 같은 3.31.8로 고정(`CMAKE_VERSION`, pipx). 러너 이미지가 새 major로 넘어가도 빌드 도구가 바뀌지 않는다.
+2. CI의 CMake를 로컬과 같은 3.31.8로 고정(`CMAKE_VERSION`). 러너 이미지가 새 major로 넘어가도 빌드 도구가 바뀌지 않는다. 처음엔 `pipx install cmake==3.31.8`로 했는데 PyPI의 cmake 휠에 3.31.8이 없어(3.31.6 다음이 3.31.10) 세 잡이 설치 단계에서 실패했다. Kitware 공식 릴리스 압축 파일을 받아 쓰도록 바꿨다. 패키지 저장소마다 올라오는 버전이 다르다는 것도 고정할 때 확인할 항목이다.
 
 ## 재발 방지
 - CONTRIBUTING.md의 "도구 버전"에 CMake를 추가했다. 로컬 LLVM·CMake 버전과 CI 변수를 같이 바꾼다.

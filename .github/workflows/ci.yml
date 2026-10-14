@@ -101,12 +101,14 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang-format clang-format "/usr/bin/clang-format-$LLVM_MAJOR" 100
           clang-tidy --version | head -1
 
+      # Kitware's release archive: PyPI's cmake wheels skip some patch versions (3.31.8 among them).
       - name: Pin CMake
         if: needs.deps.outputs.present == 'true'
         run: |
-          pipx install "cmake==$CMAKE_VERSION"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/cmake" --version | head -1
+          curl -fsSL "https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-linux-x86_64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/cmake-$CMAKE_VERSION-linux-x86_64/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/cmake-$CMAKE_VERSION-linux-x86_64/bin/cmake" --version | head -1
 
       - name: Checkout vcpkg at the manifest baseline
         if: needs.deps.outputs.present == 'true'
