@@ -22,6 +22,7 @@ Gateway·Zone·봇이 공유할 바닥을 먼저 깐다. 길이 프리픽스 프
 - [002 C++ 컴포넌트가 루트 CMake 프로젝트 없이 커밋됨](../issues/002-cpp-tree-without-a-root-cmake-project.md) — 이전 이력의 04~08은 프리셋으로 빌드되지 않았다. 여기서는 루트 프로젝트를 같은 PR에 넣고, 커밋된 트리를 별도 worktree에서 빌드해 확인했다.
 
 - [003 CI 러너가 gRPC 의존성을 빌드하다 디스크가 가득 참](../issues/003-ci-runner-out-of-disk-building-grpc.md) — 이 PR의 첫 CI에서 세 잡이 50분 넘게 같은 의존성을 각자 빌드하다 `No space left on device`. 의존성 전용 잡 하나, release 전용 트리플릿, build tree 정리, 디스크 확보로 고쳤다.
+- [004 CI의 clang-tidy가 CMake의 모듈 스캔 플래그를 거부](../issues/004-clang-tidy-rejects-cmake-module-scanning-flags.md) — 러너의 CMake가 GCC 모듈 플래그를 붙였다. 모듈 스캔을 끄고 CI의 CMake를 3.31.8로 고정.
 
 ## 검증
 - 별도 worktree에서 커밋된 트리로: `cmake --preset dev` 빌드 + 테스트 26개 통과, `--preset tidy` 경고 0(clang-tidy 21), `--preset asan` 26개 통과, clang-format 검사 통과.

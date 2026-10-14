@@ -18,6 +18,7 @@
 - [ ] 릴리스: `release/x.y.z` PR → `main` 병합 → 태그 `vx.y.z` → Release 노트(그 단계 피처 문서 요약) → `develop`에 다시 병합.
 
 ## 도구 버전
-- GCC 14(gcc-toolset-14), CMake 프리셋, vcpkg `builtin-baseline` 고정.
+- GCC 14(gcc-toolset-14), vcpkg `builtin-baseline` 고정.
+- CMake 3.31.8. CI는 `.github/workflows/ci.yml`의 `CMAKE_VERSION`으로 같은 버전을 설치한다.
 - LLVM(clang-tidy·clang-format) major는 로컬과 CI(`.github/workflows/ci.yml`의 `LLVM_MAJOR`)가 같아야 한다. 지금은 21.
 - .NET 10 SDK.

@@ -7,6 +7,7 @@
 | [001](001-ci-clang-tidy-version-mismatch.md) | 해결 | 01 저장소 도구 | CI의 tidy 잡이 로컬에서 통과한 코드에 실패 |
 | [002](002-cpp-tree-without-a-root-cmake-project.md) | 해결 | 04 common | C++ 컴포넌트가 루트 CMake 프로젝트 없이 커밋됨 |
 | [003](003-ci-runner-out-of-disk-building-grpc.md) | 해결 | 04 common | CI 러너가 gRPC 의존성을 빌드하다 디스크가 가득 참 |
+| [004](004-clang-tidy-rejects-cmake-module-scanning-flags.md) | 해결 | 04 common | CI의 clang-tidy가 CMake의 모듈 스캔 플래그를 거부 |
 
 ## 형식
 
