@@ -12,6 +12,7 @@ env:
   # builds every port twice (debug and release). Our own code still builds in each preset's mode.
   VCPKG_TRIPLET: x64-linux-release
   LLVM_MAJOR: 21  # the same major as the developer machines, so clang-tidy and clang-format agree
+  CMAKE_VERSION: 3.31.8  # the developer machines' CMake; the runner image moves to new majors on its own
 
 jobs:
   # Builds the vcpkg dependencies once and stores them as a binary cache; the three C++ jobs restore
@@ -99,6 +100,13 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy "/usr/bin/clang-tidy-$LLVM_MAJOR" 100
           sudo update-alternatives --install /usr/bin/clang-format clang-format "/usr/bin/clang-format-$LLVM_MAJOR" 100
           clang-tidy --version | head -1
+
+      - name: Pin CMake
+        if: needs.deps.outputs.present == 'true'
+        run: |
+          pipx install "cmake==$CMAKE_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/cmake" --version | head -1
 
       - name: Checkout vcpkg at the manifest baseline
         if: needs.deps.outputs.present == 'true'
