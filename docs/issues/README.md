@@ -5,6 +5,7 @@
 | # | 상태 | 발견 | 증상 |
 |---|---|---|---|
 | [001](001-ci-clang-tidy-version-mismatch.md) | 해결 | 01 저장소 도구 | CI의 tidy 잡이 로컬에서 통과한 코드에 실패 |
+| [002](002-cpp-tree-without-a-root-cmake-project.md) | 해결 | 04 common | C++ 컴포넌트가 루트 CMake 프로젝트 없이 커밋됨 |
 
 ## 형식
 
