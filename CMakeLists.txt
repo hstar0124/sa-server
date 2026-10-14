@@ -10,6 +10,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+# No C++20 modules here. Without this, CMake 3.28+ adds GCC's module-scanning flags
+# (-fmodules-ts, -fdeps-format, -fmodule-mapper) to every compile command, and clang-tidy, which
+# re-parses those commands with clang, rejects them (issues/004).
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 option(SA_BUILD_TESTS "Build unit tests" ON)
 option(SA_ENABLE_CLANG_TIDY "Run clang-tidy as part of the build" OFF)
