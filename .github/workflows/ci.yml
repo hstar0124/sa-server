@@ -8,6 +8,7 @@ on:
 env:
   VCPKG_ROOT: ${{ github.workspace }}/vcpkg
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-cache,readwrite
+  LLVM_MAJOR: 21  # the same major as the developer machines, so clang-tidy and clang-format agree
 
 jobs:
   cpp:
@@ -18,17 +19,29 @@ jobs:
       matrix:
         preset: [dev, asan, tidy]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      # Early in the project the C++ tree does not exist yet; the job then passes without work.
+      - name: Probe
+        id: probe
+        run: echo "present=$([ -f CMakeLists.txt ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Install toolchain
+        if: steps.probe.outputs.present == 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends g++-14 ninja-build clang-format-18 clang-tidy-18 pkg-config autoconf automake libtool bison flex
+          sudo apt-get install -y --no-install-recommends g++-14 ninja-build pkg-config autoconf automake libtool bison flex wget lsb-release software-properties-common gnupg
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
-          sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-18 100
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash /tmp/llvm.sh "$LLVM_MAJOR"
+          sudo apt-get install -y --no-install-recommends "clang-tidy-$LLVM_MAJOR" "clang-format-$LLVM_MAJOR"
+          sudo update-alternatives --install /usr/bin/clang-tidy clang-tidy "/usr/bin/clang-tidy-$LLVM_MAJOR" 100
+          sudo update-alternatives --install /usr/bin/clang-format clang-format "/usr/bin/clang-format-$LLVM_MAJOR" 100
+          clang-tidy --version | head -1
 
       - name: Checkout vcpkg at the manifest baseline
+        if: steps.probe.outputs.present == 'true'
         run: |
           BASELINE=$(python3 -c "import json;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
           git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
@@ -36,41 +49,54 @@ jobs:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache@v4
+        if: steps.probe.outputs.present == 'true'
+        uses: actions/cache@v6
         with:
           path: vcpkg-cache
           key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: vcpkg-${{ runner.os }}-
 
       - name: Configure
+        if: steps.probe.outputs.present == 'true'
         run: cmake --preset ${{ matrix.preset }}
 
       - name: Build
+        if: steps.probe.outputs.present == 'true'
         run: cmake --build --preset ${{ matrix.preset }}
 
       - name: Test
-        if: matrix.preset != 'tidy'
+        if: steps.probe.outputs.present == 'true' && matrix.preset != 'tidy'
         run: ctest --preset ${{ matrix.preset }}
 
       - name: clang-format check
-        if: matrix.preset == 'dev'
+        if: steps.probe.outputs.present == 'true' && matrix.preset == 'dev'
         run: |
           find server/cpp tools -type f \( -name '*.hpp' -o -name '*.cpp' \) -print0 \
-            | xargs -0 clang-format-18 --dry-run --Werror
+            | xargs -0 clang-format --dry-run --Werror
 
   dotnet:
     name: .NET
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+
+      - name: Probe
+        id: probe
+        run: echo "present=$([ -f server/dotnet/GameServer.slnx ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-dotnet@v6
+        if: steps.probe.outputs.present == 'true'
         with:
           dotnet-version: 10.0.x
       - name: Restore
+        if: steps.probe.outputs.present == 'true'
         run: dotnet restore server/dotnet/GameServer.slnx
       - name: Build (warnings are errors)
+        if: steps.probe.outputs.present == 'true'
         run: dotnet build server/dotnet/GameServer.slnx --no-restore --configuration Release
       - name: Test
+        if: steps.probe.outputs.present == 'true'
         run: dotnet test server/dotnet/GameServer.slnx --no-build --configuration Release
       - name: Format check
+        if: steps.probe.outputs.present == 'true'
         run: dotnet format server/dotnet/GameServer.slnx --verify-no-changes --no-restore
