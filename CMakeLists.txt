@@ -1,0 +1,39 @@
+cmake_minimum_required(VERSION 3.28)
+
+project(sa_server
+  VERSION 0.1.0
+  DESCRIPTION "MMORPG server: C++ gateway and zone"
+  LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+option(SA_BUILD_TESTS "Build unit tests" ON)
+option(SA_ENABLE_CLANG_TIDY "Run clang-tidy as part of the build" OFF)
+set(SA_SANITIZER "" CACHE STRING "Sanitizer preset: '', 'address', or 'thread'")
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(CompilerWarnings)   # defines sa::warnings
+include(Sanitizers)         # defines sa::sanitizers
+include(StaticAnalysis)     # wires clang-tidy when SA_ENABLE_CLANG_TIDY
+include(SaTarget)           # sa_apply_policy, sa_add_test
+
+find_package(Protobuf CONFIG REQUIRED)
+find_package(gRPC CONFIG REQUIRED)
+find_package(asio CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(tomlplusplus CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
+
+if(SA_BUILD_TESTS)
+  find_package(GTest CONFIG REQUIRED)
+  include(GoogleTest)
+  enable_testing()
+endif()
+
+# Each component adds itself here when it lands; the tree always builds as a whole.
+add_subdirectory(contracts)
+add_subdirectory(server/cpp/common)
