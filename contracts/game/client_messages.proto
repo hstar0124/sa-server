@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package sa.game.v1;
+
+import "game/common.proto";
+import "game/framing.proto";
+
+option csharp_namespace = "Sa.Game.V1";
+
+// 클라이언트 → Gateway. 모든 메시지는 이 봉투 하나로 감싼다.
+message ClientMessage {
+  oneof body {
+    Hello hello = 1;
+    Ping ping = 2;
+    MoveInput move_input = 10;
+    CastSkill cast_skill = 11;
+    PickupItem pickup_item = 12;
+    ChangeZone change_zone = 13;
+  }
+}
+
+// 접속 직후 첫 메시지. 티켓은 Backend가 발급한 서명 토큰(ADR-0005).
+message Hello {
+  ProtocolVersion protocol_version = 1;
+  bytes entry_ticket = 2;
+}
+
+message Ping {
+  uint32 nonce = 1;
+  uint64 client_time_ms = 2;
+}
+
+// 이동 입력. 서버가 위치를 적분한다. direction은 정규화된 방향 또는 영벡터(정지).
+message MoveInput {
+  uint32 input_seq = 1;
+  Vec2 direction = 2;
+  uint32 client_tick = 3;
+}
+
+message CastSkill {
+  uint64 request_id = 1;
+  uint32 skill_id = 2;
+  oneof target {
+    uint64 target_entity_id = 3;
+    Vec2 direction = 4;
+  }
+}
+
+message PickupItem {
+  uint64 request_id = 1;
+  uint64 item_entity_id = 2;
+}
+
+message ChangeZone {
+  uint64 request_id = 1;
+  uint32 portal_id = 2;
+}
