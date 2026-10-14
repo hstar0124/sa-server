@@ -18,7 +18,7 @@ config_source.hpp:41:31: error: no template named 'expected' in namespace 'std'
 
 ## 원인 분석
 - 앞의 세 줄은 GCC 전용 C++20 모듈 플래그다. 우리는 모듈을 쓰지 않는데 컴파일 명령에 들어 있었다.
-- `std::expected`가 없다는 오류는 그 결과로 봤다. 드라이버 인자 오류 뒤 clang이 `-std=c++23` 없이 파싱하면 C++17 기본값이라 `<expected>`가 비어 있다. 첫 오류를 없애면 함께 사라질 것으로 예상했고 그렇게 됐다.
+- `std::expected`가 없다는 오류는 그 결과로 봤다. 드라이버 인자 오류 뒤 clang이 `-std=c++23` 없이 파싱하면 C++17 기본값이라 `<expected>`가 비어 있다고 추정했다. **이 추정은 틀렸다.** 모듈 플래그를 없앤 뒤에도 오류가 남았고, 실제 원인은 CI가 clang-tidy 18을 실행하고 있던 것이었다([005](005-ci-ran-clang-tidy-18-despite-the-pin.md)).
 - 로컬과 무엇이 다른지: 로컬 CMake는 3.31.8이고 `build/tidy/compile_commands.json`에 `-fmodules-ts`가 0회. CI 러너는 이미지에 들어 있는 CMake를 썼고(vcpkg는 자기용으로 4.4.3을 따로 받는다) 그 버전은 CXX 표준이 20 이상이면 모든 컴파일 명령에 모듈 스캔 플래그를 붙였다. 툴체인 버전이 로컬과 다르다는 점에서 [001](001-ci-clang-tidy-version-mismatch.md)과 같은 종류의 문제다.
 
 ## 원인

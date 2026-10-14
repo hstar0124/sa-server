@@ -23,6 +23,7 @@ Gateway·Zone·봇이 공유할 바닥을 먼저 깐다. 길이 프리픽스 프
 
 - [003 CI 러너가 gRPC 의존성을 빌드하다 디스크가 가득 참](../issues/003-ci-runner-out-of-disk-building-grpc.md) — 이 PR의 첫 CI에서 세 잡이 50분 넘게 같은 의존성을 각자 빌드하다 `No space left on device`. 의존성 전용 잡 하나, release 전용 트리플릿, build tree 정리, 디스크 확보로 고쳤다.
 - [004 CI의 clang-tidy가 CMake의 모듈 스캔 플래그를 거부](../issues/004-clang-tidy-rejects-cmake-module-scanning-flags.md) — 러너의 CMake가 GCC 모듈 플래그를 붙였다. 모듈 스캔을 끄고 CI의 CMake를 3.31.8로 고정.
+- [005 CI가 LLVM 21을 설치하고도 clang-tidy 18을 실행함](../issues/005-ci-ran-clang-tidy-18-despite-the-pin.md) — 러너의 `/usr/bin/clang-tidy`가 alternatives로 안 바뀌었다. 컨테이너에서 같은 툴체인을 재현해 툴체인 자체는 정상임을 확인한 뒤 로그의 실제 버전을 보고 찾았다. PATH 앞에 링크를 두고 버전이 다르면 설치 단계에서 실패하게 했다. 004의 가설 하나가 틀렸다는 것도 함께 적었다.
 
 ## 검증
 - 별도 worktree에서 커밋된 트리로: `cmake --preset dev` 빌드 + 테스트 26개 통과, `--preset tidy` 경고 0(clang-tidy 21), `--preset asan` 26개 통과, clang-format 검사 통과.
