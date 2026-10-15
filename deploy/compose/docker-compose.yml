@@ -11,7 +11,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-sa}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/.env}
       # Durability settings are the PostgreSQL defaults (synchronous_commit=on, fsync=on);
-      # the design document section 15.1 forbids relaxing them for asset transactions.
+      # asset transactions must never run with them relaxed.
     command:
       - postgres
       - -c

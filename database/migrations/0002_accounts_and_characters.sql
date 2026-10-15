@@ -1,4 +1,4 @@
--- Accounts, worlds and characters (design document 9.2). Integrity rules live here as constraints,
+-- Accounts, worlds and characters (see README "데이터의 기준"). Integrity rules live here as constraints,
 -- not only in application code (CLAUDE.md rule 7).
 
 CREATE TABLE game.accounts (

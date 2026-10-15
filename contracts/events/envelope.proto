@@ -6,7 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 option csharp_namespace = "Sa.Events.V1";
 
-// Kafka로 발행되는 확정 이벤트의 공통 봉투 (설계 문서 12.3절).
+// Kafka로 발행되는 확정 이벤트의 공통 봉투.
 // payload는 event_type에 대응하는 메시지의 직렬화 바이트.
 message EventEnvelope {
   bytes event_id = 1;          // UUID 16바이트. Outbox 행과 동일

@@ -1,4 +1,4 @@
-# Zone B. Values are the design document's initial proposals (section 7.2), not measured optima.
+# Zone B. Values are initial proposals (see README "Zone의 한 틱"), not measured optima.
 [zone]
 world_id = 1
 zone_id = 2
@@ -19,7 +19,7 @@ max_frame_bytes = 262144  # a SessionOutput wraps one client frame (<= 64 KiB) p
 [backend]
 address = "localhost:5101"
 rpc_timeout_ms = 2000
-lease_renew_interval_ms = 5000   # design document 14.3: heartbeat 5 s, lease 15 s
+lease_renew_interval_ms = 5000   # see README "소유권과 lease": heartbeat 5 s, lease 15 s
 lease_safety_margin_ms = 2000
 
 # Paths are relative to the working directory (repository root in development, /app in containers).

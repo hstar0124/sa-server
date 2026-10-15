@@ -20,7 +20,7 @@ internal enum LoginOutcome
 
 internal sealed record LoginResult(LoginOutcome Outcome, AccessToken? Token);
 
-/// <summary>Account use-cases. Password handling is delegated to ASP.NET Core Identity's hasher (design document 18).</summary>
+/// <summary>Account use-cases. Password handling is delegated to ASP.NET Core Identity's hasher.</summary>
 internal sealed partial class AuthService(
     AccountRepository accounts,
     IPasswordHasher<Account> hasher,

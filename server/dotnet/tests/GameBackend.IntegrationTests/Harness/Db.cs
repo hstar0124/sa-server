@@ -3,7 +3,7 @@ using Npgsql;
 
 namespace Sa.GameBackend.IntegrationTests.Harness;
 
-/// <summary>Direct database reads for assertions: tests check rows, not only status codes (design document 21.1).</summary>
+/// <summary>Direct database reads for assertions: tests check rows, not only status codes (see tests/integration/README.md).</summary>
 internal static class Db
 {
     public static async Task<T> ScalarAsync<T>(string connectionString, string sql, object? parameters = null)

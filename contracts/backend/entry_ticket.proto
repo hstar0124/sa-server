@@ -9,7 +9,7 @@ option csharp_namespace = "Sa.Backend.V1";
 //
 // The Gateway checks `signature` = HMAC-SHA256(key[key_id], `ticket`) and the expiry; the
 // Backend decides single use and ownership. Neither the ticket nor Redis is a source of
-// control over the character (design document 6.2).
+// control over the character (see README "네트워크와 입장").
 message EntryTicket {
   bytes ticket_id = 1;        // UUID, 16 bytes; primary key of the redemption record
   uint64 account_id = 2;

@@ -11,7 +11,7 @@ internal sealed record GatewayEndpoint(string Host, int Port);
 
 internal sealed record EnterWorldResponse(string EntryTicket, GatewayEndpoint Gateway, DateTimeOffset ExpiresAt);
 
-/// <summary>Design document 6.2 steps 1-2: the client selects a character and receives a short-lived ticket.</summary>
+/// <summary>see README "네트워크와 입장": the client selects a character and receives a short-lived ticket.</summary>
 internal static class EntryEndpoints
 {
     public static IEndpointRouteBuilder MapEntryEndpoints(this IEndpointRouteBuilder app)

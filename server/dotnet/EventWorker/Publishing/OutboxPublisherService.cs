@@ -3,7 +3,7 @@ using Microsoft.Extensions.Options;
 namespace Sa.EventWorker.Publishing;
 
 /// <summary>
-/// Drains <c>game.outbox_events</c> to Kafka in aggregate order (design document 12.2, 12.4).
+/// Drains <c>game.outbox_events</c> to Kafka in aggregate order.
 /// Stage 0 only establishes the hosted-service shape and its polling cadence; the Outbox query,
 /// producer and publish cursor arrive in stage 6.
 /// </summary>

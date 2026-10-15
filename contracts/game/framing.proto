@@ -10,7 +10,7 @@ enum Framing {
   FRAMING_UNSPECIFIED = 0;
   // 길이 헤더 바이트 수.
   FRAMING_HEADER_BYTES = 4;
-  // 페이로드 최대 바이트. 설계 문서 6.3절의 초깃값(64 KiB). 측정 후 조정한다.
+  // 페이로드 최대 바이트. README "네트워크와 입장"의 초깃값(64 KiB). 측정 후 조정한다.
   FRAMING_MAX_PAYLOAD_BYTES = 65536;
 }
 

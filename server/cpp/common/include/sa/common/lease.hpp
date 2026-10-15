@@ -5,7 +5,7 @@
 
 namespace sa::common {
 
-// Tracks a lease granted by the Backend (design document 14.3). Expiry is interpreted
+// Tracks a lease granted by the Backend (see README "소유권과 lease"). Expiry is interpreted
 // conservatively: the holder subtracts a safety margin for clock skew and request latency, and
 // treats "never renewed" as not alive.
 class LeaseState {

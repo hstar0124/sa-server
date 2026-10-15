@@ -11,8 +11,7 @@ internal sealed class DatabaseOptions
     public string ConnectionString { get; init; } = string.Empty;
 
     /// <summary>
-    /// Upper bound on pooled connections for this process. The design document (section 9.3)
-    /// requires the total across Backend instances to stay below PostgreSQL's max_connections.
+    /// Upper bound on pooled connections for this process. The total across Backend instances to stay below PostgreSQL's max_connections.
     /// </summary>
     [Range(1, 200)]
     public int MaxPoolSize { get; init; } = 20;

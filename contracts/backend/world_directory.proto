@@ -4,7 +4,7 @@ package sa.backend.v1;
 
 option csharp_namespace = "Sa.Backend.V1";
 
-// Authoritative record of which process may act for which character (design document 14,
+// Authoritative record of which process may act for which character (see README "소유권과 lease",
 // ADR-0005). Callers are the Gateway and Zone processes; every call carries a deadline.
 service WorldDirectory {
   // Gateway submits a ticket whose signature and expiry it has already verified. In one

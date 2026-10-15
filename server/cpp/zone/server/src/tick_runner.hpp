@@ -12,7 +12,7 @@
 namespace sa::zone {
 
 // Drives Zone::Tick() from an Asio timer on the io_context thread. This is the single logical
-// thread that owns the zone state (design document 7.1); network completions will be queued
+// thread that owns the zone state (see README "Zone의 한 틱"); network completions will be queued
 // onto the same io_context in later stages.
 class TickRunner {
 public:

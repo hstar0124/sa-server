@@ -4,7 +4,7 @@ using Sa.GameBackend.IntegrationTests.Harness;
 
 namespace Sa.GameBackend.IntegrationTests.WorldDirectory;
 
-/// <summary>Design document 6.2 step 4-5 and 14.1: one ticket, one live session, one owning zone.</summary>
+/// <summary>see README "네트워크와 입장": one ticket, one live session, one owning zone.</summary>
 [Collection(SharedPostgres.Name)]
 public sealed class RedeemTests(PostgresFixture postgres) : IDisposable
 {
