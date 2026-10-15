@@ -41,3 +41,5 @@ endif()
 # Each component adds itself here when it lands; the tree always builds as a whole.
 add_subdirectory(contracts)
 add_subdirectory(server/cpp/common)
+add_subdirectory(server/cpp/zone)
+add_subdirectory(tools/loadgen)

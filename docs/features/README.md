@@ -8,6 +8,7 @@
 | [02](02-design-docs.md) | 설계 문서 v1.0, ADR-0001~0008, 설계 노트 01~05, 작업 규칙 | 0 | |
 | [03](03-contracts.md) | Protobuf 계약: game / backend / events / internal 네 패키지 | 0 | |
 | [04](04-cpp-common.md) | C++ 공통: 강타입 ID, 프레이밍, 설정, HMAC, 인스턴스 ID, lease, 루트 CMake | 0 | |
+| [05](05-zone-simulation.md) | Zone 시뮬레이션: 이동·충돌·격자 AOI, game-data 로더, Wanderer 두뇌 | 2 | |
 
 ## 형식
 
