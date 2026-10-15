@@ -1,7 +1,7 @@
 # SA — MMORPG Server (portfolio project)
 
-설계 기준 문서: `docs/Server_Architecture.md`. 설계 변경은 `docs/adr/`에 ADR로 남긴다.
-문서와 ADR이 충돌하면 **ADR이 우선**한다.
+지금까지 만든 것의 요약은 `README.md`(단계마다 더해진다). 설계 결정과 변경은 `docs/adr/`에 ADR로 남긴다.
+README와 ADR이 충돌하면 **ADR이 우선**하고 README를 고친다.
 
 ## 무엇을 만드나
 - `server/cpp/gateway` — C++23 (GCC 14). 클라이언트 TCP 연결, 프레이밍, 세션, Zone 라우팅.
@@ -43,11 +43,11 @@ docker compose -f deploy/compose/docker-compose.yml up -d
 - "왜 이렇게 만들었나"를 설명하는 토론·비교·수치 추정은 `docs/design-notes/`에 노트로 남기고 README에서 링크한다. 개발 절차가 아닌 어필 내용이 들어가는 곳이다.
 - Git: gitflow. `feature/*` → `develop`(`--no-ff`) → `release/x.y.z` → `main`(태그). 커밋은 컴포넌트·단계별로 나누고 메시지는 변경 사항만 쓴다. 공동 작업 표기(Co-Authored-By 등)는 넣지 않는다.
 - 문서의 "제안값"은 측정 전까지 config 기본값일 뿐이다. 측정 결과는 `docs/reports/`.
-- 테스트 없는 정합성 코드는 미완성이다. `docs/Server_Architecture.md` 21.1절의 표가 통합 테스트 목록이다.
+- 테스트 없는 정합성 코드는 미완성이다. `tests/integration/README.md`의 표가 통합 테스트 목록이다.
 
 ## 비밀 값
 `Auth:SigningKey`(base64 32바이트 이상)와 DB 비밀번호는 user-secrets 또는 환경 변수로만 준다. appsettings.json에는 빈 값만 있다.
 
 ## 단계 (ADR-0002)
-완료: 0 골격·툴체인(저장소 도구, 설계 문서, ADR-0001~0008, 설계 노트 01~05).
+완료: 0 골격·툴체인(저장소 도구, ADR-0001~0008, 설계 노트 01~05), 1 Backend 인증·캐릭터·WorldDirectory, 2 Zone 시뮬레이션·서버 호스트.
 다음: 1 Backend 인증·캐릭터·마이그레이션·통합 테스트 하네스 → 2 Zone 시뮬레이션·봇 두뇌 → 3 입장 경로(서명 티켓·Gateway↔Zone 링크)·네트워크 봇 → 3b 2D 뷰어·WebSocket → 4 전투 → 5 자산·멱등성 → 6 Outbox·Kafka(+K3s 도입) → 7 Redis → 8 두 번째 Zone·이전 → 9 거래 → 10 부하·장애·백업·보고서

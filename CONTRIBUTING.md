@@ -14,7 +14,7 @@
 - [ ] end-to-end: `scripts/e2e-local.sh <프로필>` PASS(3단계 이후).
 - [ ] 단계 끝이면 `scripts/bench/capacity.sh` 50~2,000 재측정, 보고서에 비교(7단계 이후).
 - [ ] 검증은 **커밋된 트리**로 한다: `git stash -u` 뒤 빌드하거나 별도 worktree(`git worktree add`)에서 빌드한다. 작업 트리에만 있는 파일에 기대지 않는다.
-- [ ] README 진행 상태·증명 목록 갱신.
+- [ ] README에 **이 PR이 만든 것**을 더한다(구조·흐름·데이터 기준의 해당 부분). 미래 단계의 내용이나 아직 하지 않은 측정은 적지 않는다. 측정이 있었으면 "성능과 개선"(부하별 리소스 표, 개선 사례: 증상 → 원인 → 조치 → 다시 잰 결과)과 `docs/reports/`를 갱신한다.
 - [ ] 릴리스: `release/x.y.z` PR → `main` 병합 → 태그 `vx.y.z` → Release 노트(그 단계 피처 문서 요약) → `develop`에 다시 병합.
 
 ## 도구 버전

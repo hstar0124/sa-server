@@ -12,6 +12,7 @@
 | [06](06-backend.md) | GameBackend: 인증·캐릭터·WorldDirectory, 마이그레이션 0001~0003, PostgreSQL 통합 테스트 | 1 | |
 | [07](07-zone-server.md) | Zone 서버 호스트: 틱 러너, Gateway 링크, 세션 표, lease, 프로세스 안 봇 | 2 | |
 | [08](08-gateway.md) | Gateway: 티켓 검증, 세션 상태 기계, Zone 링크, 디렉터리 클라이언트 | 3 | |
+| [09](09-docs-architecture-into-readme.md) | 설계 문서를 README로 흡수: 현재 방향만 남기고 원문 제거 | – | |
 
 ## 형식
 
