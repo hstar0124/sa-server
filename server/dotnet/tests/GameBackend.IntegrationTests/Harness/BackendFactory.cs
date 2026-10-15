@@ -1,0 +1,57 @@
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
+
+namespace Sa.GameBackend.IntegrationTests.Harness;
+
+/// <summary>Knobs a test may turn; everything else keeps the production default.</summary>
+public sealed record BackendSettings(
+    int MaxCharactersPerWorld = 4,
+    TimeSpan? GatewayLeaseDuration = null,
+    TimeSpan? ZoneLeaseDuration = null,
+    TimeSpan? TicketLifetime = null);
+
+/// <summary>In-process GameBackend bound to the fixture database. Settings mirror production keys.</summary>
+public sealed class BackendFactory(string connectionString, BackendSettings? settings = null) : WebApplicationFactory<Program>
+{
+    private readonly BackendSettings _settings = settings ?? new BackendSettings();
+
+    // Fresh keys per factory: two factories therefore never trust each other's tokens or tickets.
+    private readonly string _jwtKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    private readonly byte[] _ticketKey = RandomNumberGenerator.GetBytes(32);
+
+    /// <summary>The ticket HMAC key this backend signs with; tests verify tickets against it.</summary>
+    public ReadOnlySpan<byte> TicketSigningKey => _ticketKey;
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.UseEnvironment("Testing");
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["Database:ConnectionString"] = connectionString,
+            ["Auth:SigningKey"] = _jwtKey,
+            ["WorldDirectory:TicketSigningKey"] = Convert.ToBase64String(_ticketKey),
+            ["Characters:MaxCharactersPerWorld"] = _settings.MaxCharactersPerWorld.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["Logging:LogLevel:Default"] = "Warning",
+        };
+        if (_settings.GatewayLeaseDuration is { } gateway)
+        {
+            values["WorldDirectory:GatewayLeaseDuration"] = gateway.ToString();
+        }
+
+        if (_settings.ZoneLeaseDuration is { } zone)
+        {
+            values["WorldDirectory:ZoneLeaseDuration"] = zone.ToString();
+        }
+
+        if (_settings.TicketLifetime is { } ticket)
+        {
+            values["WorldDirectory:TicketLifetime"] = ticket.ToString();
+        }
+
+        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(values));
+    }
+}
