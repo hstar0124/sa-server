@@ -14,6 +14,9 @@
     <Deterministic>true</Deterministic>
     <!-- Required by IDE0005 (unused usings) to run at build time; CS1591 (missing XML doc) is not a goal. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Transitive package versions are locked too (packages.lock.json per project); CI restores in
+         locked mode, so a dependency that drifts fails the build instead of changing silently. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <PropertyGroup>
