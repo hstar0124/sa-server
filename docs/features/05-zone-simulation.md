@@ -21,7 +21,7 @@ Zone의 핵심은 틱마다 상태를 바꾸는 순수한 시뮬레이션이다.
 - 루트 CMake에 `server/cpp/zone`(sim, data)과 `tools/loadgen`(bot) 추가
 
 ## 만난 문제
-- 없음.
+- [006 의존성 캐시가 그것을 만든 PR에서만 보임](../issues/006-ci-dependency-cache-scoped-to-one-pull-request.md) — 이 PR의 CI가 의존성을 다시 2시간 빌드하기 시작했다. CI가 `develop` 푸시에도 돌아 공유 캐시를 저장하도록 이 PR에서 고쳤다.
 
 ## 검증
 - 커밋된 트리를 worktree에서: dev 빌드 + 테스트 68개(04의 26개 + 42개) 통과, tidy 경고 0, ASan 68개 통과, clang-format 통과.

@@ -9,6 +9,7 @@
 | [003](003-ci-runner-out-of-disk-building-grpc.md) | 해결 | 04 common | CI 러너가 gRPC 의존성을 빌드하다 디스크가 가득 참 |
 | [004](004-clang-tidy-rejects-cmake-module-scanning-flags.md) | 해결 | 04 common | CI의 clang-tidy가 CMake의 모듈 스캔 플래그를 거부 |
 | [005](005-ci-ran-clang-tidy-18-despite-the-pin.md) | 해결 | 04 common | CI가 LLVM 21을 설치하고도 clang-tidy 18을 실행함 |
+| [006](006-ci-dependency-cache-scoped-to-one-pull-request.md) | 해결 | 05 Zone 시뮬레이션 | 의존성 캐시가 그것을 만든 PR에서만 보여 다음 PR이 다시 빌드 |
 
 ## 형식
 
