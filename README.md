@@ -81,6 +81,20 @@ flowchart LR
 
 틱은 Asio 타이머가 이전 마감 기준으로 깨운다. 밀리면 상한까지만 따라잡고 나머지는 버리고 센다. 플레이어마다 "알려준 집합"과의 차이(spawned·updated·despawned)만 보낸다. 수치는 `game-data/`와 `deploy/compose/config/`에 있다.
 
+## 전투
+
+스킬·클래스·몬스터는 코드가 아니라 `game-data/`의 데이터다. 로더가 네 파일을 하나의 콘텐츠 묶음으로 읽고, 맵의 몬스터 스폰까지 서로 맞는지 검증한다. 시간 값은 밀리초로 두고, 틱 수로 바꾸는 것은 틱 속도를 아는 Zone이 한다.
+
+| 데이터 | 정의하는 것 |
+|---|---|
+| 클래스 | 체력, 마나와 재생 속도, 쓸 수 있는 스킬 |
+| 스킬 | 판정 종류(대상 지정 또는 투사체), 마나 비용, 쿨타임, 시전 시간, 사거리, 피해, 투사체 속도·반경 |
+| 몬스터 | 체력, 이동 속도, 어그로·리시 반경, 공격 사거리·피해·주기, 리스폰 시간 |
+| 몬스터 스폰 | 맵마다 템플릿, 귀환 지점, 마릿수 |
+| 콘텐츠 버전 | game-data가 시뮬레이션 결과나 보상을 바꾸면 올리는 식별자 |
+
+없는 스킬을 가리키는 클래스, 속도·반경이 빠진 투사체 스킬, 모르는 템플릿이나 맵 밖을 가리키는 몬스터 스폰은 로드 단계에서 거절한다.
+
 ## 소유권과 lease
 
 - Backend가 캐릭터마다 소유 Zone 인스턴스와 증가하는 소유권 세대(owner_epoch)를 기록한다. Zone 프로세스는 재시작하면 새 인스턴스 ID를 받는다.
@@ -137,7 +151,7 @@ contracts/         Protobuf 계약 (game / backend / events / internal)
 server/cpp/        common, gateway, zone(sim + data + server)
 server/dotnet/     Contracts, GameBackend, Migrator, tests
 database/          SQL 마이그레이션
-game-data/         맵·이동 규칙
+game-data/         맵·이동·전투 규칙, 클래스·스킬·몬스터, 콘텐츠 버전
 deploy/compose/    로컬 PostgreSQL과 프로세스 설정
 tools/loadgen/     봇 두뇌(bot/)와 네트워크 봇 클라이언트(client/, 프로필)
 scripts/           end-to-end, 대화형 스택(dev-stack), 뷰어 정적 서버, 형식 검사

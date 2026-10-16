@@ -16,6 +16,7 @@
 | [10](10-loadgen-client.md) | 네트워크 봇 클라이언트와 end-to-end: 로그인부터 입장까지 한 명령으로 | 3 | 0.1.0 |
 | [11](11-gateway-websocket-transport.md) | WebSocket 전송: 브라우저가 같은 메시지로 Gateway에 붙는다 | 3b | |
 | [12](12-web-viewer.md) | 브라우저 뷰어: 같은 프로토콜로 접속해 동기화를 눈으로 본다 | 3b | |
+| [13](13-zone-combat-content.md) | 전투 콘텐츠: 클래스·스킬·몬스터를 데이터로 | 4 | |
 
 ## 형식
 
