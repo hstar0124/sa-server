@@ -113,7 +113,7 @@ message CommandResult {
   RejectCode reject_code = 4;
 }
 
-// 관심 영역 안에서 벌어진 피해. 공격자와 피격자, 그리고 둘을 보는 모두에게 간다.
+// 관심 영역 안에서 벌어진 피해. 피격자 자신, 피격자를 시야에 둔 플레이어, 공격자에게 간다.
 message CombatEvent {
   uint64 attacker_id = 1;
   uint64 target_id = 2;
