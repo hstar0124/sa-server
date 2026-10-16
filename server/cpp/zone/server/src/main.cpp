@@ -219,7 +219,7 @@ int Run(int argc, char** argv) {
         }};
 
     // Shutdown: evict sessions (gateways kick their clients), stop the simulation, then let the
-    // eviction frames drain for the grace period before the io_context is stopped (16.3).
+    // eviction frames drain for the grace period before the io_context is stopped.
     asio::steady_timer drain_deadline{io};
     asio::signal_set signals{io, SIGINT, SIGTERM};
     signals.async_wait([&](const std::error_code&, int signal) {

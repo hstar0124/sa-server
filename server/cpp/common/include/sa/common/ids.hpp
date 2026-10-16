@@ -15,7 +15,7 @@ using CharacterId = StrongId<struct CharacterIdTag>;
 using EntityId = StrongId<struct EntityIdTag>;
 using SessionId = StrongId<struct SessionIdTag>;
 
-// Monotonic ownership generation for a character (section 14.3 fencing). Higher wins.
+// Monotonic ownership generation for a character; it fences off stale owners. Higher wins.
 using OwnerEpoch = StrongId<struct OwnerEpochTag>;
 
 // Simulation tick counter of one zone process lifetime.

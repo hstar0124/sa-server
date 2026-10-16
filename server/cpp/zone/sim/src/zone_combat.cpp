@@ -220,7 +220,7 @@ void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, Skill
         changed = &p->second.vitals_changed_this_tick;
     }
     if (vitals == nullptr || !vitals->IsAlive()) {
-        return;  // death is processed exactly once (8.1: lifecycle guard)
+        return;  // death is processed exactly once per lifecycle
     }
     vitals->hp = std::max(0, vitals->hp - std::max(0, damage));
     *changed = true;
