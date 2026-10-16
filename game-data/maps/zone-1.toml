@@ -22,3 +22,24 @@ spawn_points = [
   [20.0, 180.0],
   [180.0, 180.0],
 ]
+
+# Monster spawn points: template, home position, and how many share that home.
+[[monster_spawns]]
+template_id = 101
+position = [60.0, 40.0]
+count = 3
+
+[[monster_spawns]]
+template_id = 101
+position = [140.0, 160.0]
+count = 3
+
+[[monster_spawns]]
+template_id = 102
+position = [100.0, 130.0]
+count = 2
+
+[[monster_spawns]]
+template_id = 102
+position = [40.0, 120.0]
+count = 2

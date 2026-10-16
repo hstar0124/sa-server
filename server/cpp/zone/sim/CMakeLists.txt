@@ -2,6 +2,7 @@
 add_library(sa_zone_sim STATIC
   src/fixed_step_scheduler.cpp
   src/map_data.cpp
+  src/content.cpp
   src/spatial_grid.cpp
   src/zone.cpp)
 add_library(sa::zone_sim ALIAS sa_zone_sim)

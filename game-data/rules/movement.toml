@@ -11,3 +11,10 @@ leave_radius_m = 45.0
 [input]
 # How many queued commands one tick processes before deferring the rest (see README "Zone의 한 틱").
 commands_per_tick_budget = 4096
+
+[combat]
+# Monster decision rate. Each monster decides on its own offset, so they do not all think on the same tick.
+monster_think_hz = 5
+# A dead player returns to a spawn point with full vitals after this long.
+player_respawn_ms = 5000
+# Casting blocks movement; a move input during a cast is applied once the cast resolves.
