@@ -16,7 +16,7 @@ flowchart TD
     B["C# GameBackend"]
     P["PostgreSQL"]
 
-    C <-->|"게임 입력과 결과 (길이 프리픽스 TCP)"| G
+    C <-->|"게임 입력과 결과 (길이 프리픽스 TCP / WebSocket)"| G
     C <-->|"HTTP: 가입·로그인·캐릭터·입장 티켓"| B
     G <-->|"Zone마다 링크 하나에 세션 다중화"| Z
     G <-->|"gRPC: 티켓 소비·세션 종료"| B
@@ -48,7 +48,7 @@ flowchart TD
 | 구간 | 선택 |
 |---|---|
 | 클라이언트 ↔ Backend | HTTP(JSON) |
-| 클라이언트 ↔ Gateway | 길이 프리픽스 TCP. 프레임 상한 64 KiB, 연결당 초당 메시지 상한 |
+| 클라이언트 ↔ Gateway | 길이 프리픽스 TCP(봇·네이티브). 브라우저는 같은 Protobuf 메시지를 WebSocket 바이너리 프레임으로(두 번째 포트). 프레임 상한 64 KiB, 연결당 초당 메시지 상한 |
 | Gateway ↔ Zone | Zone마다 영속 연결 하나에 세션을 다중화 |
 | Zone·Gateway ↔ Backend | gRPC 비동기 호출, 모든 호출에 마감 시간 |
 
@@ -60,7 +60,7 @@ TCP는 초기 개발과 디버깅을 위한 선택이다(설계 노트 01·02).
 3. Backend가 **한 트랜잭션에서** 티켓을 1회 소비하고, 같은 캐릭터의 다른 활성 세션을 거절하고, lease가 살아 있는 Zone을 배정한다.
 4. Gateway가 세션을 그 Zone에 붙이고, 이후 입력과 출력을 중계한다.
 
-Gateway의 세션 로직은 I/O 없는 상태 기계라서 모든 전이를 소켓 없이 테스트한다.
+Gateway의 세션 로직은 I/O 없는 상태 기계라서 모든 전이를 소켓 없이 테스트한다. 세션 로직은 전송을 모른다. TCP와 WebSocket은 같은 `MessageConnection` 인터페이스 뒤에 있고, 둘 다 한 가지 TCP 바이트 스트림 구현(읽기 루프, 순서 있는 쓰기 큐, 종료 통지)을 쓴다(ADR-0004).
 
 ## Zone의 한 틱
 
