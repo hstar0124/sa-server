@@ -50,6 +50,16 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     out.listen_address = *address;
     out.listen_port = *port;
     out.max_connections = *max_connections;
+    out.websocket_enabled = source.GetOr<bool>("websocket.enabled", false);
+    if (out.websocket_enabled) {
+        const auto ws_address = source.Require<std::string>("websocket.address");
+        const auto ws_port = source.Require<std::uint16_t>("websocket.port");
+        if (auto err = common::FirstConfigError(ws_address, ws_port)) {
+            return std::unexpected(*err);
+        }
+        out.websocket_address = *ws_address;
+        out.websocket_port = *ws_port;
+    }
     // The protocol maximum is the contract's; a deployment may only tighten it.
     out.frame_limits.max_payload_bytes =
         source.GetOr<std::size_t>("protocol.max_payload_bytes", common::protocol::kMaxPayloadBytes);

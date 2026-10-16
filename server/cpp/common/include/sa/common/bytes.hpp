@@ -21,5 +21,6 @@ namespace sa::common {
 
 // Standard base64 with '=' padding; nullopt when the text is not valid base64.
 [[nodiscard]] std::optional<std::vector<std::byte>> DecodeBase64(std::string_view text);
+[[nodiscard]] std::string EncodeBase64(std::span<const std::byte> bytes);
 
 }  // namespace sa::common

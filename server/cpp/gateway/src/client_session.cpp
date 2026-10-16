@@ -8,18 +8,19 @@
 
 namespace sa::gateway {
 
-ClientSession::ClientSession(asio::ip::tcp::socket socket, common::FrameLimits limits,
+ClientSession::ClientSession(std::shared_ptr<common::MessageConnection> connection,
                              Dependencies deps)
     : id_(common::InstanceId::Generate()),
-      connection_(std::make_shared<common::FramedConnection>(std::move(socket), limits)),
+      connection_(std::move(connection)),
       deps_(deps),
       protocol_(deps_.verifier, deps_.protocol, id_) {}
 
 void ClientSession::Start() {
     deps_.registry.Add(id_, weak_from_this());
     spdlog::debug("session {} open peer={}", id_.ToHex(), connection_->PeerAddress());
-    connection_->Start(common::FramedConnection::Callbacks{
-        .on_frame = [self = shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
+    connection_->Start(common::MessageConnection::Callbacks{
+        .on_message = [self =
+                           shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
         .on_closed = [self = shared_from_this()](const std::error_code& ec) { self->OnClosed(ec); },
     });
 }

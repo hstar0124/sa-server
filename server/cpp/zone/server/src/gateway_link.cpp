@@ -9,8 +9,9 @@ GatewayLink::GatewayLink(asio::ip::tcp::socket socket, common::FrameLimits limit
       handler_(handler) {}
 
 void GatewayLink::Start() {
-    connection_->Start(common::FramedConnection::Callbacks{
-        .on_frame = [self = shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
+    connection_->Start(common::MessageConnection::Callbacks{
+        .on_message = [self =
+                           shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
         .on_closed = [self = shared_from_this()](const std::error_code& ec) { self->OnClosed(ec); },
     });
 }

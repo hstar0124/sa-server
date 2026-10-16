@@ -1,13 +1,11 @@
 #pragma once
 
-#include "sa/common/framed_connection.hpp"
 #include "sa/common/instance_id.hpp"
+#include "sa/common/message_connection.hpp"
 
 #include "directory_client.hpp"
 #include "session_protocol.hpp"
 #include "session_registry.hpp"
-
-#include <asio/ip/tcp.hpp>
 
 #include <functional>
 #include <memory>
@@ -26,7 +24,7 @@ public:
         SessionRegistry& registry;
     };
 
-    ClientSession(asio::ip::tcp::socket socket, common::FrameLimits limits, Dependencies deps);
+    ClientSession(std::shared_ptr<common::MessageConnection> connection, Dependencies deps);
 
     void Start();
     // Server-initiated close (shutdown): kick, detach, end session.
@@ -54,7 +52,7 @@ private:
     void Perform(SessionProtocol::EndSession effect);
 
     common::InstanceId id_;
-    std::shared_ptr<common::FramedConnection> connection_;
+    std::shared_ptr<common::MessageConnection> connection_;
     Dependencies deps_;
     SessionProtocol protocol_;
     std::function<void()> on_finished_;

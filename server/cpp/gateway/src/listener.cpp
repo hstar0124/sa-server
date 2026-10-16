@@ -39,7 +39,8 @@ void Listener::Accept() {
         if (ec) {
             spdlog::warn("accept failed: {}", ec.message());
         } else if (sessions_.size() >= config_.max_connections) {
-            spdlog::warn("connection ceiling {} reached, refusing peer", config_.max_connections);
+            spdlog::warn("{} connection ceiling {} reached, refusing peer", config_.name,
+                         config_.max_connections);
             std::error_code ignored;
             std::ignore = socket.close(ignored);
         } else {
