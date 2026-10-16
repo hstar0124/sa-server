@@ -7,7 +7,7 @@ using Sa.GameBackend.Modules.Characters;
 
 namespace Sa.GameBackend.Modules.WorldDirectory;
 
-internal sealed record GatewayEndpoint(string Host, int Port);
+internal sealed record GatewayEndpoint(string Host, int Port, int WebSocketPort);
 
 internal sealed record EnterWorldResponse(string EntryTicket, GatewayEndpoint Gateway, DateTimeOffset ExpiresAt);
 
@@ -38,6 +38,6 @@ internal static class EntryEndpoints
         IssuedTicket issued = await tickets.IssueAsync(accountId, new CharacterId(characterId), new WorldId(worldId), cancellationToken);
         WorldDirectoryOptions o = options.Value;
         return TypedResults.Ok(new EnterWorldResponse(
-            Convert.ToBase64String(issued.SignedTicket), new GatewayEndpoint(o.GatewayHost, o.GatewayPort), issued.ExpiresAt));
+            Convert.ToBase64String(issued.SignedTicket), new GatewayEndpoint(o.GatewayHost, o.GatewayPort, o.GatewayWebSocketPort), issued.ExpiresAt));
     }
 }

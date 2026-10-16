@@ -5,7 +5,7 @@
 | 구간 | 선택 | 한 줄 이유 |
 |---|---|---|
 | 게임 클라이언트 ↔ Gateway | 길이 프리픽스 TCP + Protobuf | 네이티브 클라이언트의 관례이고, 나중에 UDP로 갈 길을 막지 않는다 |
-| 브라우저 뷰어 ↔ Gateway | WebSocket 어댑터 (3b) | 브라우저는 raw TCP를 열 수 없다 |
+| 브라우저 뷰어 ↔ Gateway | WebSocket (별도 포트, 같은 Protobuf) | 브라우저는 raw TCP를 열 수 없다 |
 | Gateway ↔ Zone | 세션 다중화 영구 TCP | 핫 패스. HTTP/2 프레이밍 비용을 낼 이유가 없다 |
 | Zone·Gateway ↔ Backend | gRPC | deadline, 취소, 타입 있는 스텁. 호출 빈도가 낮다 |
 | 클라이언트 ↔ Backend | HTTPS JSON | 로그인·캐릭터 선택은 요청 수가 적다 |
@@ -20,7 +20,7 @@ WebSocket은 TCP 위에 HTTP 업그레이드 핸드셰이크, 2~14바이트 프�
 
 세 번째가 결정적이다. README "네트워크와 입장"은 TCP를 "초기 개발과 디버깅을 단순하게 하기 위한 선택"으로 두고, 패킷 손실 지연을 측정한 뒤 이동·스냅샷을 UDP로 옮길지 결정한다고 했다. 이 선택지를 열어 두려면 전송 계층이 프레이밍·메시지 의미와 분리되어 있어야 한다. 그래서 `FramedConnection`은 바이트와 프레임만 알고, 세션 상태 머신은 전송을 모른다. UDP 전송이 들어오면 바뀌는 것은 전송 어댑터 하나다.
 
-브라우저 뷰어는 WebSocket이 필수이므로 같은 Protobuf 페이로드를 싣는 어댑터로 붙인다. 전송 두 개가 한 프로토콜을 공유하는 구조 자체가 "전송과 의미를 분리했다"는 증거가 된다.
+브라우저 뷰어는 WebSocket이 필수이므로 같은 Protobuf 페이로드를 싣는 어댑터로 붙였다. `TcpByteStream` 위에 `FramedConnection`(길이 프리픽스)과 `WebSocketConnection`(RFC 6455)이 각각 올라가고, 둘 다 `MessageConnection` 인터페이스로 세션에 전달된다. 세션 상태 머신은 어느 전송인지 모른다. 전송 두 개가 한 프로토콜을 공유하는 구조 자체가 "전송과 의미를 분리했다"는 증거다.
 
 ## gRPC 스트리밍을 게임 링크에 쓰지 않은 이유
 

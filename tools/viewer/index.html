@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SA Zone Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>SA Zone Viewer</h1>
+    <span id="status" class="status">disconnected</span>
+  </header>
+
+  <main>
+    <section id="panel-login" class="panel">
+      <h2>1. 로그인</h2>
+      <label>Backend <input id="backend-url" value="http://localhost:5100"></label>
+      <label>Username <input id="username" value="viewer_demo" autocomplete="off"></label>
+      <label>Password <input id="password" type="password" value="viewer-demo-2026"></label>
+      <div class="row">
+        <button id="btn-register">Register</button>
+        <button id="btn-login" class="primary">Login</button>
+      </div>
+    </section>
+
+    <section id="panel-characters" class="panel hidden">
+      <h2>2. 캐릭터</h2>
+      <ul id="character-list"></ul>
+      <div class="row">
+        <input id="new-character-name" placeholder="새 캐릭터 이름 (2-16자)">
+        <button id="btn-create">Create</button>
+      </div>
+    </section>
+
+    <section id="panel-world" class="panel hidden">
+      <h2>3. Zone</h2>
+      <canvas id="world" width="600" height="600"></canvas>
+      <p class="hint">WASD로 이동. 다른 플레이어는 보간 버퍼만큼 과거를 보여줍니다.</p>
+      <div class="controls">
+        <label>보간 버퍼 <span id="buffer-value">200</span> ms
+          <input id="buffer-ms" type="range" min="0" max="600" step="20" value="200"></label>
+        <label>인위적 유실 <span id="loss-value">0</span> %
+          <input id="loss-pct" type="range" min="0" max="50" step="1" value="0"></label>
+        <label><input id="extrapolate" type="checkbox" checked> 데이터가 늦으면 외삽</label>
+      </div>
+      <dl id="stats" class="stats"></dl>
+      <button id="btn-leave">Leave</button>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.4.0/dist/protobuf.min.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
