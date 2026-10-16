@@ -137,6 +137,23 @@ TEST(ZoneHost, RefusesDuplicatesFullZoneAndWhenNotAuthoritative) {
     EXPECT_EQ(host.session_count(), 1U);
 }
 
+TEST(ZoneHost, RefusesACharacterWhoseClassIsNotInTheContent) {
+    constexpr std::uint32_t kClassNotInContent = 999;
+    sim::Zone zone = MakeZone();
+    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeSink sink;
+
+    auto attach = AttachFor("s1", 1);
+    attach.set_class_id(kClassNotInContent);
+    host.Attach(sink, attach);
+
+    EXPECT_EQ(Only(sink, ZoneToGateway::kSessionRejected).session_rejected().reason(),
+              internal::v1::REJECT_REASON_UNKNOWN_CLASS);
+    EXPECT_TRUE(sink.OfCase(ZoneToGateway::kSessionAttached).empty());
+    EXPECT_EQ(host.session_count(), 0U);
+    EXPECT_EQ(zone.stats().players, 0U);
+}
+
 TEST(ZoneHost, InputReachesTheSimulationAndSnapshotsFollowCadence) {
     sim::Zone zone = MakeZone();
     ZoneHost host{zone, Identity(), [] { return true; }};
