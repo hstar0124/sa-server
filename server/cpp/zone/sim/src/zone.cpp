@@ -76,7 +76,7 @@ void Zone::ApplyMove(const MoveCommand& command) {
     }
     Player& player = it->second;
     // Inputs are ordered per connection; anything not newer than the last applied one is a
-    // duplicate or a reordering and must not rewind intent (design document 6.3).
+    // duplicate or a reordering and must not rewind intent (see README "네트워크와 입장").
     if (command.input_seq <= player.last_input_seq && player.last_input_seq != 0) {
         ++stats_.stale_inputs_dropped;
         return;

@@ -12,8 +12,8 @@
 
 namespace sa::common {
 
-// 16 random bytes identifying one process generation or one gateway session (design document
-// 14.1: a restarted process is a new instance even under the same pod name).
+// 16 random bytes identifying one process generation or one gateway session. A restarted process
+// is a new instance even under the same pod name (see README "소유권과 lease").
 class InstanceId {
 public:
     static constexpr std::size_t kBytes = 16;

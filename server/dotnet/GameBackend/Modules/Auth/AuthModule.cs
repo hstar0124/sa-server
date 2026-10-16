@@ -39,7 +39,7 @@ internal static class AuthModule
             });
         services.AddAuthorization();
 
-        // Credential endpoints are brute-force targets (design document 18: input rate limits).
+        // Credential endpoints are brute-force targets.
         services.AddRateLimiter(limiter =>
         {
             limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

@@ -7,7 +7,7 @@ import "game/server_messages.proto";
 
 option csharp_namespace = "Sa.Internal.V1";
 
-// Gateway <-> Zone link (design document 6.1). One persistent, length-prefixed TCP connection
+// Gateway <-> Zone link (see README "네트워크와 입장"). One persistent, length-prefixed TCP connection
 // per gateway/zone pair carries every session of that gateway, keyed by gateway_session_id.
 // The zone trusts the gateway's session metadata: it was established by WorldDirectory.
 

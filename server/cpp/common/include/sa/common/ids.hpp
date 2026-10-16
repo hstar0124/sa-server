@@ -5,7 +5,7 @@
 #include <cstdint>
 
 // Identifier vocabulary shared by gateway, zone and loadgen. Mirrors the data ownership table
-// in docs/Server_Architecture.md section 5.
+// in README "데이터의 기준".
 namespace sa::common {
 
 using WorldId = StrongId<struct WorldIdTag>;

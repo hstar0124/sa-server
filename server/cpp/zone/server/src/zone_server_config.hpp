@@ -36,7 +36,7 @@ struct ZoneServerConfig {
     common::FrameLimits link_frame_limits;
     std::uint32_t max_sessions = 0;
 
-    // Backend gRPC and lease cadence (design document 14.3).
+    // Backend gRPC and lease cadence (see README "소유권과 lease").
     std::string backend_address;
     std::chrono::milliseconds backend_rpc_timeout{};
     std::chrono::milliseconds lease_renew_interval{};

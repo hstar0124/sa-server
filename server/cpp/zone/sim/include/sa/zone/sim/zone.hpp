@@ -31,8 +31,8 @@ struct ZoneStats {
 };
 
 // One simulated region. All mutable state is owned here and advanced only by Tick(), which the
-// hosting process calls from a single logical thread (design document 7.1). No I/O, no clocks,
-// no randomness other than the injected Rng (ADR-0008).
+// hosting process calls from a single logical thread (see README "Zone의 한 틱"). No I/O, no
+// clocks, no randomness other than the injected Rng (ADR-0008).
 class Zone {
 public:
     Zone(ZoneConfig config, MapData map, MovementRules rules, Rng rng);

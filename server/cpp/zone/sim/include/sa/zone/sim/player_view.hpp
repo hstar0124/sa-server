@@ -8,7 +8,7 @@
 
 namespace sa::zone::sim {
 
-// Delta for one player since the previous view was collected (design document 6.3 WorldSnapshot).
+// Delta for one player since the previous view was collected (see README "네트워크와 입장").
 // `spawned` entities entered the interest set, `despawned` left it, `updated` stayed and moved.
 struct PlayerView {
     common::EntityId player;

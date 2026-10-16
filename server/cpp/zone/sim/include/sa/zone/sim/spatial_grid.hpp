@@ -9,7 +9,7 @@
 
 namespace sa::zone::sim {
 
-// Uniform grid over the map (design document 7.4). Answers "which entities are near this
+// Uniform grid over the map (see README "Zone의 한 틱"). Answers "which entities are near this
 // point" by scanning the cells a circle overlaps instead of every entity in the zone.
 class SpatialGrid {
 public:

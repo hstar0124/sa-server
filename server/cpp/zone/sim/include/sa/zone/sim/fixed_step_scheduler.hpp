@@ -8,7 +8,7 @@ namespace sa::zone::sim {
 
 // Converts wall-clock progress into a bounded number of fixed simulation steps.
 //
-// Design document 7.2: an overloaded zone must not catch up on an unbounded backlog. When the
+// see README "Zone의 한 틱": an overloaded zone must not catch up on an unbounded backlog. When the
 // accumulated lag exceeds `max_catch_up_ticks` periods, the excess is dropped and counted so
 // the operator can see it, instead of freezing the process in a catch-up spiral.
 class FixedStepScheduler {

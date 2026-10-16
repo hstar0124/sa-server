@@ -120,7 +120,7 @@ int Run(int argc, char** argv) {
         }};
 
     // Shutdown: stop accepting, kick every session, then let pending writes and EndSession RPCs
-    // drain for the grace period before the io_context is stopped (design document 16.3).
+    // drain for the grace period before the io_context is stopped .
     asio::steady_timer drain_deadline{io};
     asio::signal_set signals{io, SIGINT, SIGTERM};
     signals.async_wait([&](const std::error_code&, int signal) {

@@ -22,7 +22,7 @@ struct SessionProtocolConfig {
     std::uint32_t max_messages_per_second = 0;
 };
 
-// Per-connection state machine (design document 6.2 steps 3-8), free of I/O so every transition
+// Per-connection state machine (see README "네트워크와 입장"), free of I/O so every transition
 // is unit-tested. The owner (ClientSession) performs the returned effects.
 //
 //   AwaitingHello --Hello(valid ticket)--> Redeeming --GRANTED--> Attaching --Attached--> InZone

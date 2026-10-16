@@ -1,4 +1,4 @@
--- World directory (design document 14, ADR-0005): process leases, entry tickets, character
+-- World directory (see README "소유권과 lease", ADR-0005): process leases, entry tickets, character
 -- ownership and sessions. The constraints are the fence: a ticket row can be inserted once, a
 -- character can have one live session, and ownership always names exactly one zone.
 

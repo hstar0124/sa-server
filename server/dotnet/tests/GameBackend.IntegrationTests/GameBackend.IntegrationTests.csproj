@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Consistency scenarios from docs/Server_Architecture.md section 21.1 against a real PostgreSQL
+  <!-- Consistency scenarios from tests/integration/README.md against a real PostgreSQL
        (Testcontainers). Assertions read the database, not just HTTP status codes. -->
   <PropertyGroup>
     <RootNamespace>Sa.GameBackend.IntegrationTests</RootNamespace>

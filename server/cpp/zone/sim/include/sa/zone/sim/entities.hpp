@@ -18,7 +18,7 @@ struct EntitySnapshot {
     common::Vec2 velocity;
 };
 
-// A client's movement intent for one tick window (design document 6.3 MoveInput).
+// A client's movement intent for one tick window (see README "네트워크와 입장").
 struct MoveCommand {
     common::EntityId player;
     std::uint32_t input_seq = 0;

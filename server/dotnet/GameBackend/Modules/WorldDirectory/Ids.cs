@@ -1,6 +1,6 @@
 namespace Sa.GameBackend.Modules.WorldDirectory;
 
-/// <summary>16-byte opaque identifiers minted by processes (ADR-0005, design document 14.1).</summary>
+/// <summary>16-byte opaque identifiers minted by processes (ADR-0005, see README "소유권과 lease").</summary>
 internal readonly record struct InstanceId(byte[] Bytes)
 {
     public const int Length = 16;

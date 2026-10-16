@@ -18,7 +18,7 @@ struct LeaseKeeperConfig {
     std::chrono::milliseconds safety_margin;
 };
 
-// Periodically renews a Backend lease and tracks whether it is alive (design document 14.3).
+// Periodically renews a Backend lease and tracks whether it is alive (see README "소유권과 lease").
 // The RPC itself is supplied by the owner, so the same keeper serves zones and gateways.
 class LeaseKeeper {
 public:
