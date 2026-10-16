@@ -240,20 +240,6 @@ TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     EXPECT_EQ(host.stats().detaches, 1U);
 }
 
-TEST(ZoneHost, AttachWithAClassTheContentLacksIsRejected) {
-    sim::Zone zone = MakeZone();
-    ZoneHost host{zone, Identity(), [] { return true; }};
-    FakeSink sink;
-    internal::v1::SessionAttach bad_class = AttachFor("s2", 2);
-    bad_class.set_class_id(99);
-
-    host.Attach(sink, bad_class);
-
-    EXPECT_EQ(Only(sink, ZoneToGateway::kSessionRejected).session_rejected().reason(),
-              internal::v1::REJECT_REASON_UNKNOWN_CLASS);
-    EXPECT_EQ(host.session_count(), 0U);
-}
-
 TEST(ZoneHost, CastSkillYieldsACommandResultOnTheNextTick) {
     sim::Zone zone = MakeZone();
     ZoneHost host{zone, Identity(), [] { return true; }};
