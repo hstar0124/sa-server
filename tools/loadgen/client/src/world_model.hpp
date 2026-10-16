@@ -14,7 +14,7 @@ namespace sa::loadgen {
 
 // What one bot believes about the world, rebuilt from Welcome and WorldSnapshot messages. It is
 // also the consistency checker: a snapshot that contradicts earlier ones is counted, because the
-// server promised a coherent interest set (design document 7.4).
+// server promised a coherent interest set (see README "Zone의 한 틱").
 class WorldModel {
 public:
     struct Integrity {
