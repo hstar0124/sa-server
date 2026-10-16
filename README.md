@@ -10,7 +10,7 @@ MMORPG 서버 포트폴리오. `sa`는 Server Architecture의 약자다. 미니 
 
 ```mermaid
 flowchart TD
-    C["클라이언트 / 봇"]
+    C["봇 / 브라우저 뷰어"]
     G["C++ GameGateway"]
     Z["C++ ZoneServer"]
     B["C# GameBackend"]
@@ -29,6 +29,7 @@ flowchart TD
 | GameGateway | C++23 | 연결, 프레이밍, 티켓 검증, 세션 상태 기계, Zone 라우팅, 유량 제한 |
 | ZoneServer | C++23 | 지역 시뮬레이션(이동·충돌·관심 관리), 세션 표, Backend lease 유지 |
 | GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory). 모듈형 모놀리스 |
+| 브라우저 뷰어 | JavaScript | 2D 뷰어. 같은 `.proto`를 브라우저에서 읽고 WebSocket으로 접속해 WASD로 움직이며, 다른 엔티티를 보간 버퍼로 그린다. 버퍼 길이·인위적 유실·외삽을 조절해 동기화를 눈으로 본다 |
 | loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장해 걷고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 같은 두뇌(Wanderer)가 Zone 안의 프로세스 봇으로도 돈다 |
 
 모든 메시지는 `contracts/`의 Protobuf가 단일 출처다(ADR-0004).
@@ -47,7 +48,7 @@ flowchart TD
 
 | 구간 | 선택 |
 |---|---|
-| 클라이언트 ↔ Backend | HTTP(JSON) |
+| 클라이언트 ↔ Backend | HTTP(JSON). 브라우저는 설정한 출처(`Cors:AllowedOrigins`)만 허용하고, 입장 응답에 Gateway의 WebSocket 포트를 함께 준다 |
 | 클라이언트 ↔ Gateway | 길이 프리픽스 TCP(봇·네이티브). 브라우저는 같은 Protobuf 메시지를 WebSocket 바이너리 프레임으로(두 번째 포트). 프레임 상한 64 KiB, 연결당 초당 메시지 상한 |
 | Gateway ↔ Zone | Zone마다 영속 연결 하나에 세션을 다중화 |
 | Zone·Gateway ↔ Backend | gRPC 비동기 호출, 모든 호출에 마감 시간 |
@@ -121,6 +122,10 @@ cp deploy/compose/.env.example deploy/compose/.env   # 비밀번호 수정
 # 전체 스택 end-to-end: 봇이 로그인 → 티켓 → Gateway → Zone 입장, 서로를 보는지 검증
 scripts/e2e-local.sh
 
+# 대화형: 스택을 띄우고 브라우저 뷰어로 접속 (http://localhost:8080/tools/viewer/)
+scripts/dev-stack.sh up && scripts/viewer.sh
+scripts/dev-stack.sh down
+
 # 시뮬레이션만 돌려보기: 네트워크 없이 프로세스 안에서 봇 200개
 SA_ZONE__DEV__LOCAL_BOTS=200 build/dev/server/cpp/zone/server/zone_server --config deploy/compose/config/zone-a.toml
 ```
@@ -135,7 +140,8 @@ database/          SQL 마이그레이션
 game-data/         맵·이동 규칙
 deploy/compose/    로컬 PostgreSQL과 프로세스 설정
 tools/loadgen/     봇 두뇌(bot/)와 네트워크 봇 클라이언트(client/, 프로필)
-scripts/           end-to-end, 형식 검사
+scripts/           end-to-end, 대화형 스택(dev-stack), 뷰어 정적 서버, 형식 검사
+tools/viewer/      브라우저 2D 뷰어
 tests/integration  정합성 시나리오 목록
 docs/              ADR, 설계 노트, 피처 문서, 이슈
 ```
