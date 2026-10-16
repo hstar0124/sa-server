@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package sa.internal.v1;
+
+import "game/client_messages.proto";
+import "game/server_messages.proto";
+
+option csharp_namespace = "Sa.Internal.V1";
+
+// Gateway <-> Zone link (see README "네트워크와 입장"). One persistent, length-prefixed TCP connection
+// per gateway/zone pair carries every session of that gateway, keyed by gateway_session_id.
+// The zone trusts the gateway's session metadata: it was established by WorldDirectory.
+
+message GatewayToZone {
+  oneof body {
+    LinkHello link_hello = 1;
+    LinkPing link_ping = 2;
+    SessionAttach session_attach = 10;
+    SessionDetach session_detach = 11;
+    SessionInput session_input = 12;
+  }
+}
+
+message ZoneToGateway {
+  oneof body {
+    LinkWelcome link_welcome = 1;
+    LinkPong link_pong = 2;
+    SessionAttached session_attached = 10;
+    SessionRejected session_rejected = 11;
+    SessionEvicted session_evicted = 12;
+    SessionOutput session_output = 13;
+  }
+}
+
+// First message on a link, both directions.
+message LinkHello {
+  bytes gateway_instance_id = 1;
+}
+
+message LinkWelcome {
+  uint64 world_id = 1;
+  uint32 zone_id = 2;
+  bytes zone_instance_id = 3;
+  uint32 simulation_hz = 4;
+}
+
+message LinkPing { uint64 nonce = 1; }
+message LinkPong { uint64 nonce = 1; }
+
+// Result of a successful RedeemEntryTicket; the zone materialises the character.
+message SessionAttach {
+  bytes gateway_session_id = 1;
+  uint64 account_id = 2;
+  uint64 character_id = 3;
+  string character_name = 4;
+  uint32 class_id = 5;
+  uint64 owner_epoch = 6;
+}
+
+enum DetachReason {
+  DETACH_REASON_UNSPECIFIED = 0;
+  DETACH_REASON_CLIENT_DISCONNECTED = 1;
+  DETACH_REASON_GATEWAY_SHUTDOWN = 2;
+  DETACH_REASON_PROTOCOL_ERROR = 3;
+}
+
+message SessionDetach {
+  bytes gateway_session_id = 1;
+  DetachReason reason = 2;
+}
+
+message SessionInput {
+  bytes gateway_session_id = 1;
+  sa.game.v1.ClientMessage message = 2;
+}
+
+message SessionAttached {
+  bytes gateway_session_id = 1;
+  uint64 entity_id = 2;
+  uint64 server_tick = 3;
+}
+
+enum RejectReason {
+  REJECT_REASON_UNSPECIFIED = 0;
+  REJECT_REASON_DUPLICATE_SESSION = 1;   // the zone already hosts this gateway_session_id
+  REJECT_REASON_ZONE_FULL = 2;
+  REJECT_REASON_STALE_EPOCH = 3;         // a newer owner_epoch is already active (stage 8)
+  REJECT_REASON_NOT_AUTHORITATIVE = 4;   // the zone's Backend lease lapsed; it may not simulate
+}
+
+message SessionRejected {
+  bytes gateway_session_id = 1;
+  RejectReason reason = 2;
+}
+
+enum EvictReason {
+  EVICT_REASON_UNSPECIFIED = 0;
+  EVICT_REASON_ZONE_SHUTDOWN = 1;
+  EVICT_REASON_LEASE_LOST = 2;
+  EVICT_REASON_PROTOCOL_ERROR = 3;
+}
+
+message SessionEvicted {
+  bytes gateway_session_id = 1;
+  EvictReason reason = 2;
+}
+
+message SessionOutput {
+  bytes gateway_session_id = 1;
+  sa.game.v1.ServerMessage message = 2;
+}

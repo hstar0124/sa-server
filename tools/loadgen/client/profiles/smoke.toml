@@ -1,0 +1,39 @@
+# Smallest meaningful run: a handful of wanderers for a few seconds. PASS requires every bot to
+# enter the zone and to see at least one other player.
+[backend]
+base_url = "http://localhost:5100"
+
+# Optional override of the gateway address the Backend hands out (e.g. port-forwarded).
+[gateway]
+host = ""
+port = 0
+
+[world]
+id = 1
+class_id = 1
+
+[bots]
+count = 5
+seed = 1
+account_prefix = "bot"
+password = "bots-walk-around-2026"
+
+[run]
+duration_sec = 10
+# Bots start at four corners of a 200 m map and walk at 6 m/s; in 10 s not everyone meets.
+min_bots_seeing_others = 2
+
+[client]
+tick_hz = 20
+ping_interval_ms = 1000
+connect_timeout_ms = 5000
+
+[wanderer]
+arrive_distance_m = 1.0
+retarget_after_ticks = 400
+idle_ticks_min = 0
+idle_ticks_max = 20
+margin_m = 2.0
+
+[logging]
+level = "info"

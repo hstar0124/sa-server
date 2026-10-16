@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package sa.events.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Sa.Events.V1";
+
+// Kafka로 발행되는 확정 이벤트의 공통 봉투.
+// payload는 event_type에 대응하는 메시지의 직렬화 바이트.
+message EventEnvelope {
+  bytes event_id = 1;          // UUID 16바이트. Outbox 행과 동일
+  string event_type = 2;       // 예: "InventoryItemAcquired"
+  uint32 schema_version = 3;
+  uint64 world_id = 4;
+  string aggregate_type = 5;   // 예: "character"
+  uint64 aggregate_id = 6;
+  uint64 aggregate_seq = 7;    // aggregate별 단조 증가. 업무 트랜잭션에서 할당
+  bytes request_id = 8;        // 원인 요청의 멱등성 키
+  google.protobuf.Timestamp occurred_at = 9;
+  bytes payload = 10;
+}
+
+message InventoryItemAcquired {
+  uint64 character_id = 1;
+  bytes item_instance_id = 2;
+  uint32 item_template_id = 3;
+  uint32 inventory_version = 4;
+}

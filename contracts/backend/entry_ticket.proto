@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package sa.backend.v1;
+
+option csharp_namespace = "Sa.Backend.V1";
+
+// Entry ticket (ADR-0005). Issued by the Backend after character selection, presented by the
+// client in Hello, verified by the Gateway, redeemed once through WorldDirectory.
+//
+// The Gateway checks `signature` = HMAC-SHA256(key[key_id], `ticket`) and the expiry; the
+// Backend decides single use and ownership. Neither the ticket nor Redis is a source of
+// control over the character (see README "네트워크와 입장").
+message EntryTicket {
+  bytes ticket_id = 1;        // UUID, 16 bytes; primary key of the redemption record
+  uint64 account_id = 2;
+  uint64 character_id = 3;
+  uint64 world_id = 4;
+  uint64 issued_at_ms = 5;    // Unix time, milliseconds
+  uint64 expires_at_ms = 6;
+  uint32 key_id = 7;          // allows signing-key rotation
+}
+
+message SignedEntryTicket {
+  bytes ticket = 1;           // serialized EntryTicket, signed as-is
+  bytes signature = 2;        // HMAC-SHA256, 32 bytes
+}

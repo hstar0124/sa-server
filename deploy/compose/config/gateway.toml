@@ -1,0 +1,44 @@
+[listen]
+address = "0.0.0.0"
+port = 7777
+max_connections = 1000
+
+[protocol]
+# May only tighten the contract maximum (FRAMING_MAX_PAYLOAD_BYTES).
+max_payload_bytes = 65536
+# Per connection. Movement at 20 Hz plus pings leaves headroom; a flood is kicked (6.3).
+max_messages_per_second = 60
+
+[ticket]
+# Shared with the Backend (WorldDirectory:TicketSigningKey). Inject via SA_GATEWAY__TICKET__SIGNING_KEY_BASE64.
+signing_key_base64 = ""
+key_id = 1
+max_clock_skew_ms = 2000
+
+[backend]
+address = "localhost:5101"
+rpc_timeout_ms = 2000
+lease_renew_interval_ms = 5000
+lease_safety_margin_ms = 2000
+
+[zone_link]
+max_frame_bytes = 262144
+reconnect_backoff_ms = 1000
+
+# Topology: which zone process serves which zone id. The Backend assigns characters to zone ids.
+[[zones]]
+zone_id = 1
+address = "localhost"
+port = 7801
+
+[[zones]]
+zone_id = 2
+address = "localhost"
+port = 7802
+
+[shutdown]
+# Time allowed for evictions, detaches and final RPCs to leave the process on SIGTERM.
+grace_ms = 2000
+
+[logging]
+level = "info"

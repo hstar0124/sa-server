@@ -1,0 +1,38 @@
+# Local development loop (ADR-0002). Stage 0 ships PostgreSQL only; Redis and Kafka join in
+# stages 6-7. Named volumes live under /var/lib/docker (the 500 GiB LV).
+name: sa
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    container_name: sa-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sa_game}
+      POSTGRES_USER: ${POSTGRES_USER:-sa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/.env}
+      # Durability settings are the PostgreSQL defaults (synchronous_commit=on, fsync=on);
+      # asset transactions must never run with them relaxed.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - max_connections=100
+      - -c
+      - log_min_duration_statement=250ms
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sa} -d ${POSTGRES_DB:-sa_game}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 3g
+
+volumes:
+  pgdata:

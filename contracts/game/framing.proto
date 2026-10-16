@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package sa.game.v1;
+
+option csharp_namespace = "Sa.Game.V1";
+
+// 게임 링크 프레임: [uint32 big-endian payload 길이][ClientMessage | ServerMessage].
+// 숫자 한계값의 단일 출처. enum 상수 외의 다른 곳에 같은 숫자를 적지 않는다.
+enum Framing {
+  FRAMING_UNSPECIFIED = 0;
+  // 길이 헤더 바이트 수.
+  FRAMING_HEADER_BYTES = 4;
+  // 페이로드 최대 바이트. README "네트워크와 입장"의 초깃값(64 KiB). 측정 후 조정한다.
+  FRAMING_MAX_PAYLOAD_BYTES = 65536;
+}
+
+// 클라이언트가 Hello에 제시하는 프로토콜 버전. 서버는 지원하지 않는 버전을 Kick한다.
+enum ProtocolVersion {
+  PROTOCOL_VERSION_UNSPECIFIED = 0;
+  PROTOCOL_VERSION_CURRENT = 1;
+}

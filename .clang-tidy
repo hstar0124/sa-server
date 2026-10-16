@@ -1,0 +1,54 @@
+# Checks are deliberately strict; disable one only with a comment explaining why.
+#  - avoid-magic-numbers / magic-numbers: tunables live in config structs (CLAUDE.md rule 1); the
+#    literals that remain are protocol constants and test fixtures.
+#  - avoid-const-or-ref-data-members: non-owning dependencies are held as references by design and
+#    the owning classes are intentionally non-assignable.
+#  - avoid-pragma-once: the repo standardises on #pragma once.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  cert-*,
+  -cert-err58-cpp,
+  concurrency-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  performance-*,
+  portability-*,
+  -portability-avoid-pragma-once,
+  readability-*,
+  -readability-identifier-length,
+  -readability-magic-numbers
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(server/cpp|tools)/.*'
+FormatStyle: file
+CheckOptions:
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.EnumConstantPrefix: k
+  readability-identifier-naming.FunctionCase: CamelCase
+  # Methods are CamelCase; cheap accessors are lower_case (Google style). clang-tidy cannot tell
+  # the two apart, so method case is left to review.
+  readability-identifier-naming.MethodCase: aNy_CasE
+  readability-identifier-naming.VariableCase: lower_case
+  readability-identifier-naming.ParameterCase: lower_case
+  readability-identifier-naming.PrivateMemberSuffix: _
+  readability-identifier-naming.ConstexprVariableCase: CamelCase
+  readability-identifier-naming.ConstexprVariablePrefix: k
+  readability-identifier-naming.GlobalConstantCase: CamelCase
+  readability-identifier-naming.GlobalConstantPrefix: k
+  readability-identifier-naming.TemplateParameterCase: CamelCase
+  readability-function-cognitive-complexity.Threshold: 25
+  # Pure interfaces declare only a virtual destructor; they are never copied through the base.
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true

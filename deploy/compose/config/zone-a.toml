@@ -1,0 +1,39 @@
+# Zone A. Values are initial proposals (see README "Zone의 한 틱"), not measured optima.
+[zone]
+world_id = 1
+zone_id = 1
+simulation_hz = 20
+snapshot_hz = 10            # must divide simulation_hz
+max_catch_up_ticks = 5
+rng_seed = 0              # 0 = pick a random seed at start-up and log it
+stats_log_interval_sec = 10
+max_sessions = 2000
+
+# Gateways connect here (contracts/internal). Internal network only.
+[gateway_link]
+listen_address = "0.0.0.0"
+listen_port = 7801
+max_gateways = 8
+max_frame_bytes = 262144  # a SessionOutput wraps one client frame (<= 64 KiB) plus headers
+
+[backend]
+address = "localhost:5101"
+rpc_timeout_ms = 2000
+lease_renew_interval_ms = 5000   # see README "소유권과 lease": heartbeat 5 s, lease 15 s
+lease_safety_margin_ms = 2000
+
+# Paths are relative to the working directory (repository root in development, /app in containers).
+[content]
+map_file = "game-data/maps/zone-1.toml"
+movement_rules_file = "game-data/rules/movement.toml"
+
+# In-process bots for simulation development. Keep 0 in any deployed configuration.
+[dev]
+local_bots = 0
+
+[shutdown]
+# Time allowed for evictions, detaches and final RPCs to leave the process on SIGTERM.
+grace_ms = 2000
+
+[logging]
+level = "info"

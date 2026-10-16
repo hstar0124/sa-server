@@ -1,0 +1,181 @@
+name: ci
+
+on:
+  # Runs on develop and main as well as on pull requests: a cache saved by a pull request is visible
+  # only to that pull request, while one saved on develop is visible to every pull request based on
+  # it. The run after each merge keeps the shared dependency cache current (issues/006).
+  push:
+    branches: [develop, main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-cache,readwrite
+  # Release-only dependencies: half the build time and half the disk of the default triplet, which
+  # builds every port twice (debug and release). Our own code still builds in each preset's mode.
+  VCPKG_TRIPLET: x64-linux-release
+  LLVM_MAJOR: 21  # the same major as the developer machines, so clang-tidy and clang-format agree
+  CMAKE_VERSION: 3.31.8  # the developer machines' CMake; the runner image moves to new majors on its own
+
+jobs:
+  # Builds the vcpkg dependencies once and stores them as a binary cache; the three C++ jobs restore
+  # it instead of each compiling gRPC, protobuf and abseil in parallel (issues/003).
+  deps:
+    name: C++ dependencies
+    runs-on: ubuntu-24.04
+    outputs:
+      present: ${{ steps.probe.outputs.present }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Probe
+        id: probe
+        run: echo "present=$([ -f CMakeLists.txt ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore vcpkg binary cache
+        if: steps.probe.outputs.present == 'true'
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ env.VCPKG_TRIPLET }}-${{ hashFiles('vcpkg.json') }}
+
+      # The runner image ships ~30 GB of toolchains this job never uses; gRPC's build trees alone
+      # exceed what is left (issues/003).
+      - name: Free disk space
+        if: steps.probe.outputs.present == 'true' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
+      - name: Install toolchain
+        if: steps.probe.outputs.present == 'true' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-14 ninja-build pkg-config autoconf automake libtool bison flex
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+
+      - name: Checkout vcpkg at the manifest baseline
+        if: steps.probe.outputs.present == 'true' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          BASELINE=$(python3 -c "import json;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$BASELINE"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Build dependencies
+        if: steps.probe.outputs.present == 'true' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET" --x-install-root=build/vcpkg_installed \
+            --clean-after-build
+          df -h /
+
+      - name: Save vcpkg binary cache
+        if: steps.probe.outputs.present == 'true' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ env.VCPKG_TRIPLET }}-${{ hashFiles('vcpkg.json') }}
+
+  cpp:
+    name: C++ (${{ matrix.preset }})
+    needs: deps
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [dev, asan, tidy]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install toolchain
+        if: needs.deps.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-14 ninja-build pkg-config autoconf automake libtool bison flex wget lsb-release software-properties-common gnupg
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 100
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          sudo bash /tmp/llvm.sh "$LLVM_MAJOR"
+          sudo apt-get install -y --no-install-recommends "clang-tidy-$LLVM_MAJOR" "clang-format-$LLVM_MAJOR"
+          # The image's /usr/bin/clang-tidy is a plain link to LLVM 18 that update-alternatives will not
+          # replace; put ours first on PATH and refuse to continue on any other major (issues/005).
+          sudo ln -sf "/usr/bin/clang-tidy-$LLVM_MAJOR" /usr/local/bin/clang-tidy
+          sudo ln -sf "/usr/bin/clang-format-$LLVM_MAJOR" /usr/local/bin/clang-format
+          for tool in clang-tidy clang-format; do
+            "$tool" --version | tee /dev/stderr | grep -q "version $LLVM_MAJOR\." \
+              || { echo "::error::$tool is not LLVM $LLVM_MAJOR"; exit 1; }
+          done
+
+      # Kitware's release archive: PyPI's cmake wheels skip some patch versions (3.31.8 among them).
+      - name: Pin CMake
+        if: needs.deps.outputs.present == 'true'
+        run: |
+          curl -fsSL "https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-linux-x86_64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/cmake-$CMAKE_VERSION-linux-x86_64/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/cmake-$CMAKE_VERSION-linux-x86_64/bin/cmake" --version | head -1
+
+      - name: Checkout vcpkg at the manifest baseline
+        if: needs.deps.outputs.present == 'true'
+        run: |
+          BASELINE=$(python3 -c "import json;print(json.load(open('vcpkg.json'))['builtin-baseline'])")
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout "$BASELINE"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+
+      - name: Restore vcpkg binary cache
+        if: needs.deps.outputs.present == 'true'
+        uses: actions/cache/restore@v6
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ env.VCPKG_TRIPLET }}-${{ hashFiles('vcpkg.json') }}
+          fail-on-cache-miss: true
+
+      - name: Configure
+        if: needs.deps.outputs.present == 'true'
+        run: cmake --preset ${{ matrix.preset }} -DVCPKG_TARGET_TRIPLET=$VCPKG_TRIPLET
+
+      - name: Build
+        if: needs.deps.outputs.present == 'true'
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        if: needs.deps.outputs.present == 'true' && matrix.preset != 'tidy'
+        run: ctest --preset ${{ matrix.preset }}
+
+      - name: clang-format check
+        if: needs.deps.outputs.present == 'true' && matrix.preset == 'dev'
+        run: |
+          find server/cpp tools -type f \( -name '*.hpp' -o -name '*.cpp' \) -print0 \
+            | xargs -0 clang-format --dry-run --Werror
+
+  dotnet:
+    name: .NET
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Probe
+        id: probe
+        run: echo "present=$([ -f server/dotnet/GameServer.slnx ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-dotnet@v6
+        if: steps.probe.outputs.present == 'true'
+        with:
+          global-json-file: global.json
+      - name: Restore (locked)
+        if: steps.probe.outputs.present == 'true'
+        run: dotnet restore server/dotnet/GameServer.slnx --locked-mode
+      - name: Build (warnings are errors)
+        if: steps.probe.outputs.present == 'true'
+        run: dotnet build server/dotnet/GameServer.slnx --no-restore --configuration Release
+      - name: Test
+        if: steps.probe.outputs.present == 'true'
+        run: dotnet test server/dotnet/GameServer.slnx --no-build --configuration Release
+      - name: Format check
+        if: steps.probe.outputs.present == 'true'
+        run: dotnet format server/dotnet/GameServer.slnx --verify-no-changes --no-restore

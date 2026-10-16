@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Generated C# for contracts/**. The .proto files are the only source of truth (ADR-0004). -->
+  <PropertyGroup>
+    <RootNamespace>Sa.Contracts</RootNamespace>
+    <!-- Generated code is third-party output and is not held to the analyzer policy. -->
+    <AnalysisLevel>none</AnalysisLevel>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Protobuf Include="../../../contracts/game/*.proto" ProtoRoot="../../../contracts" GrpcServices="None" />
+    <Protobuf Include="../../../contracts/events/*.proto" ProtoRoot="../../../contracts" GrpcServices="None" />
+    <Protobuf Include="../../../contracts/internal/*.proto" ProtoRoot="../../../contracts" GrpcServices="None" />
+    <Protobuf Include="../../../contracts/backend/*.proto" ProtoRoot="../../../contracts" GrpcServices="Both" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Core.Api" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
