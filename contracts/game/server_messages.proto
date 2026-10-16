@@ -93,7 +93,7 @@ enum CommandStatus {
   COMMAND_STATUS_UNKNOWN = 4;    // 결과를 모름. 같은 request_id로 재조회
 }
 
-// 거절 사유 (설계 문서 8.1절의 검증 순서). 같은 request_id를 재시도하면 같은 사유가 돌아온다.
+// 거절 사유 (README "전투"의 검증 순서). 같은 request_id를 재시도하면 같은 사유가 돌아온다.
 enum RejectCode {
   REJECT_CODE_UNSPECIFIED = 0;
   REJECT_CODE_UNKNOWN_SKILL = 1;
