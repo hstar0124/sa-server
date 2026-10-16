@@ -145,7 +145,7 @@ void Zone::ApplyMove(const MoveCommand& command) {
 void Zone::Tick() {
     tick_ = tick_.Next();
     ResetTickFlags();
-    DrainCommands();      // 7.2 ValidateAndApplyCommands
+    DrainCommands();      // ValidateAndApplyCommands within the per-tick budget
     ResolveCasts();       // casts whose cast time elapsed
     IntegratePlayers();   // UpdateMovementAndCollision
     UpdateMonsters();     // UpdateScheduledAi

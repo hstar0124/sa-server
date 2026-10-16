@@ -38,7 +38,7 @@ struct MoveCommand {
     common::Vec2 direction;  // any length; normalised by the zone, zero = stop
 };
 
-// Skill use (design document 6.3 CastSkill, 8.1). request_id is the client's idempotency key.
+// Skill use (see README "전투"). request_id is the client's idempotency key.
 using SkillTarget = std::variant<common::EntityId, common::Vec2>;
 
 struct CastCommand {

@@ -102,7 +102,7 @@ private:
     };
 
     // Last N request ids with their outcome, so a retried request answers the same way
-    // without re-applying (design document 8.1 step 1).
+    // without re-applying (see README "전투").
     class RecentRequests {
     public:
         [[nodiscard]] std::optional<RejectReason> Find(common::RequestId id) const;

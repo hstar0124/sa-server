@@ -1,4 +1,4 @@
-// Skills, projectiles, damage, death and respawn (design document 8.1).
+// Skills, projectiles, damage, death and respawn (see README "전투").
 #include "sa/zone/sim/zone.hpp"
 
 #include <algorithm>
@@ -110,7 +110,7 @@ void Zone::ResolveCasts() {
     }
 }
 
-// Activation re-checks what may have changed during the cast (8.1 step 4): the target may have
+// Activation re-checks what may have changed during the cast: the target may have
 // died or walked away. A failed activation still consumed the MP, like a real cast that whiffs.
 void Zone::Activate(common::EntityId caster, Player& player, const SkillDefinition& skill,
                     const SkillTarget& target) {

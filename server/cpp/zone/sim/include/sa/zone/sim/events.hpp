@@ -8,8 +8,7 @@
 #include <vector>
 
 // Things the zone needs to tell clients that are not part of the periodic snapshot. The zone
-// decides the recipients (design document 8.1 step 6: "관련 플레이어에게 결과를 보낸다"); the host
-// only serialises and routes.
+// decides the recipients (see README "전투"); the host only serialises and routes.
 namespace sa::zone::sim {
 
 enum class RejectReason : std::uint8_t {

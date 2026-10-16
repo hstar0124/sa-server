@@ -1,4 +1,4 @@
-// Monster spawns and the Idle -> Chase -> Attack -> Return state machine (design document 8.1).
+// Monster spawns and the Idle -> Chase -> Attack -> Return state machine (see README "전투").
 #include "sa/zone/sim/zone.hpp"
 
 #include <algorithm>
@@ -40,7 +40,7 @@ void Zone::SpawnMonster(std::size_t slot_index) {
         std::max(1U, config_.simulation_rate.hz / combat_.monster_think_hz);
     Monster monster{.def = slot.def, .slot = slot_index, .home = slot.home, .position = slot.home};
     monster.vitals = Vitals{.hp = slot.def->max_hp, .max_hp = slot.def->max_hp};
-    // Stagger decisions across slots so they do not all think on the same tick (7.2).
+    // Stagger decisions across slots so they do not all think on the same tick.
     monster.next_think = common::TickIndex{tick_.value() + 1 + (slot_index % think_period)};
     monster.attack_ready_at = tick_;
     monsters_.emplace(id, monster);
