@@ -13,6 +13,7 @@
 | [07](07-zone-server.md) | Zone 서버 호스트: 틱 러너, Gateway 링크, 세션 표, lease, 프로세스 안 봇 | 2 | |
 | [08](08-gateway.md) | Gateway: 티켓 검증, 세션 상태 기계, Zone 링크, 디렉터리 클라이언트 | 3 | |
 | [09](09-docs-architecture-into-readme.md) | 설계 문서를 README로 흡수: 현재 방향만 남기고 원문 제거 | – | |
+| [10](10-loadgen-client.md) | 네트워크 봇 클라이언트와 end-to-end: 로그인부터 입장까지 한 명령으로 | 3 | |
 
 ## 형식
 

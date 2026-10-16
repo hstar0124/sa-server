@@ -29,7 +29,7 @@ flowchart TD
 | GameGateway | C++23 | 연결, 프레이밍, 티켓 검증, 세션 상태 기계, Zone 라우팅, 유량 제한 |
 | ZoneServer | C++23 | 지역 시뮬레이션(이동·충돌·관심 관리), 세션 표, Backend lease 유지 |
 | GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory). 모듈형 모놀리스 |
-| 봇 두뇌 | C++23 | 시드 기반 Wanderer. 프로세스 안 봇으로 Zone을 네트워크 없이 돌린다 |
+| loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장해 걷고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 같은 두뇌(Wanderer)가 Zone 안의 프로세스 봇으로도 돈다 |
 
 모든 메시지는 `contracts/`의 Protobuf가 단일 출처다(ADR-0004).
 
@@ -87,9 +87,11 @@ flowchart LR
 - Zone은 lease를 잃으면 모든 세션을 내보내고 플레이어를 지운다. 권한 없는 프로세스가 상태를 바꾸지 않는다.
 - Gateway의 Zone 링크가 끊기면 그 Zone의 세션을 끝내고 Backend에 세션 종료를 알린다.
 
-## 정합성 테스트
+## 검증
 
-[tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절.
+**end-to-end**: `scripts/e2e-local.sh` 한 번으로 PostgreSQL(compose) + Backend + Zone + Gateway를 띄우고 봇 5개가 로그인 → 티켓 → Gateway → Zone 입장까지 TCP로 통과하는지, 서로를 보는지, 끝난 뒤 열린 세션이 0인지 판정한다(종료 코드가 판정). 봇의 월드 모델은 스냅샷마다 모순(모르는 엔티티의 갱신, 이미 보이는 엔티티의 재등장, 자기 자신이 시야에 등장, 입력 순번 역행)을 세고, 하나라도 있으면 실패다.
+
+**정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절.
 
 ## 기술 선택
 
@@ -113,6 +115,12 @@ dotnet build server/dotnet/GameServer.slnx
 dotnet test  server/dotnet/GameServer.slnx          # 통합 테스트는 Docker(Testcontainers)
 scripts/check-format.sh
 
+# 로컬 실행용 비밀 값과 DB (저장소에 넣지 않는다)
+cp deploy/compose/.env.example deploy/compose/.env   # 비밀번호 수정
+
+# 전체 스택 end-to-end: 봇이 로그인 → 티켓 → Gateway → Zone 입장, 서로를 보는지 검증
+scripts/e2e-local.sh
+
 # 시뮬레이션만 돌려보기: 네트워크 없이 프로세스 안에서 봇 200개
 SA_ZONE__DEV__LOCAL_BOTS=200 build/dev/server/cpp/zone/server/zone_server --config deploy/compose/config/zone-a.toml
 ```
@@ -126,7 +134,8 @@ server/dotnet/     Contracts, GameBackend, Migrator, tests
 database/          SQL 마이그레이션
 game-data/         맵·이동 규칙
 deploy/compose/    로컬 PostgreSQL과 프로세스 설정
-tools/loadgen/     봇 두뇌
+tools/loadgen/     봇 두뇌(bot/)와 네트워크 봇 클라이언트(client/, 프로필)
+scripts/           end-to-end, 형식 검사
 tests/integration  정합성 시나리오 목록
 docs/              ADR, 설계 노트, 피처 문서, 이슈
 ```
