@@ -34,7 +34,7 @@ public:
         std::uint32_t max_sessions = 0;
     };
 
-    // `authoritative` answers whether the zone currently holds its Backend lease (14.3).
+    // `authoritative` answers whether the zone currently holds its Backend lease.
     ZoneHost(sim::Zone& zone, Identity identity, std::function<bool()> authoritative);
 
     // Called after each simulation tick; sends snapshots at the configured cadence.

@@ -12,7 +12,7 @@ port = 7778
 [protocol]
 # May only tighten the contract maximum (FRAMING_MAX_PAYLOAD_BYTES).
 max_payload_bytes = 65536
-# Per connection. Movement at 20 Hz plus pings leaves headroom; a flood is kicked (6.3).
+# Per connection. Movement at 20 Hz plus pings leaves headroom; a flood is kicked.
 max_messages_per_second = 60
 
 [ticket]

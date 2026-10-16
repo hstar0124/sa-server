@@ -13,7 +13,7 @@ constexpr bot::WandererParams kDevBotParams{
     .idle_ticks_max = 40,
     .margin_m = 2.0F,
 };
-constexpr std::uint32_t kDevBotClassId = 1;
+constexpr sim::ClassId kDevBotClassId{1};
 
 }  // namespace
 
@@ -23,9 +23,11 @@ LocalBotHost::LocalBotHost(sim::Zone& zone, std::uint32_t count, std::uint32_t t
     bots_.reserve(count);
     for (std::uint32_t i = 0; i < count; ++i) {
         // Dev bots are not real characters; ids are local to this process.
-        const common::EntityId entity =
-            zone_.SpawnPlayer(common::CharacterId{i + 1}, kDevBotClassId);
-        bots_.push_back(Bot{.entity = entity, .brain = bot::Wanderer{seed + i, kDevBotParams}});
+        const auto entity = zone_.SpawnPlayer(common::CharacterId{i + 1}, kDevBotClassId);
+        if (!entity) {
+            continue;  // class missing from content: nothing to drive
+        }
+        bots_.push_back(Bot{.entity = *entity, .brain = bot::Wanderer{seed + i, kDevBotParams}});
     }
 }
 

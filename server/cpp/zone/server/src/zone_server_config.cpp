@@ -13,6 +13,7 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     const auto max_sessions = source.Require<std::uint32_t>("zone.max_sessions");
     const auto map_file = source.Require<std::string>("content.map_file");
     const auto rules_file = source.Require<std::string>("content.movement_rules_file");
+    const auto content_dir = source.Require<std::string>("content.dir");
     const auto link_address = source.Require<std::string>("gateway_link.listen_address");
     const auto link_port = source.Require<std::uint16_t>("gateway_link.listen_port");
     const auto link_max = source.Require<std::uint32_t>("gateway_link.max_gateways");
@@ -24,8 +25,8 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     const auto shutdown_grace = source.Require<std::uint32_t>("shutdown.grace_ms");
     if (auto err = common::FirstConfigError(
             world_id, zone_id, hz, snapshot_hz, catch_up, stats_interval, max_sessions, map_file,
-            rules_file, link_address, link_port, link_max, link_frame, backend_address, rpc_timeout,
-            renew_interval, safety_margin, shutdown_grace)) {
+            rules_file, content_dir, link_address, link_port, link_max, link_frame, backend_address,
+            rpc_timeout, renew_interval, safety_margin, shutdown_grace)) {
         return std::unexpected(*err);
     }
     if (*hz == 0) {
@@ -54,6 +55,7 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     out.max_sessions = *max_sessions;
     out.map_file = *map_file;
     out.movement_rules_file = *rules_file;
+    out.content_dir = *content_dir;
     out.local_bots = source.GetOr<std::uint32_t>("dev.local_bots", 0);
     out.link_listen_address = *link_address;
     out.link_listen_port = *link_port;

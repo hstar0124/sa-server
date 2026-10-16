@@ -19,10 +19,9 @@ bool HasId(const std::vector<EntitySnapshot>& list, EntityId id) {
 
 TEST(ZoneInterest, FirstViewSpawnsNeighboursAndNeverTheObserver) {
     Zone zone = test::MakeZone();
-    const EntityId a = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{50.0F, 50.0F});
-    const EntityId b =
-        zone.SpawnPlayer(CharacterId{2}, 2, Vec2{60.0F, 50.0F});  // 10 m: inside 20 m
-    const EntityId far = zone.SpawnPlayer(CharacterId{3}, 1, Vec2{95.0F, 95.0F});
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});  // 10 m: inside 20 m
+    const EntityId far = test::Spawn(zone, 3, Vec2{95.0F, 95.0F});
     zone.Tick();
 
     const PlayerView view = zone.CollectView(a);
@@ -31,13 +30,13 @@ TEST(ZoneInterest, FirstViewSpawnsNeighboursAndNeverTheObserver) {
     EXPECT_FALSE(HasId(view.spawned, far));
     EXPECT_TRUE(view.updated.empty());
     EXPECT_TRUE(view.despawned.empty());
-    EXPECT_EQ(view.spawned.front().template_id, 2U);
+    EXPECT_EQ(view.spawned.front().template_id, test::kWarrior.value());
 }
 
 TEST(ZoneInterest, SecondViewReportsOnlyMovementAsUpdates) {
     Zone zone = test::MakeZone();
-    const EntityId a = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{50.0F, 50.0F});
-    const EntityId b = zone.SpawnPlayer(CharacterId{2}, 1, Vec2{60.0F, 50.0F});
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});
     zone.Tick();
     (void)zone.CollectView(a);
 
@@ -54,8 +53,8 @@ TEST(ZoneInterest, SecondViewReportsOnlyMovementAsUpdates) {
 
 TEST(ZoneInterest, EnterAndLeaveWithHysteresis) {
     Zone zone = test::MakeZone();  // enter 20, leave 25, 1 m per tick
-    const EntityId a = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{10.0F, 50.0F});
-    const EntityId b = zone.SpawnPlayer(CharacterId{2}, 1, Vec2{40.0F, 50.0F});  // 30 m away
+    const EntityId a = test::Spawn(zone, 1, Vec2{10.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{40.0F, 50.0F});  // 30 m away
     zone.Tick();
     EXPECT_TRUE(zone.CollectView(a).spawned.empty());
 
@@ -78,8 +77,8 @@ TEST(ZoneInterest, EnterAndLeaveWithHysteresis) {
 
 TEST(ZoneInterest, DespawnedPlayerDisappearsFromObservers) {
     Zone zone = test::MakeZone();
-    const EntityId a = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{50.0F, 50.0F});
-    const EntityId b = zone.SpawnPlayer(CharacterId{2}, 1, Vec2{55.0F, 50.0F});
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{55.0F, 50.0F});
     zone.Tick();
     (void)zone.CollectView(a);
 
@@ -92,8 +91,8 @@ TEST(ZoneInterest, DespawnedPlayerDisappearsFromObservers) {
 
 TEST(ZoneInterest, ViewsAreSymmetricForTwoPlayersInRange) {
     Zone zone = test::MakeZone();
-    const EntityId a = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{50.0F, 50.0F});
-    const EntityId b = zone.SpawnPlayer(CharacterId{2}, 1, Vec2{58.0F, 56.0F});
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{58.0F, 56.0F});
     zone.Tick();
     EXPECT_TRUE(HasId(zone.CollectView(a).spawned, b));
     EXPECT_TRUE(HasId(zone.CollectView(b).spawned, a));
@@ -106,8 +105,8 @@ TEST(ZoneInterest, CrowdOfPlayersSeesOnlyThoseInRange) {
     ids.reserve(kCount);
     for (int i = 0; i < kCount; ++i) {
         // A line along x, 7 m apart: 5, 12, 19, ... 68.
-        ids.push_back(zone.SpawnPlayer(CharacterId{static_cast<std::uint64_t>(i + 1)}, 1,
-                                       Vec2{5.0F + (7.0F * static_cast<float>(i)), 50.0F}));
+        ids.push_back(test::Spawn(zone, static_cast<std::uint64_t>(i) + 1,
+                                  Vec2{5.0F + (7.0F * static_cast<float>(i)), 50.0F}));
     }
     zone.Tick();
     const PlayerView view = zone.CollectView(ids[0]);  // at x=5: sees x<=25 -> indices 1,2

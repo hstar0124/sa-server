@@ -26,6 +26,7 @@ lease_safety_margin_ms = 2000
 [content]
 map_file = "game-data/maps/zone-1.toml"
 movement_rules_file = "game-data/rules/movement.toml"
+dir = "game-data"
 
 # In-process bots for simulation development. Keep 0 in any deployed configuration.
 [dev]
