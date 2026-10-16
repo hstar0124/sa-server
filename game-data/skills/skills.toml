@@ -1,4 +1,4 @@
-# Skill definitions (design document 8.1): data, not code. `kind` decides how the hit is found:
+# Skill definitions (see README "전투"): data, not code. `kind` decides how the hit is found:
 #   targeted   - an entity id; checked for range at cast and again at activation
 #   projectile - a direction; spawns a projectile that damages the first monster it touches
 # cast_time_ms = 0 means instant. Cooldown and cost are enforced by the zone.

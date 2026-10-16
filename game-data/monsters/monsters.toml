@@ -1,4 +1,4 @@
-# Monster templates. The AI (design document 8.1) is Idle -> Chase -> Attack -> Return, Dead on
+# Monster templates. The AI (see README "전투") is Idle -> Chase -> Attack -> Return, Dead on
 # hp 0; these numbers tune it. Decisions run at think_hz, movement every simulation tick.
 
 [[monsters]]

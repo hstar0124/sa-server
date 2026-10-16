@@ -13,7 +13,7 @@ leave_radius_m = 45.0
 commands_per_tick_budget = 4096
 
 [combat]
-# Monster decision rate (design document 7.2: 5 Hz, staggered per monster).
+# Monster decision rate. Each monster decides on its own offset, so they do not all think on the same tick.
 monster_think_hz = 5
 # A dead player returns to a spawn point with full vitals after this long.
 player_respawn_ms = 5000

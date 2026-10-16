@@ -10,7 +10,7 @@
 #include <unordered_map>
 #include <vector>
 
-// Content definitions the simulation consumes (design document 8.1: "스킬 정의는 데이터로").
+// Content definitions the simulation consumes (see README "전투").
 // Loaded from game-data by sa::zone::data; the simulation only reads them. Durations stay in
 // milliseconds here and are converted to ticks by the zone that knows its tick rate.
 namespace sa::zone::sim {
