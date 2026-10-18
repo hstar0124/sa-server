@@ -1,7 +1,9 @@
 // Canvas rendering. Map metres -> canvas pixels with Y up.
 const COLORS = {
   grid: '#1a2027', obstacle: '#3a4452', self: '#ffd166', other: '#6ee7b7', extrap: '#f4a261', hold: '#8a94a3',
+  monster: '#ff6b6b', projectile: '#e6e9ee', hpBack: '#2a313a', hp: '#6ee7b7', hpLow: '#ff6b6b',
 };
+const KIND = { PLAYER: 1, MONSTER: 2, PROJECTILE: 4 };
 const GRID_STEP_M = 25;
 const PLAYER_RADIUS_PX = 5;
 
@@ -9,6 +11,14 @@ export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+  }
+
+  #hpBar(x, y, hp, maxHp) {
+    const { ctx } = this;
+    if (!maxHp) return;
+    const w = 18, h = 3, ratio = Math.max(0, Math.min(1, hp / maxHp));
+    ctx.fillStyle = COLORS.hpBack; ctx.fillRect(x - w / 2, y - 11, w, h);
+    ctx.fillStyle = ratio < 0.3 ? COLORS.hpLow : COLORS.hp; ctx.fillRect(x - w / 2, y - 11, w * ratio, h);
   }
 
   draw(world, renderTime, allowExtrapolation, obstacles) {
@@ -34,12 +44,20 @@ export class Renderer {
       const p = world.positionAt(entity, renderTime, allowExtrapolation);
       modes[p.mode] += 1;
       const [x, y] = toPx(p.x, p.y);
-      ctx.fillStyle = COLORS[p.mode === 'interp' ? 'other' : p.mode];
+      if (entity.kind === KIND.PROJECTILE) {
+        ctx.fillStyle = COLORS.projectile;
+        ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+        continue;
+      }
+      const base = entity.kind === KIND.MONSTER ? COLORS.monster : COLORS.other;
+      ctx.fillStyle = p.mode === 'interp' ? base : COLORS[p.mode];
       ctx.beginPath(); ctx.arc(x, y, PLAYER_RADIUS_PX, 0, Math.PI * 2); ctx.fill();
+      this.#hpBar(x, y, entity.hp, entity.maxHp);
     }
     const [sx, sy] = toPx(world.self.x, world.self.y);
     ctx.fillStyle = COLORS.self;
     ctx.beginPath(); ctx.arc(sx, sy, PLAYER_RADIUS_PX + 1, 0, Math.PI * 2); ctx.fill();
+    this.#hpBar(sx, sy, world.vitals.hp, world.vitals.maxHp);
     return modes;
   }
 }

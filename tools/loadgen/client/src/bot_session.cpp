@@ -133,7 +133,8 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
             Stop();
             return;
         case ServerMessage::kCommandResult:
-            return;  // stage 5
+        case ServerMessage::kCombatEvent:
+            return;  // consumed by the fighter brain (next change)
         case ServerMessage::BODY_NOT_SET:
             Fail("empty server message");
             return;

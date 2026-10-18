@@ -7,12 +7,17 @@ const WORLD_ID = 1;
 const CLASS_ID = 1;
 const CLIENT_TICK_HZ = 20;
 const PING_INTERVAL_MS = 1000;
+// Skill ids from game-data/skills/skills.toml; class 1 (warrior) knows 1 and 2.
+const SKILL_STRIKE = 1;
+const SKILL_HEAVY_BLOW = 2;
+const STRIKE_RANGE_M = 2.5;
 
 const $ = (id) => document.getElementById(id);
 const status = (text, kind = '') => { $('status').textContent = text; $('status').className = `status ${kind}`; };
 const show = (id, visible) => $(id).classList.toggle('hidden', !visible);
 
 const world = new World();
+window.__world = world;  // for automated checks
 const renderer = new Renderer($('world'));
 let api = null;
 let link = null;
@@ -22,7 +27,9 @@ let rtt = null;
 let tickTimer = null;
 let pingTimer = null;
 let pingSentAt = 0;
+let lastDirection = { x: 0, y: 1 };
 const keys = new Set();
+const pendingCasts = new Map();  // request id -> skill name, until the result arrives
 
 async function loadMapObstacles() {
   // The viewer draws the same map the zone loads; a tiny TOML subset is enough here.
@@ -54,6 +61,16 @@ async function enter(characterId) {
       onWelcome: (welcome) => { world.applyWelcome(welcome); status(`in zone ${welcome.zone_id}`, 'ok'); startLoops(); },
       onSnapshot: (snapshot) => world.applySnapshot(snapshot, performance.now(), Number($('loss-pct').value) / 100),
       onPong: () => { rtt = Math.round(performance.now() - pingSentAt); },
+      onCommandResult: (result, rejectCode) => {
+        const name = pendingCasts.get(result.request_id) ?? `request ${result.request_id}`;
+        pendingCasts.delete(result.request_id);
+        world.note(result.status === 1 ? `${name}: accepted` : `${name}: ${rejectCode}`);
+      },
+      onCombatEvent: (e) => {
+        const who = String(e.attacker_id) === world.selfId ? 'you' : `#${e.attacker_id}`;
+        const whom = String(e.target_id) === world.selfId ? 'you' : `#${e.target_id}`;
+        world.note(`${who} hit ${whom} for ${e.damage}${e.killed ? ' (killed)' : ` (${e.target_hp} hp)`}`);
+      },
       onKick: (reason) => status(`kicked: ${reason}`, 'error'),
       onClose: () => { stopLoops(); if (!$('status').classList.contains('error')) status('disconnected'); },
     });
@@ -69,9 +86,17 @@ function startLoops() {
   stopLoops();
   tickTimer = setInterval(() => {
     const dir = { x: (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0), y: (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0) };
+    if (dir.x || dir.y) lastDirection = dir;
     link.sendMove(dir);
   }, 1000 / CLIENT_TICK_HZ);
   pingTimer = setInterval(() => { pingSentAt = performance.now(); link.sendPing(Math.floor(pingSentAt) & 0xffff); }, PING_INTERVAL_MS);
+}
+
+function cast(skillId, name) {
+  if (!link) return;
+  const target = world.nearestMonster(STRIKE_RANGE_M * 1.5, contracts.EntityKind.values.ENTITY_KIND_MONSTER);
+  if (target === null) { world.note(`${name}: no monster in reach`); return; }
+  pendingCasts.set(link.sendCast(skillId, Number(target)), name);
 }
 
 function stopLoops() {
@@ -93,6 +118,8 @@ function frame() {
     'integrity errors': world.integrityErrors,
     'ping rtt': rtt === null ? '-' : `${rtt} ms`,
     'self': `${world.self.x.toFixed(1)}, ${world.self.y.toFixed(1)}`,
+    'hp / mp': `${world.vitals.hp}/${world.vitals.maxHp}  ${world.vitals.mp}/${world.vitals.maxMp}`,
+    'log': world.log.join('<br>'),
   };
   $('stats').innerHTML = Object.entries(stats).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   requestAnimationFrame(frame);
@@ -120,7 +147,11 @@ async function main() {
     catch (e) { status(e.message, 'error'); }
   };
   $('btn-leave').onclick = () => { link?.close(); show('panel-world', false); };
-  window.addEventListener('keydown', (e) => keys.add(e.key.toLowerCase()));
+  window.addEventListener('keydown', (e) => {
+    if (e.key === ' ') { e.preventDefault(); cast(SKILL_STRIKE, 'strike'); return; }
+    if (e.key.toLowerCase() === 'e') { cast(SKILL_HEAVY_BLOW, 'heavy blow'); return; }
+    keys.add(e.key.toLowerCase());
+  });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   requestAnimationFrame(frame);
   status('ready');
