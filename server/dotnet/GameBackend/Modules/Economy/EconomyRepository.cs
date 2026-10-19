@@ -7,7 +7,7 @@ using Sa.GameBackend.Common;
 
 namespace Sa.GameBackend.Modules.Economy;
 
-/// <summary>Which zone process claims to act for a character, and under which ownership generation (design document 14.3).</summary>
+/// <summary>Which zone process claims to act for a character, and under which ownership generation (see README "소유권과 lease").</summary>
 internal sealed record ZoneAuthority(InstanceId ZoneInstanceId, long OwnerEpoch);
 
 internal sealed record DropRoll(int ItemTemplateId, float X, float Y);
@@ -72,7 +72,7 @@ internal sealed record WalletEntry(string Currency, long Balance);
 internal sealed record CharacterAssets(IReadOnlyList<InventoryItem> Items, IReadOnlyList<WalletEntry> Wallet, int InventoryCapacity, int InventoryVersion);
 
 /// <summary>
-/// Persistent assets (design document 9-11). Each public method is one transaction; the decisions
+/// Persistent assets (see README "자산과 멱등성"). Each public method is one transaction; the decisions
 /// are made by conditional statements and constraints inside it, so two zones, two characters or
 /// two retries of the same request can never both win.
 /// </summary>
@@ -262,7 +262,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         ORDER BY slot_no
         """;
 
-    // Conditional UPDATE (10.2): only an item still on the ground of the owning zone moves. Of two
+    // Conditional UPDATE: only an item still on the ground of the owning zone moves. Of two
     // characters reaching for the same item, the second sees zero rows.
     private const string TakeItemSql = """
         UPDATE game.item_instances

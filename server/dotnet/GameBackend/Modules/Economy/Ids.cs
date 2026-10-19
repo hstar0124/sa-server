@@ -15,7 +15,7 @@ internal readonly record struct ItemInstanceId(byte[] Bytes)
     }
 }
 
-/// <summary>Minted by the zone once per monster lifecycle; the grant basis of a kill (design document 8.2).</summary>
+/// <summary>Minted by the zone once per monster lifecycle; the grant basis of a kill (see README "자산과 멱등성").</summary>
 internal readonly record struct KillId(byte[] Bytes)
 {
     public static bool TryFrom(ReadOnlySpan<byte> bytes, out KillId id)
@@ -26,7 +26,7 @@ internal readonly record struct KillId(byte[] Bytes)
     }
 }
 
-/// <summary>Idempotency key of one client-visible command; a retry carries the same id (design document 9.2).</summary>
+/// <summary>Idempotency key of one client-visible command; a retry carries the same id (see README "자산과 멱등성").</summary>
 internal readonly record struct RequestId(byte[] Bytes)
 {
     public static bool TryFrom(ReadOnlySpan<byte> bytes, out RequestId id)

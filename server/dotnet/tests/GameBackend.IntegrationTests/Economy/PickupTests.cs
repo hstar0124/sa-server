@@ -4,7 +4,7 @@ using Sa.GameBackend.IntegrationTests.Harness;
 
 namespace Sa.GameBackend.IntegrationTests.Economy;
 
-/// <summary>Design document 21.1: concurrent pickup, duplicate request, lost response, id misuse, full inventory.</summary>
+/// <summary>Scenarios from tests/integration/README.md: concurrent pickup, duplicate request, lost response, id misuse, full inventory.</summary>
 [Collection(SharedPostgres.Name)]
 public sealed class PickupTests(PostgresFixture postgres) : IDisposable
 {

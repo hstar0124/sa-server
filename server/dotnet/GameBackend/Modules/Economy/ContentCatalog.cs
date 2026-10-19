@@ -12,7 +12,7 @@ internal sealed record DropTable(int MonsterTemplateId, long Gold, IReadOnlySet<
 /// <summary>
 /// The slice of game-data the Backend needs to judge a zone's economy requests: the content version,
 /// known items, drop tables and the inventory rules. Loaded once at start-up from the same files the
-/// zones read, so both sides agree on what a kill is worth (design document 8.1).
+/// zones read, so both sides agree on what a kill is worth (see README "전투").
 /// </summary>
 internal sealed class ContentCatalog
 {

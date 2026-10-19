@@ -4,7 +4,7 @@ using Sa.GameBackend.IntegrationTests.Harness;
 
 namespace Sa.GameBackend.IntegrationTests.Economy;
 
-/// <summary>Design document 8.2 and 21.1: one grant per kill, only from the zone that owns the killer, only under the agreed content.</summary>
+/// <summary>Scenarios from tests/integration/README.md and README "자산과 멱등성": one grant per kill, only from the zone that owns the killer, only under the agreed content.</summary>
 [Collection(SharedPostgres.Name)]
 public sealed class RecordKillTests(PostgresFixture postgres) : IDisposable
 {
