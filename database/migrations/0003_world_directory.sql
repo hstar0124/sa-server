@@ -25,7 +25,7 @@ CREATE TABLE game.gateway_leases (
 );
 
 -- One row per issued ticket; redemption is a conditional UPDATE, so a second redeem sees
--- redeemed_at already set and loses (10.2: no SELECT-then-decide).
+-- redeemed_at already set and loses (no SELECT-then-decide).
 CREATE TABLE game.entry_tickets (
     ticket_id     bytea       PRIMARY KEY,
     account_id    bigint      NOT NULL REFERENCES game.accounts (account_id),
@@ -39,7 +39,7 @@ CREATE TABLE game.entry_tickets (
 
 CREATE INDEX entry_tickets_expires_idx ON game.entry_tickets (expires_at);
 
--- Which zone may simulate the character right now, and the fencing counter (14.3).
+-- Which zone may simulate the character right now, and the fencing counter (owner_epoch).
 CREATE TABLE game.character_ownership (
     world_id          bigint   NOT NULL REFERENCES game.worlds (world_id),
     character_id      bigint   NOT NULL REFERENCES game.characters (character_id),
