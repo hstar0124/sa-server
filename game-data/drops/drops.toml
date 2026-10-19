@@ -1,0 +1,22 @@
+# Drop tables per monster template. The zone rolls each entry independently with its seeded RNG
+# when the monster dies and reports the result to the Backend as part of the kill receipt.
+# `gold` is credited to the killer's wallet in the same transaction.
+[[drop_tables]]
+monster_template_id = 101
+gold = 3
+[[drop_tables.entries]]
+item_template_id = 2001
+chance = 0.6
+[[drop_tables.entries]]
+item_template_id = 2101
+chance = 0.05
+
+[[drop_tables]]
+monster_template_id = 102
+gold = 8
+[[drop_tables.entries]]
+item_template_id = 2002
+chance = 0.5
+[[drop_tables.entries]]
+item_template_id = 2101
+chance = 0.1

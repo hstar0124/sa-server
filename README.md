@@ -275,6 +275,22 @@ stateDiagram-v2
 
 귀환하면 체력을 모두 채운다. 리시 반경을 이용해 몬스터를 조금씩 깎아 잡는 것을 막기 위해서다. 검증 순서, 투사체 터널링, 생명주기당 한 번의 사망을 왜 이렇게 만들었는지는 [설계 노트 06](docs/design-notes/06-combat.md)에 있다.
 
+## 자산과 멱등성
+
+아이템과 재화의 기준은 Backend의 PostgreSQL이다. 자산 규칙은 애플리케이션 검사만이 아니라 테이블 제약으로도 지킨다. Zone과 Backend 사이의 계약은 `contracts/backend/economy.proto`의 Economy 서비스로, 처치 기록·아이템 획득·캐릭터 자산 조회 세 호출이다. 클라이언트는 획득이나 소비 뒤 자기 인벤토리와 지갑의 전체 상태(`InventoryUpdate`)를 받는다. 전체를 보내므로 하나가 유실돼도 다음 것이 대체한다.
+
+| 테이블 | 지키는 것 |
+|---|---|
+| `item_instances` | 아이템 하나는 바닥이나 정확히 한 인벤토리 칸에만 있다(CHECK). 칸 하나에 아이템 하나(부분 유일 인덱스) |
+| `inventories` | 용량과 버전. 바뀔 때마다 버전이 오르고, 클라이언트는 버전으로 최신인지 판단한다 |
+| `wallets` | 가장 작은 단위의 정수 잔액. 음수가 될 수 없다(CHECK) |
+| `economy_ledger` | 모든 지급·차감·이전을 덧붙이기만 하는 기록 |
+| `kill_receipts` | 몬스터 생명주기당 영수증 하나. 같은 처치를 요청 ID를 바꿔 다시 보내도 보상은 한 번이다 |
+| `command_results` | 요청 ID별 결과. 먼저 넣은 쪽이 이기고(`INSERT ... ON CONFLICT`), 진 쪽은 저장된 결과를 읽는다. 본문 해시로 같은 ID에 다른 내용을 실은 요청을 가려낸다 |
+| `outbox_events` | 업무 변경과 같은 트랜잭션에 쓰는 이벤트 행. 집합(aggregate)별 순번이 유일하다 |
+
+콘텐츠는 `game-data/`의 데이터다. 아이템 템플릿, 몬스터별 드롭 표(항목별 확률과 골드), 경제 규칙(인벤토리 용량, 획득 거리, 바닥 아이템 소멸 시간)이 있다. Zone 로더가 전투 콘텐츠와 함께 읽고, 드롭 표가 모르는 몬스터나 아이템을 가리키면 거절한다.
+
 ## 소유권과 lease
 
 - Backend가 캐릭터마다 소유 Zone 인스턴스와 증가하는 소유권 세대(owner_epoch)를 기록한다. Zone 프로세스는 재시작하면 새 인스턴스 ID를 받는다.
@@ -355,7 +371,7 @@ contracts/         Protobuf 계약 (game / backend / events / internal)
 server/cpp/        common, gateway, zone(sim + data + server)
 server/dotnet/     Contracts, GameBackend, Migrator, tests
 database/          SQL 마이그레이션
-game-data/         맵·이동·전투 규칙, 클래스·스킬·몬스터, 콘텐츠 버전
+game-data/         맵·이동·전투·경제 규칙, 클래스·스킬·몬스터, 아이템·드롭, 콘텐츠 버전
 deploy/compose/    로컬 PostgreSQL과 프로세스 설정
 tools/loadgen/     봇 두뇌(bot/)와 네트워크 봇 클라이언트(client/, 프로필)
 scripts/           end-to-end, 대화형 스택(dev-stack), 뷰어 정적 서버, 형식 검사

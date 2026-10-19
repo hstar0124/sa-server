@@ -1,0 +1,13 @@
+# Economy rules shared by the zone and the Backend.
+[inventory]
+capacity = 20
+
+[pickup]
+# A character must be within this distance of an item on the ground to pick it up.
+range_m = 2.0
+# How long a dropped item stays on the ground before the zone removes it (stage 5: zone-local).
+despawn_ms = 60000
+
+[currency]
+# The only currency in the first version; stored as integer units.
+primary = "gold"

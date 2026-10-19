@@ -10,5 +10,8 @@
 | `classes/classes.toml` | 클래스별 체력·마나·보유 스킬 | zone_server → `LoadContent` |
 | `skills/skills.toml` | 스킬 종류·비용·쿨타임·시전 시간·사거리·피해 | zone_server → `LoadContent` |
 | `monsters/monsters.toml` | 몬스터 체력·속도·어그로·리시·공격 | zone_server → `LoadContent` |
+| `items/items.toml` | 아이템 템플릿 | zone_server → `LoadContent`, Backend(템플릿 검증) |
+| `drops/drops.toml` | 몬스터별 드롭 확률과 골드 | zone_server → `LoadContent` (Zone이 굴린다) |
+| `rules/economy.toml` | 인벤토리 용량, 획득 사거리, 바닥 아이템 소멸 | zone_server, Backend |
 
 Zone과 Backend는 같은 콘텐츠 버전을 참조한다.

@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <format>
 
 namespace sa::zone::data {
 namespace {
@@ -60,12 +61,6 @@ commands_per_tick_budget = 10
     EXPECT_FALSE(rules.has_value());
 }
 
-}  // namespace
-}  // namespace sa::zone::data
-
-namespace sa::zone::data {
-namespace {
-
 TEST(GameDataLoader, ShippedContentBundleIsValidAndMatchesTheMap) {
     const auto content = LoadContent(kGameData);
     ASSERT_TRUE(content.has_value()) << content.error().message;
@@ -111,14 +106,13 @@ respawn_ms = 1000
 )";
 
 TEST(GameDataLoader, ContentRejectsUnknownSkillReferencesAndBadProjectiles) {
-    const auto unknown_skill =
-        ParseContent(kVersion,
-                     "[[classes]]\nid = 1\nname = \"w\"\nmax_hp = 10\nmax_mp = 0\nmp_regen_per_sec "
-                     "= 0.0\nskills = [99]\n",
-                     kSkills, kMonsters);
-    EXPECT_FALSE(unknown_skill.has_value());
-
-    const auto projectile_without_speed = ParseContent(kVersion, "", R"(
+    constexpr std::string_view kClassWithSkill99 =
+        "[[classes]]\nid = 1\nname = \"w\"\nmax_hp = 10\nmax_mp = 0\nmp_regen_per_sec = "
+        "0.0\nskills = [99]\n";
+    constexpr std::string_view kClassWithSkill1 =
+        "[[classes]]\nid = 1\nname = \"w\"\nmax_hp = 10\nmax_mp = 0\nmp_regen_per_sec = "
+        "0.0\nskills = [1]\n";
+    constexpr std::string_view kProjectileWithoutSpeed = R"(
 [[skills]]
 id = 3
 name = "arrow"
@@ -128,16 +122,86 @@ cooldown_ms = 1
 cast_time_ms = 0
 range_m = 10.0
 damage = 1
-)",
-                                                       kMonsters);
+)";
+
+    const auto unknown_skill = ParseContent({.version = kVersion,
+                                             .classes = kClassWithSkill99,
+                                             .skills = kSkills,
+                                             .monsters = kMonsters});
+    EXPECT_FALSE(unknown_skill.has_value());
+
+    const auto projectile_without_speed = ParseContent(
+        {.version = kVersion, .skills = kProjectileWithoutSpeed, .monsters = kMonsters});
     EXPECT_FALSE(projectile_without_speed.has_value());
 
-    const auto ok = ParseContent(kVersion,
-                                 "[[classes]]\nid = 1\nname = \"w\"\nmax_hp = 10\nmax_mp = "
-                                 "0\nmp_regen_per_sec = 0.0\nskills = [1]\n",
-                                 kSkills, kMonsters);
+    const auto ok = ParseContent({.version = kVersion,
+                                  .classes = kClassWithSkill1,
+                                  .skills = kSkills,
+                                  .monsters = kMonsters});
     ASSERT_TRUE(ok.has_value()) << ok.error().message;
     EXPECT_EQ(ok->skills.at(sim::SkillId{1}).cooldown.count(), 500);
+}
+
+TEST(GameDataLoader, ShippedItemsDropsAndEconomyRulesLoad) {
+    const auto content = LoadContent(kGameData);
+    ASSERT_TRUE(content.has_value()) << content.error().message;
+    EXPECT_FALSE(content->items.empty());
+    EXPECT_FALSE(content->drops.empty());
+    for (const auto& [monster, table] : content->drops) {
+        EXPECT_TRUE(content->monsters.contains(monster));
+        for (const auto& entry : table.entries) {
+            EXPECT_TRUE(content->items.contains(entry.item));
+        }
+    }
+    const auto economy = LoadEconomyRules(kGameData / "rules" / "economy.toml");
+    ASSERT_TRUE(economy.has_value()) << economy.error().message;
+    EXPECT_GT(economy->inventory_capacity, 0U);
+    EXPECT_GT(economy->pickup_range_m, 0.0F);
+    EXPECT_FALSE(economy->primary_currency.empty());
+}
+
+TEST(GameDataLoader, DropTablesMustReferenceKnownItemsWithChancesInRange) {
+    constexpr std::string_view kItems = "[[items]]\nid = 5\nname = \"gel\"\n";
+    const auto drops_for = [](std::string_view item, std::string_view chance) {
+        return std::format(
+            "[[drop_tables]]\nmonster_template_id = 7\ngold = 1\n[[drop_tables.entries]]\n"
+            "item_template_id = {}\nchance = {}\n",
+            item, chance);
+    };
+
+    const auto unknown_item = drops_for("99", "0.5");
+    EXPECT_FALSE(ParseContent({.version = kVersion,
+                               .skills = kSkills,
+                               .monsters = kMonsters,
+                               .items = kItems,
+                               .drops = unknown_item})
+                     .has_value());
+
+    const auto bad_chance = drops_for("5", "1.5");
+    EXPECT_FALSE(ParseContent({.version = kVersion,
+                               .skills = kSkills,
+                               .monsters = kMonsters,
+                               .items = kItems,
+                               .drops = bad_chance})
+                     .has_value());
+
+    constexpr std::string_view kUnknownMonster =
+        "[[drop_tables]]\nmonster_template_id = 8\ngold = 1\n";
+    EXPECT_FALSE(ParseContent({.version = kVersion,
+                               .skills = kSkills,
+                               .monsters = kMonsters,
+                               .items = kItems,
+                               .drops = kUnknownMonster})
+                     .has_value());
+
+    const auto valid = drops_for("5", "0.5");
+    const auto ok = ParseContent({.version = kVersion,
+                                  .skills = kSkills,
+                                  .monsters = kMonsters,
+                                  .items = kItems,
+                                  .drops = valid});
+    ASSERT_TRUE(ok.has_value()) << ok.error().message;
+    EXPECT_EQ(ok->drops.at(sim::MonsterTemplateId{7}).entries.size(), 1U);
 }
 
 TEST(GameDataLoader, MapRejectsSpawnOfUnknownMonsterTemplate) {
@@ -154,7 +218,8 @@ position = [2.0, 2.0]
 count = 1
 )");
     ASSERT_TRUE(map.has_value()) << map.error().message;
-    const auto content = ParseContent(kVersion, "", kSkills, kMonsters);
+    const auto content =
+        ParseContent({.version = kVersion, .skills = kSkills, .monsters = kMonsters});
     ASSERT_TRUE(content.has_value());
     EXPECT_FALSE(map->ValidateAgainst(*content).has_value());
 }

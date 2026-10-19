@@ -1,0 +1,16 @@
+# Item templates. Stage 5 ships non-stackable items only: contention is proved on single
+# instances first. `stackable` is reserved for the stack/split rules that follow.
+[[items]]
+id = 2001
+name = "slime_gel"
+stackable = false
+
+[[items]]
+id = 2002
+name = "wolf_pelt"
+stackable = false
+
+[[items]]
+id = 2101
+name = "rusty_sword"
+stackable = false
