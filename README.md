@@ -34,6 +34,55 @@ flowchart TD
 
 모든 메시지는 `contracts/`의 Protobuf가 단일 출처다(ADR-0004).
 
+### 프로세스 내부
+
+각 프로세스 안에서 무엇이 무엇을 호출하는지 보여 준다. 회색 상자는 I/O를 모르는 순수 코드이고, 나머지는 소켓·타이머·DB를 다룬다.
+
+```mermaid
+flowchart TB
+    subgraph gateway["Gateway (C++)"]
+        GL["Listener ×2<br/>TCP · WebSocket"]
+        GC["ClientSession<br/>소켓 ↔ 상태 기계 효과 실행"]
+        GP["SessionProtocol<br/>세션 상태 기계 (순수)"]
+        GV["EntryTicketVerifier<br/>서명·만료 검증 (순수)"]
+        GZ["ZoneLink<br/>Zone별 영구 연결, 재접속"]
+        GD["DirectoryClient<br/>gRPC: Redeem·EndSession·lease"]
+        GL --> GC --> GP
+        GP --> GV
+        GC --> GZ
+        GC --> GD
+    end
+
+    subgraph zone["Zone (C++)"]
+        ZT["TickRunner<br/>고정 주기 타이머, 밀린 틱 상한"]
+        ZH["ZoneHost<br/>세션 ↔ 엔티티, 스냅샷·이벤트 송신"]
+        ZS["sim::Zone<br/>이동·충돌·관심 관리·스킬·투사체·AI (순수)"]
+        ZC["codec<br/>Protobuf ↔ 도메인 (순수)"]
+        ZD["data 로더<br/>game-data TOML → 구조체"]
+        ZG["GatewayLinkServer<br/>Gateway 연결 수락"]
+        ZL["LeaseKeeper<br/>Backend lease 갱신"]
+        ZT --> ZS
+        ZT --> ZH
+        ZH --> ZC --> ZS
+        ZG --> ZH
+        ZD --> ZS
+        ZL -. "권위 여부" .-> ZH
+    end
+
+    subgraph backend["Backend (C# / .NET)"]
+        BA["Modules/Auth<br/>가입·로그인·JWT·시도 상한"]
+        BC["Modules/Characters<br/>생성·목록·소유 확인"]
+        BW["Modules/WorldDirectory<br/>티켓 발급·소비, 세션, 소유권, lease"]
+        BI["Infrastructure<br/>Npgsql 풀, 헬스체크, CORS"]
+        BA --> BI
+        BC --> BI
+        BW --> BI
+    end
+
+    classDef pure fill:#2d333b,stroke:#8a94a3,color:#e6e9ee
+    class GP,GV,ZS,ZC pure
+```
+
 ## 데이터의 기준
 
 | 데이터 | 실행 중 변경 주체 | 기준 저장 |
@@ -43,6 +92,61 @@ flowchart TD
 | 입장 티켓, 세션, 캐릭터의 소유 Zone과 소유권 세대(owner_epoch), 프로세스 lease | Backend WorldDirectory | PostgreSQL |
 
 규칙은 DB 제약으로도 지킨다. 티켓 소비는 조건부 UPDATE, 캐릭터당 활성 세션 하나는 부분 유일 인덱스, 소유권 변경은 같은 트랜잭션.
+
+Backend가 PostgreSQL에 두는 기준 상태와 그것을 지키는 제약이다.
+
+```mermaid
+erDiagram
+    accounts ||--o{ characters : owns
+    worlds ||--o{ characters : contains
+    accounts ||--o{ entry_tickets : issued_for
+    characters ||--o{ entry_tickets : issued_for
+    characters ||--o| character_ownership : simulated_by
+    zone_leases ||--o{ character_ownership : holds
+    characters ||--o{ character_sessions : connects_as
+    gateway_leases ||--o{ character_sessions : hosted_by
+
+    accounts {
+        bigint account_id PK
+        text username UK "형식 CHECK"
+        text password_hash
+    }
+    characters {
+        bigint character_id PK
+        bigint world_id FK
+        bigint account_id FK
+        text name "world별 대소문자 무시 UNIQUE"
+        int class_id
+    }
+    entry_tickets {
+        bytea ticket_id PK "16바이트"
+        timestamptz expires_at
+        timestamptz redeemed_at "조건부 UPDATE로 1회 소비"
+    }
+    character_ownership {
+        bigint world_id PK
+        bigint character_id PK
+        int zone_id
+        bytea zone_instance_id FK
+        bigint owner_epoch "펜싱 토큰, 단조 증가"
+        text state "active | transferring | released"
+    }
+    character_sessions {
+        bytea gateway_session_id PK
+        bytea gateway_instance_id FK
+        bigint character_id FK "ended_at IS NULL 인 행은 캐릭터당 1개"
+        timestamptz ended_at
+    }
+    zone_leases {
+        bytea zone_instance_id PK
+        int zone_id
+        timestamptz lease_expires_at
+    }
+    gateway_leases {
+        bytea gateway_instance_id PK
+        timestamptz lease_expires_at
+    }
+```
 
 ## 네트워크와 입장
 
@@ -60,6 +164,21 @@ TCP는 초기 개발과 디버깅을 위한 선택이다(설계 노트 01·02).
 2. 클라이언트가 Gateway에 티켓을 낸다. Gateway는 서명·만료를 먼저 거른다.
 3. Backend가 **한 트랜잭션에서** 티켓을 1회 소비하고, 같은 캐릭터의 다른 활성 세션을 거절하고, lease가 살아 있는 Zone을 배정한다.
 4. Gateway가 세션을 그 Zone에 붙이고, 이후 입력과 출력을 중계한다.
+
+Gateway의 세션 하나가 거치는 상태는 아래와 같다.
+
+```mermaid
+stateDiagram-v2
+    [*] --> AwaitingHello : TCP/WebSocket 연결
+    AwaitingHello --> Redeeming : Hello (서명·만료 검증 통과)
+    AwaitingHello --> Closed : 잘못된 티켓·버전·순서 → Kick
+    Redeeming --> Attaching : Backend 승인 (세션·소유권 확정)
+    Redeeming --> Closed : 거절 (중복 세션, 소비된 티켓, Zone 없음) → Kick
+    Attaching --> InZone : Zone SessionAttached
+    Attaching --> Closed : Zone 거절·링크 단절 → Kick + EndSession
+    InZone --> Closed : 연결 종료·퇴출·링크 단절 → Detach + EndSession
+    Closed --> [*]
+```
 
 Gateway의 세션 로직은 I/O 없는 상태 기계라서 모든 전이를 소켓 없이 테스트한다. 세션 로직은 전송을 모른다. TCP와 WebSocket은 같은 `MessageConnection` 인터페이스 뒤에 있고, 둘 다 한 가지 TCP 바이트 스트림 구현(읽기 루프, 순서 있는 쓰기 큐, 종료 통지)을 쓴다(ADR-0004).
 
@@ -115,6 +234,27 @@ Zone은 시작할 때 콘텐츠를 읽고 버전을 로그에 남긴다. 콘텐�
 | `CombatEvent` | 공격자, 피격자, 스킬, 피해, 남은 체력, 처치 여부 |
 | 스냅샷 | 보이는 엔티티의 종류·위치·체력. 자기 체력과 마나는 따로 담는다. 다른 플레이어의 마나는 보내지 않는다 |
 
+```mermaid
+sequenceDiagram
+    participant C as 클라이언트
+    participant G as Gateway
+    participant Z as Zone
+    C->>G: CastSkill(request_id, skill, target)
+    G->>Z: SessionInput (세션 다중화 링크)
+    Note over Z: 다음 틱에 검증: 중복 요청 → 생존 → 시전 중 →<br/>보유 → 마나 → 쿨타임 → 대상·사거리
+    alt 거절
+        Z-->>G: CommandResult(REJECTED, reject_code)
+        G-->>C: CommandResult
+    else 수락
+        Z-->>G: CommandResult(ACCEPTED)
+        G-->>C: CommandResult
+        Note over Z: 바로 또는 시전 시간 뒤 발동.<br/>발동할 때 사거리·대상 생존을 다시 확인
+        Z-->>G: CombatEvent → 피격자, 피격자를 보는 플레이어, 공격자
+        G-->>C: CombatEvent(피해, 남은 체력, 처치 여부)
+    end
+    Note over C,Z: 같은 request_id로 다시 보내면 같은 CommandResult, 효과는 한 번
+```
+
 사망은 생명주기마다 한 번만 처리한다. 이미 죽은 대상에 들어온 피해는 무시한다. 죽은 플레이어는 정해진 시간 뒤 스폰 지점에서 체력과 마나를 채워 부활한다. 몬스터는 죽으면 맵에서 사라지고, 리스폰 시간 뒤 귀환 지점에서 새 엔티티로 생긴다.
 
 ```mermaid
@@ -162,6 +302,25 @@ stateDiagram-v2
 라이브러리 버전은 vcpkg baseline(C++)과 `Directory.Packages.props`·잠금 파일(.NET), 도구 버전은 CI 설정과 `global.json`에 고정한다.
 
 ## 빌드
+
+지금은 미니 PC 한 대에서 PostgreSQL만 compose로 띄우고 나머지는 호스트 프로세스로 돌린다.
+
+```mermaid
+flowchart LR
+    subgraph compose["docker compose"]
+        PG[("PostgreSQL 17")]
+    end
+    subgraph host["호스트 프로세스 (scripts/dev-stack.sh, scripts/e2e-local.sh)"]
+        BE["Backend<br/>:5100 HTTP · :5101 gRPC"]
+        ZA["Zone A<br/>:7801 Gateway 링크"]
+        GW["Gateway<br/>:7777 TCP · :7778 WebSocket"]
+        VW["뷰어 정적 서버<br/>:8080"]
+    end
+    BE --> PG
+    GW --> ZA
+    GW --> BE
+    ZA --> BE
+```
 
 ```bash
 export VCPKG_ROOT=/opt/vcpkg
