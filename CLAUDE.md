@@ -49,5 +49,5 @@ docker compose -f deploy/compose/docker-compose.yml up -d
 `Auth:SigningKey`(base64 32바이트 이상)와 DB 비밀번호는 user-secrets 또는 환경 변수로만 준다. appsettings.json에는 빈 값만 있다.
 
 ## 단계 (ADR-0002)
-완료: 0 골격·툴체인(저장소 도구, ADR-0001~0008, 설계 노트 01~05), 1 Backend 인증·캐릭터·WorldDirectory, 2 Zone 시뮬레이션·서버 호스트, 3 입장 경로(Gateway·네트워크 봇·`scripts/e2e-local.sh`), 3b WebSocket 전송·브라우저 뷰어(`tools/viewer`, `scripts/dev-stack.sh`).
-다음: 4 전투 → 5 자산·멱등성 → 6 Outbox·Kafka(+K3s 도입) → 7 Redis → 8 두 번째 Zone·이전 → 9 거래 → 10 부하·장애·백업·보고서
+완료: 0 골격·툴체인(저장소 도구, ADR-0001~0008, 설계 노트 01~05), 1 Backend 인증·캐릭터·WorldDirectory, 2 Zone 시뮬레이션·서버 호스트, 3 입장 경로(Gateway·네트워크 봇·`scripts/e2e-local.sh`), 3b WebSocket 전송·브라우저 뷰어(`tools/viewer`, `scripts/dev-stack.sh`), 4 전투(game-data 클래스·스킬·몬스터, 시뮬레이션의 스킬 검증·시전·투사체·몬스터 AI, 호스트의 결과·이벤트 전달, Fighter 봇, 뷰어 전투, 설계 노트 06).
+다음: 5 자산·멱등성 → 6 Outbox·Kafka(+K3s 도입) → 7 Redis → 8 두 번째 Zone·이전 → 9 거래 → 10 부하·장애·백업·보고서
