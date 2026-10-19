@@ -26,8 +26,8 @@ internal sealed class AuthOptions
     public int MinPasswordLength { get; init; } = 8;
 
     /// <summary>
-    /// Register/login attempts allowed per client address per minute (design document 18: input
-    /// rate limits). Raise it for load generation from one host; production keeps it low.
+    /// Register/login attempts allowed per client address per minute. Raise it for load generation
+    /// from one host; production keeps it low.
     /// </summary>
     [Range(1, 100_000)]
     public int CredentialAttemptsPerMinutePerAddress { get; init; } = 10;
