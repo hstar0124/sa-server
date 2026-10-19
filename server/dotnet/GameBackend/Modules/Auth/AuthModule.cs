@@ -8,8 +8,6 @@ namespace Sa.GameBackend.Modules.Auth;
 
 internal static class AuthModule
 {
-    private const int LoginAttemptsPerMinutePerAddress = 10;
-
     public static IServiceCollection AddAuthModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<AuthOptions>()
@@ -44,14 +42,17 @@ internal static class AuthModule
         {
             limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             limiter.AddPolicy(AuthEndpoints.RateLimitPolicy, context =>
-                RateLimitPartition.GetFixedWindowLimiter(
+            {
+                int permits = context.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value.CredentialAttemptsPerMinutePerAddress;
+                return RateLimitPartition.GetFixedWindowLimiter(
                     context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
                     _ => new FixedWindowRateLimiterOptions
                     {
-                        PermitLimit = LoginAttemptsPerMinutePerAddress,
+                        PermitLimit = permits,
                         Window = TimeSpan.FromMinutes(1),
                         QueueLimit = 0,
-                    }));
+                    });
+            });
         });
 
         return services;

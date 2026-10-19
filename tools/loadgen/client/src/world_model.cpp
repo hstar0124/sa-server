@@ -9,6 +9,19 @@ common::Vec2 ToVec(const game::v1::Vec2& v) {
     return {v.x(), v.y()};
 }
 
+bot::SeenKind ToKind(game::v1::EntityKind kind) {
+    switch (kind) {
+        case game::v1::ENTITY_KIND_PLAYER:
+            return bot::SeenKind::kPlayer;
+        case game::v1::ENTITY_KIND_MONSTER:
+            return bot::SeenKind::kMonster;
+        case game::v1::ENTITY_KIND_PROJECTILE:
+            return bot::SeenKind::kProjectile;
+        default:
+            return bot::SeenKind::kOther;
+    }
+}
+
 }  // namespace
 
 void WorldModel::OnWelcome(const game::v1::Welcome& welcome) {
@@ -28,6 +41,10 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
     if (snapshot.has_self()) {
         self_position_ = ToVec(snapshot.self().position());
     }
+    if (snapshot.has_self_vitals()) {
+        self_hp_ = static_cast<std::int32_t>(snapshot.self_vitals().hp());
+        self_max_hp_ = static_cast<std::int32_t>(snapshot.self_vitals().max_hp());
+    }
 
     for (const game::v1::EntitySpawn& spawn : snapshot.spawned()) {
         const common::EntityId id{spawn.entity_id()};
@@ -35,7 +52,10 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
             ++integrity_.self_in_view;
             continue;
         }
-        if (!visible_.emplace(id, ToVec(spawn.position())).second) {
+        const Known known{.kind = ToKind(spawn.kind()),
+                          .position = ToVec(spawn.position()),
+                          .hp = static_cast<std::int32_t>(spawn.hp())};
+        if (!visible_.emplace(id, known).second) {
             ++integrity_.spawn_of_known;
         }
     }
@@ -45,7 +65,8 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
             ++integrity_.update_of_unknown;
             continue;
         }
-        it->second = ToVec(update.position());
+        it->second.position = ToVec(update.position());
+        it->second.hp = static_cast<std::int32_t>(update.hp());
     }
     for (const std::uint64_t raw : snapshot.despawned()) {
         if (visible_.erase(common::EntityId{raw}) == 0) {
@@ -56,12 +77,35 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
     cache_dirty_ = true;
 }
 
+void WorldModel::OnCommandResult(const game::v1::CommandResult& result) {
+    if (result.status() == game::v1::COMMAND_STATUS_ACCEPTED) {
+        ++combat_.casts_accepted;
+    } else {
+        ++combat_.casts_rejected;
+    }
+}
+
+void WorldModel::OnCombatEvent(const game::v1::CombatEvent& event) {
+    const common::EntityId attacker{event.attacker_id()};
+    const common::EntityId target{event.target_id()};
+    if (attacker == self_) {
+        ++combat_.hits_dealt;
+        if (event.killed()) {
+            ++combat_.kills;
+        }
+    }
+    if (target == self_ && event.killed()) {
+        ++combat_.deaths;
+    }
+}
+
 const std::vector<bot::SeenEntity>& WorldModel::Visible() {
     if (cache_dirty_) {
         visible_cache_.clear();
         visible_cache_.reserve(visible_.size());
-        for (const auto& [id, position] : visible_) {
-            visible_cache_.push_back(bot::SeenEntity{.id = id, .position = position});
+        for (const auto& [id, known] : visible_) {
+            visible_cache_.push_back(bot::SeenEntity{
+                .id = id, .kind = known.kind, .position = known.position, .hp = known.hp});
         }
         cache_dirty_ = false;
     }

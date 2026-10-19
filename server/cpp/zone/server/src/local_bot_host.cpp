@@ -38,9 +38,13 @@ void LocalBotHost::OnTick(common::TickIndex tick) {
         if (!position) {
             continue;
         }
-        const bot::Observation observation{
-            .self_position = *position, .map_size = map_size, .visible = {}, .tick = tick.value()};
-        const common::Vec2 direction = b.brain.Decide(observation);
+        const bot::Observation observation{.self_position = *position,
+                                           .map_size = map_size,
+                                           .self_hp = 1,
+                                           .self_max_hp = 1,
+                                           .visible = {},
+                                           .tick = tick.value()};
+        const common::Vec2 direction = b.brain.Decide(observation).direction;
         zone_.Submit(sim::MoveCommand{
             .player = b.entity, .input_seq = b.next_input_seq++, .direction = direction});
     }

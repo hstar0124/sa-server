@@ -19,12 +19,11 @@ struct WandererParams {
 
 // Picks random points on the map and walks to them. All randomness comes from the seed given at
 // construction, so a run is reproducible from its seed (ADR-0006).
-class Wanderer {
+class Wanderer final : public Brain {
 public:
     Wanderer(std::uint64_t seed, WandererParams params);
 
-    // Movement intent for this tick: a unit direction, or zero to stand still.
-    [[nodiscard]] common::Vec2 Decide(const Observation& observation);
+    [[nodiscard]] Intent Decide(const Observation& observation) override;
 
     [[nodiscard]] std::optional<common::Vec2> target() const noexcept { return target_; }
     [[nodiscard]] std::uint32_t targets_reached() const noexcept { return targets_reached_; }

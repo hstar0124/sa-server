@@ -15,10 +15,10 @@ common::Vec2 Wanderer::PickTarget(common::Vec2 map_size) {
     return *target_;
 }
 
-common::Vec2 Wanderer::Decide(const Observation& observation) {
+Intent Wanderer::Decide(const Observation& observation) {
     if (idle_remaining_ > 0) {
         --idle_remaining_;
-        return {};
+        return Intent{};
     }
     const common::Vec2 target = target_.has_value() ? *target_ : PickTarget(observation.map_size);
     const common::Vec2 to_target = target - observation.self_position;
@@ -35,9 +35,9 @@ common::Vec2 Wanderer::Decide(const Observation& observation) {
             }
         }
         target_.reset();
-        return {};
+        return Intent{};
     }
-    return to_target.Normalized();
+    return Intent{.direction = to_target.Normalized()};
 }
 
 }  // namespace sa::bot
