@@ -20,6 +20,7 @@
 | [14](14-zone-combat-sim.md) | 전투 시뮬레이션: 스킬·투사체·피해·사망·몬스터 AI | 4 | |
 | [15](15-zone-combat-host.md) | 전투 호스트 연결: 스킬 요청을 받고 결과·피해·체력을 보낸다 | 4 | |
 | [16](16-loadgen-fighter.md) | 전투 봇: 몬스터를 사냥하는 Fighter와 전투 end-to-end | 4 | |
+| [17](17-ci-cache-miss-on-version-bump.md) | CI 의존성 캐시: 버전을 올려도 의존성을 다시 빌드하지 않는다 | – | |
 
 ## 형식
 
