@@ -1,5 +1,5 @@
--- Persistent assets (design document 9.2, 10, 11). The invariants of appendix B are constraints
--- here, not only checks in code: one owner per item instance, no negative balances, one grant
+-- Persistent assets (see README "자산과 멱등성"). The asset invariants are constraints here,
+-- not only checks in code: one owner per item instance, no negative balances, one grant
 -- per kill, one effect per request id.
 
 -- Individual items. An item is either on the ground in a zone or in exactly one inventory slot.
@@ -44,7 +44,7 @@ CREATE TABLE game.inventories (
     CONSTRAINT inventories_capacity_positive CHECK (capacity > 0)
 );
 
--- Integer balances in the smallest unit; never negative (design document 9.2, 11).
+-- Integer balances in the smallest unit; never negative (see README "자산과 멱등성").
 CREATE TABLE game.wallets (
     world_id      bigint  NOT NULL REFERENCES game.worlds (world_id),
     character_id  bigint  NOT NULL REFERENCES game.characters (character_id),
@@ -72,7 +72,7 @@ CREATE TABLE game.economy_ledger (
 
 CREATE INDEX economy_ledger_character_idx ON game.economy_ledger (world_id, character_id, entry_id);
 
--- One receipt per monster lifecycle (8.2): the grant basis is unique regardless of request ids.
+-- One receipt per monster lifecycle: the grant basis is unique regardless of request ids.
 CREATE TABLE game.kill_receipts (
     kill_id              bytea       PRIMARY KEY,
     world_id             bigint      NOT NULL REFERENCES game.worlds (world_id),
@@ -86,7 +86,7 @@ CREATE TABLE game.kill_receipts (
     CONSTRAINT kill_receipts_id_len CHECK (octet_length(kill_id) = 16)
 );
 
--- Idempotency (9.2): a request row is claimed with INSERT ... ON CONFLICT; the loser reads the
+-- Idempotency: a request row is claimed with INSERT ... ON CONFLICT; the loser reads the
 -- winner's stored outcome. The hash detects a different body under the same id.
 CREATE TABLE game.command_results (
     world_id      bigint      NOT NULL REFERENCES game.worlds (world_id),
@@ -100,7 +100,8 @@ CREATE TABLE game.command_results (
     CONSTRAINT command_results_request_len CHECK (octet_length(request_id) = 16)
 );
 
--- Transactional outbox (12.2). Rows are written with the business change; stage 6 publishes them.
+-- Transactional outbox. Rows are written in the same transaction as the business change; stage 6
+-- publishes them.
 CREATE TABLE game.aggregate_sequences (
     world_id        bigint NOT NULL,
     aggregate_type  text   NOT NULL,

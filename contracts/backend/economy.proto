@@ -6,7 +6,7 @@ import "game/common.proto";
 
 option csharp_namespace = "Sa.Backend.V1";
 
-// Persistent assets (design document 8.2, 9-11). Every mutation is one PostgreSQL transaction
+// Persistent assets (see README "자산과 멱등성"). Every mutation is one PostgreSQL transaction
 // in the Backend; the zone only reserves in memory and waits for the committed answer.
 service Economy {
   // The zone reports a monster death it adjudicated. The Backend verifies the zone's authority
