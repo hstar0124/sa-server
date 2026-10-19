@@ -23,6 +23,7 @@
 | [17](17-ci-cache-miss-on-version-bump.md) | CI 의존성 캐시: 버전을 올려도 의존성을 다시 빌드하지 않는다 | – | 0.2.0 |
 | [18](18-repo-main-branch-restored.md) | 저장소 보호: 지워진 main을 되살리고 룰셋을 다시 시행한다 | – | |
 | [19](19-docs-self-contained.md) | 설계 노트 자기완결화: 노트 하나만 읽어도 이해되게 | – | |
+| [20](20-readme-diagrams.md) | README 다이어그램: 지금까지 만든 것을 그림으로 | – | |
 
 ## 형식
 
