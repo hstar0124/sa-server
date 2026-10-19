@@ -22,3 +22,4 @@
 - CMake 3.31.8. CI는 `.github/workflows/ci.yml`의 `CMAKE_VERSION`으로 같은 버전을 설치한다.
 - LLVM(clang-tidy·clang-format) major는 로컬과 CI(`.github/workflows/ci.yml`의 `LLVM_MAJOR`)가 같아야 한다. 지금은 21.
 - .NET 10 SDK.
+- CI 시간: 공개 저장소라 GitHub 기본 러너에 시간 한도가 없다. 비공개로 돌리면 계정의 월 무료 시간(무료 계정 2,000분)이 다시 적용된다(이슈 009).
