@@ -1,7 +1,7 @@
 # 작업 규칙
 
 ## 브랜치
-- `main`은 릴리스만. `develop`이 기본 브랜치. 둘 다 PR로만 바뀐다(룰셋: PR 필수, CI 네 잡 통과, merge commit만 허용).
+- `main`은 릴리스만. `develop`이 기본 브랜치. 둘 다 PR로만 바뀐다. 룰셋 `protect-main-branch`가 두 브랜치에 PR 필수, CI 다섯 잡(C++ dependencies, dev, asan, tidy, .NET) 통과, merge commit만 허용, 삭제·강제 푸시 금지를 건다. 룰셋의 시행 상태는 Active여야 한다(이슈 010).
 - 피처는 `feature/<영역>-<주제>`, 수정은 `fix/<영역>-<증상>`, 릴리스는 `release/x.y.z`, 핫픽스는 `hotfix/x.y.z`. 이름은 소문자 kebab-case 명사구.
 - 커밋은 Conventional Commits(`feat(zone): ...`, `fix(loadgen): ...`, `docs: ...`)에 본문(무엇을 왜). 컴포넌트별로 나누고, 각 커밋이 빌드·테스트를 통과한다. 공동 작업 표기(Co-Authored-By 등)는 넣지 않는다.
 
@@ -15,7 +15,7 @@
 - [ ] 단계 끝이면 `scripts/bench/capacity.sh` 50~2,000 재측정, 보고서에 비교(7단계 이후).
 - [ ] 검증은 **커밋된 트리**로 한다: `git stash -u` 뒤 빌드하거나 별도 worktree(`git worktree add`)에서 빌드한다. 작업 트리에만 있는 파일에 기대지 않는다.
 - [ ] README에 **이 PR이 만든 것**을 더한다(구조·흐름·데이터 기준의 해당 부분). 미래 단계의 내용이나 아직 하지 않은 측정은 적지 않는다. 측정이 있었으면 "성능과 개선"(부하별 리소스 표, 개선 사례: 증상 → 원인 → 조치 → 다시 잰 결과)과 `docs/reports/`를 갱신한다.
-- [ ] 릴리스: `release/x.y.z`에서 바꾸는 것은 버전(루트 `CMakeLists.txt`의 `project(... VERSION ...)` 한 곳)과 피처 색인의 릴리스 칸뿐이다. `vcpkg.json`에는 제품 버전을 두지 않는다(이슈 008). `release/x.y.z` PR → `main` 병합 → 태그 `vx.y.z` → Release 노트(그 단계 피처 문서 요약) → `develop`에 다시 병합.
+- [ ] 릴리스: `release/x.y.z`에서 바꾸는 것은 버전(루트 `CMakeLists.txt`의 `project(... VERSION ...)` 한 곳)과 피처 색인의 릴리스 칸뿐이다. `vcpkg.json`에는 제품 버전을 두지 않는다(이슈 008). `release/x.y.z` PR → `main` 병합 → 태그 `vx.y.z` → Release 노트(그 단계 피처 문서 요약) → `main`을 머리로 `develop`에 되돌리는 PR. 이 PR을 병합한 뒤 "Delete branch"를 누르지 않는다. 마지막에 원격 `main`의 머리가 태그 커밋과 같은지 본다(이슈 010).
 
 ## 도구 버전
 - GCC 14(gcc-toolset-14), vcpkg `builtin-baseline` 고정.
