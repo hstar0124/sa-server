@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <stdexcept>
 #include <vector>
 
@@ -30,19 +31,42 @@ public:
     std::vector<ZoneToGateway> sent;
 };
 
+sim::ContentBundle TestContent() {
+    sim::ContentBundle c;
+    c.version = "test";
+    c.skills[sim::SkillId{1}] = sim::SkillDefinition{.id = sim::SkillId{1},
+                                                     .name = "strike",
+                                                     .kind = sim::SkillKind::kTargeted,
+                                                     .cooldown = std::chrono::milliseconds{500},
+                                                     .range_m = 2.5F,
+                                                     .damage = 20};
+    c.classes[sim::ClassId{1}] = sim::ClassDefinition{.id = sim::ClassId{1},
+                                                      .name = "w",
+                                                      .max_hp = 100,
+                                                      .max_mp = 10,
+                                                      .skills = {sim::SkillId{1}}};
+    return c;
+}
+
 sim::Zone MakeZone() {
-    return sim::Zone{sim::ZoneConfig{.world_id = common::WorldId{1},
-                                     .zone_id = common::ZoneId{1},
-                                     .simulation_rate = sim::TickRate{.hz = 10}},
-                     sim::MapData{.size = {100.0F, 100.0F},
-                                  .cell_size = 10.0F,
-                                  .obstacles = {},
-                                  .spawn_points = {{50.0F, 50.0F}}},
-                     sim::MovementRules{.max_speed_mps = 10.0F,
-                                        .aoi_enter_radius_m = 20.0F,
-                                        .aoi_leave_radius_m = 25.0F,
-                                        .commands_per_tick_budget = 100},
-                     sim::Rng{1}};
+    auto zone = sim::Zone::Create(
+        sim::ZoneConfig{.world_id = common::WorldId{1},
+                        .zone_id = common::ZoneId{1},
+                        .simulation_rate = sim::TickRate{.hz = 10}},
+        sim::MapData{.size = {100.0F, 100.0F},
+                     .cell_size = 10.0F,
+                     .obstacles = {},
+                     .spawn_points = {{50.0F, 50.0F}}},
+        sim::MovementRules{.max_speed_mps = 10.0F,
+                           .aoi_enter_radius_m = 20.0F,
+                           .aoi_leave_radius_m = 25.0F,
+                           .commands_per_tick_budget = 100},
+        sim::CombatRules{.monster_think_hz = 5, .player_respawn = std::chrono::seconds{1}},
+        TestContent(), sim::Rng{1});
+    if (!zone) {
+        throw std::logic_error{zone.error()};
+    }
+    return std::move(*zone);
 }
 
 ZoneHost::Identity Identity(std::uint32_t max_sessions = 10) {
@@ -122,6 +146,23 @@ TEST(ZoneHost, RefusesDuplicatesFullZoneAndWhenNotAuthoritative) {
     EXPECT_EQ(host.session_count(), 1U);
 }
 
+TEST(ZoneHost, RefusesACharacterWhoseClassIsNotInTheContent) {
+    constexpr std::uint32_t kClassNotInContent = 999;
+    sim::Zone zone = MakeZone();
+    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeSink sink;
+
+    auto attach = AttachFor("s1", 1);
+    attach.set_class_id(kClassNotInContent);
+    host.Attach(sink, attach);
+
+    EXPECT_EQ(Only(sink, ZoneToGateway::kSessionRejected).session_rejected().reason(),
+              internal::v1::REJECT_REASON_UNKNOWN_CLASS);
+    EXPECT_TRUE(sink.OfCase(ZoneToGateway::kSessionAttached).empty());
+    EXPECT_EQ(host.session_count(), 0U);
+    EXPECT_EQ(zone.stats().players, 0U);
+}
+
 TEST(ZoneHost, InputReachesTheSimulationAndSnapshotsFollowCadence) {
     sim::Zone zone = MakeZone();
     ZoneHost host{zone, Identity(), [] { return true; }};
@@ -197,6 +238,30 @@ TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     EXPECT_EQ(FirstSnapshotTo(gateway_a).despawned_size(), 1) << "a is told b left";
     EXPECT_EQ(zone.stats().players, 1U);
     EXPECT_EQ(host.stats().detaches, 1U);
+}
+
+TEST(ZoneHost, CastSkillYieldsACommandResultOnTheNextTick) {
+    sim::Zone zone = MakeZone();
+    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeSink sink;
+    host.Attach(sink, AttachFor("s1", 1));
+    sink.sent.clear();
+
+    internal::v1::SessionInput input;
+    input.set_gateway_session_id("s1");
+    input.mutable_message()->mutable_cast_skill()->set_request_id(1);
+    input.mutable_message()->mutable_cast_skill()->set_skill_id(1);
+    input.mutable_message()->mutable_cast_skill()->set_target_entity_id(4242);  // no such monster
+    host.Input(input);
+    zone.Tick();
+    host.OnTick(zone.current_tick());  // tick 1: events go out even without a snapshot
+
+    const auto& result =
+        Only(sink, ZoneToGateway::kSessionOutput).session_output().message().command_result();
+    EXPECT_EQ(result.request_id(), 1U);
+    EXPECT_EQ(result.status(), game::v1::COMMAND_STATUS_REJECTED);
+    EXPECT_EQ(result.reject_code(), game::v1::REJECT_CODE_INVALID_TARGET);
+    EXPECT_EQ(host.stats().events_sent, 1U);
 }
 
 TEST(ZoneHost, LinkClosureAndEvictionRemoveEveryoneOnThatLink) {

@@ -47,6 +47,42 @@ TEST(WorldModel, TracksSelfVisibleSetAndMaxVisible) {
     EXPECT_EQ(model.integrity().Total(), 0U);
 }
 
+TEST(WorldModel, ExposesKindsHealthAndCombatCounters) {
+    WorldModel model;
+    model.OnWelcome(WelcomeFor(1));
+    game::v1::WorldSnapshot s = Snapshot(1, 0);
+    auto* slime = s.add_spawned();
+    slime->set_entity_id(5);
+    slime->set_kind(game::v1::ENTITY_KIND_MONSTER);
+    slime->set_hp(60);
+    slime->set_max_hp(60);
+    s.mutable_self_vitals()->set_hp(150);
+    s.mutable_self_vitals()->set_max_hp(200);
+    model.OnSnapshot(s);
+    ASSERT_EQ(model.Visible().size(), 1U);
+    EXPECT_EQ(model.Visible().front().kind, bot::SeenKind::kMonster);
+    EXPECT_EQ(model.Visible().front().hp, 60);
+    EXPECT_EQ(model.self_hp(), 150);
+
+    game::v1::CommandResult accepted;
+    accepted.set_status(game::v1::COMMAND_STATUS_ACCEPTED);
+    model.OnCommandResult(accepted);
+    game::v1::CombatEvent hit;
+    hit.set_attacker_id(1);
+    hit.set_target_id(5);
+    hit.set_killed(true);
+    model.OnCombatEvent(hit);
+    game::v1::CombatEvent died;
+    died.set_attacker_id(5);
+    died.set_target_id(1);
+    died.set_killed(true);
+    model.OnCombatEvent(died);
+    EXPECT_EQ(model.combat().casts_accepted, 1U);
+    EXPECT_EQ(model.combat().hits_dealt, 1U);
+    EXPECT_EQ(model.combat().kills, 1U);
+    EXPECT_EQ(model.combat().deaths, 1U);
+}
+
 TEST(WorldModel, CountsEveryKindOfContradiction) {
     WorldModel model;
     model.OnWelcome(WelcomeFor(1));

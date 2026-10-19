@@ -15,10 +15,11 @@
 - [ ] 단계 끝이면 `scripts/bench/capacity.sh` 50~2,000 재측정, 보고서에 비교(7단계 이후).
 - [ ] 검증은 **커밋된 트리**로 한다: `git stash -u` 뒤 빌드하거나 별도 worktree(`git worktree add`)에서 빌드한다. 작업 트리에만 있는 파일에 기대지 않는다.
 - [ ] README에 **이 PR이 만든 것**을 더한다(구조·흐름·데이터 기준의 해당 부분). 미래 단계의 내용이나 아직 하지 않은 측정은 적지 않는다. 측정이 있었으면 "성능과 개선"(부하별 리소스 표, 개선 사례: 증상 → 원인 → 조치 → 다시 잰 결과)과 `docs/reports/`를 갱신한다.
-- [ ] 릴리스: `release/x.y.z` PR → `main` 병합 → 태그 `vx.y.z` → Release 노트(그 단계 피처 문서 요약) → `develop`에 다시 병합.
+- [ ] 릴리스: `release/x.y.z`에서 바꾸는 것은 버전(루트 `CMakeLists.txt`의 `project(... VERSION ...)` 한 곳)과 피처 색인의 릴리스 칸뿐이다. `vcpkg.json`에는 제품 버전을 두지 않는다(이슈 008). `release/x.y.z` PR → `main` 병합 → 태그 `vx.y.z` → Release 노트(그 단계 피처 문서 요약) → `develop`에 다시 병합.
 
 ## 도구 버전
 - GCC 14(gcc-toolset-14), vcpkg `builtin-baseline` 고정.
 - CMake 3.31.8. CI는 `.github/workflows/ci.yml`의 `CMAKE_VERSION`으로 같은 버전을 설치한다.
 - LLVM(clang-tidy·clang-format) major는 로컬과 CI(`.github/workflows/ci.yml`의 `LLVM_MAJOR`)가 같아야 한다. 지금은 21.
 - .NET 10 SDK.
+- CI 시간: 공개 저장소라 GitHub 기본 러너에 시간 한도가 없다. 비공개로 돌리면 계정의 월 무료 시간(무료 계정 2,000분)이 다시 적용된다(이슈 009).

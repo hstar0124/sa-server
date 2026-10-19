@@ -60,12 +60,19 @@ void ZoneHost::Attach(LinkSink& sink, const internal::v1::SessionAttach& attach)
     }
 
     const common::CharacterId character{attach.character_id()};
-    const common::EntityId entity = zone_.SpawnPlayer(character, attach.class_id());
+    const auto spawned = zone_.SpawnPlayer(character, sim::ClassId{attach.class_id()});
+    if (!spawned) {
+        spdlog::warn("attach refused: class {} is not in the content bundle", attach.class_id());
+        Reject(sink, session_id, internal::v1::REJECT_REASON_UNKNOWN_CLASS);
+        return;
+    }
+    const common::EntityId entity = *spawned;
     const Session session{.sink = &sink,
                           .entity = entity,
                           .character = character,
                           .epoch = common::OwnerEpoch{attach.owner_epoch()}};
     sessions_.emplace(session_id, session);
+    session_by_entity_.emplace(entity, session_id);
     ++stats_.attaches;
 
     ZoneToGateway attached;
@@ -109,13 +116,16 @@ void ZoneHost::Input(const internal::v1::SessionInput& input) {
             ++stats_.inputs;
             return;
         case game::v1::ClientMessage::kCastSkill:
+            zone_.Submit(codec::ToCastCommand(it->second.entity, message.cast_skill()));
+            ++stats_.inputs;
+            return;
         case game::v1::ClientMessage::kPickupItem:
         case game::v1::ClientMessage::kChangeZone:
         case game::v1::ClientMessage::kHello:
         case game::v1::ClientMessage::kPing:
         case game::v1::ClientMessage::BODY_NOT_SET:
-            // Skills, pickups and transfers arrive in stages 4-8; Hello and Ping are consumed by
-            // the gateway. Any of them here is a client or gateway bug and shows up in metrics.
+            // Pickups and transfers arrive in stages 5-8; Hello and Ping are consumed by the
+            // gateway. Any of them here is a client or gateway bug and shows up in metrics.
             ++stats_.bad_inputs;
             return;
     }
@@ -154,17 +164,28 @@ void ZoneHost::EvictAll(internal::v1::EvictReason reason) {
 // ---- output ------------------------------------------------------------------------------------
 
 void ZoneHost::OnTick(common::TickIndex tick) {
+    // Command results and combat notifications go out every tick: a client waiting on a cast
+    // result should not also wait for the next snapshot.
+    for (const sim::DeliveredEvent& delivered : zone_.DrainEvents()) {
+        const auto by_entity = session_by_entity_.find(delivered.recipient);
+        if (by_entity == session_by_entity_.end()) {
+            continue;  // recipient left this tick
+        }
+        const auto session = sessions_.find(by_entity->second);
+        if (session == sessions_.end()) {
+            continue;
+        }
+        SendToSession(session->second, by_entity->second, codec::ToServerMessage(delivered.event));
+        ++stats_.events_sent;
+    }
+
     if (tick.value() % identity_.ticks_per_snapshot != 0) {
         return;
     }
     for (const auto& [id, session] : sessions_) {
         const sim::PlayerView view = zone_.CollectView(session.entity);
-        const auto self = zone_.SnapshotOf(session.entity);
-        if (!self) {
-            continue;
-        }
         game::v1::ServerMessage message;
-        *message.mutable_world_snapshot() = codec::ToWorldSnapshot(view, *self, tick);
+        *message.mutable_world_snapshot() = codec::ToWorldSnapshot(view, tick);
         SendToSession(session, id, message);
         ++stats_.snapshots_sent;
     }
@@ -198,6 +219,7 @@ void ZoneHost::RemoveSession(const std::string& session_id, bool despawn) {
     if (despawn) {
         zone_.DespawnPlayer(it->second.entity);
     }
+    session_by_entity_.erase(it->second.entity);
     sessions_.erase(it);
 }
 

@@ -1,7 +1,9 @@
 #include "sa/common/config_source.hpp"
+#include "sa/common/framed_connection.hpp"
 #include "sa/common/instance_id.hpp"
 #include "sa/common/lease_keeper.hpp"
 #include "sa/common/logging.hpp"
+#include "sa/common/websocket_connection.hpp"
 
 #include "client_session.hpp"
 #include "directory_client.hpp"
@@ -22,6 +24,7 @@
 #include <exception>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -104,20 +107,41 @@ int Run(int argc, char** argv) {
     const sa::gateway::SessionProtocolConfig protocol{.max_messages_per_second =
                                                           config->max_messages_per_second};
 
-    sa::gateway::Listener listener{
+    // One session factory, two transports: the listener hands over a socket, the transport wraps
+    // it.
+    const sa::gateway::ClientSession::Dependencies deps{.verifier = verifier,
+                                                        .protocol = protocol,
+                                                        .directory = directory,
+                                                        .zones = zones,
+                                                        .registry = registry};
+    auto make_session = [&deps](std::shared_ptr<sa::common::MessageConnection> connection) {
+        return std::make_shared<sa::gateway::ClientSession>(std::move(connection), deps);
+    };
+    const sa::common::FrameLimits limits = config->frame_limits;
+
+    sa::gateway::Listener tcp_listener{
         io,
-        sa::gateway::ListenerConfig{.address = config->listen_address,
+        sa::gateway::ListenerConfig{.name = "tcp",
+                                    .address = config->listen_address,
                                     .port = config->listen_port,
                                     .max_connections = config->max_connections},
-        [&, limits = config->frame_limits](asio::ip::tcp::socket socket) {
-            return std::make_shared<sa::gateway::ClientSession>(
-                std::move(socket), limits,
-                sa::gateway::ClientSession::Dependencies{.verifier = verifier,
-                                                         .protocol = protocol,
-                                                         .directory = directory,
-                                                         .zones = zones,
-                                                         .registry = registry});
+        [&, limits](asio::ip::tcp::socket socket) {
+            return make_session(
+                std::make_shared<sa::common::FramedConnection>(std::move(socket), limits));
         }};
+    std::optional<sa::gateway::Listener> websocket_listener;
+    if (config->websocket_enabled) {
+        websocket_listener.emplace(
+            io,
+            sa::gateway::ListenerConfig{.name = "websocket",
+                                        .address = config->websocket_address,
+                                        .port = config->websocket_port,
+                                        .max_connections = config->max_connections},
+            [&, limits](asio::ip::tcp::socket socket) {
+                return make_session(
+                    std::make_shared<sa::common::WebSocketConnection>(std::move(socket), limits));
+            });
+    }
 
     // Shutdown: stop accepting, kick every session, then let pending writes and EndSession RPCs
     // drain for the grace period before the io_context is stopped .
@@ -126,7 +150,10 @@ int Run(int argc, char** argv) {
     signals.async_wait([&](const std::error_code&, int signal) {
         spdlog::info("signal {} received, draining for {} ms", signal,
                      config->shutdown_grace.count());
-        listener.Stop();
+        tcp_listener.Stop();
+        if (websocket_listener) {
+            websocket_listener->Stop();
+        }
         lease.Stop();
         drain_deadline.expires_after(config->shutdown_grace);
         drain_deadline.async_wait([&](const std::error_code&) {
@@ -137,9 +164,14 @@ int Run(int argc, char** argv) {
 
     lease.Start();
     zones.StartAll();
-    listener.Start();
+    tcp_listener.Start();
+    if (websocket_listener) {
+        websocket_listener->Start();
+    }
     io.run();
-    spdlog::info("stopped (sessions open at exit: {})", listener.open_sessions());
+    spdlog::info("stopped (sessions open at exit: {})",
+                 tcp_listener.open_sessions() +
+                     (websocket_listener ? websocket_listener->open_sessions() : 0));
     return EXIT_SUCCESS;
 }
 

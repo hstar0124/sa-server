@@ -14,6 +14,7 @@ message ServerMessage {
     Kick kick = 3;
     WorldSnapshot world_snapshot = 10;
     CommandResult command_result = 11;
+    CombatEvent combat_event = 12;
   }
 }
 
@@ -61,7 +62,15 @@ message EntityUpdate {
   uint64 entity_id = 1;
   Vec2 position = 2;
   Vec2 velocity = 3;
-  optional uint32 hp = 4;
+  uint32 hp = 4;
+}
+
+// 수신자 자신의 자원. 다른 플레이어의 MP는 보내지 않는다.
+message SelfVitals {
+  uint32 hp = 1;
+  uint32 max_hp = 2;
+  uint32 mp = 3;
+  uint32 max_mp = 4;
 }
 
 // 관심 영역 델타. 서버가 생성하며 클라이언트는 self와 last_processed_input_seq로 자기 예측을 보정한다.
@@ -73,6 +82,7 @@ message WorldSnapshot {
   repeated uint64 despawned = 5;
   // 수신자 자신의 서버 권위 상태. 매 스냅샷에 포함된다.
   EntityUpdate self = 6;
+  SelfVitals self_vitals = 7;
 }
 
 enum CommandStatus {
@@ -83,9 +93,32 @@ enum CommandStatus {
   COMMAND_STATUS_UNKNOWN = 4;    // 결과를 모름. 같은 request_id로 재조회
 }
 
+// 거절 사유 (README "전투"의 검증 순서). 같은 request_id를 재시도하면 같은 사유가 돌아온다.
+enum RejectCode {
+  REJECT_CODE_UNSPECIFIED = 0;
+  REJECT_CODE_UNKNOWN_SKILL = 1;
+  REJECT_CODE_NOT_LEARNED = 2;
+  REJECT_CODE_DEAD = 3;
+  REJECT_CODE_ALREADY_CASTING = 4;
+  REJECT_CODE_NOT_ENOUGH_MP = 5;
+  REJECT_CODE_ON_COOLDOWN = 6;
+  REJECT_CODE_INVALID_TARGET = 7;
+  REJECT_CODE_OUT_OF_RANGE = 8;
+}
+
 message CommandResult {
   uint64 request_id = 1;
   CommandStatus status = 2;
   uint32 state_version = 3;
-  uint32 reject_code = 4;
+  RejectCode reject_code = 4;
+}
+
+// 관심 영역 안에서 벌어진 피해. 피격자 자신, 피격자를 시야에 둔 플레이어, 공격자에게 간다.
+message CombatEvent {
+  uint64 attacker_id = 1;
+  uint64 target_id = 2;
+  uint32 skill_id = 3;      // 0 = 몬스터 기본 공격
+  uint32 damage = 4;
+  uint32 target_hp = 5;     // 피해 적용 후
+  bool killed = 6;
 }

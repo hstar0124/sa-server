@@ -28,6 +28,7 @@ struct ZoneServerConfig {
 
     std::filesystem::path map_file;
     std::filesystem::path movement_rules_file;
+    std::filesystem::path content_dir;  // game-data root: version, classes, skills, monsters
 
     // Gateway-facing link (contracts/internal).
     std::string link_listen_address;

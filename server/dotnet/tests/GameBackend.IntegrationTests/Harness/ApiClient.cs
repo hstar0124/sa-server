@@ -84,7 +84,7 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
 
     public sealed record CharacterResponse(long CharacterId, long WorldId, string Name, int ClassId);
 
-    public sealed record GatewayEndpoint(string Host, int Port);
+    public sealed record GatewayEndpoint(string Host, int Port, int WebSocketPort);
 
     public sealed record EnterResponse(string EntryTicket, GatewayEndpoint Gateway, DateTimeOffset ExpiresAt);
 }

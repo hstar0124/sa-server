@@ -20,6 +20,7 @@ struct ZoneHostStats {
     std::uint64_t evictions = 0;
     std::uint64_t inputs = 0;
     std::uint64_t snapshots_sent = 0;
+    std::uint64_t events_sent = 0;
     std::uint64_t bad_inputs = 0;
 };
 
@@ -34,10 +35,11 @@ public:
         std::uint32_t max_sessions = 0;
     };
 
-    // `authoritative` answers whether the zone currently holds its Backend lease (14.3).
+    // `authoritative` answers whether the zone currently holds its Backend lease.
     ZoneHost(sim::Zone& zone, Identity identity, std::function<bool()> authoritative);
 
-    // Called after each simulation tick; sends snapshots at the configured cadence.
+    // Called after each simulation tick: delivers command results and combat events every tick,
+    // snapshots at the configured cadence.
     void OnTick(common::TickIndex tick);
 
     // Lease lost or shutdown: every session is told to leave and the players despawn.
@@ -80,6 +82,7 @@ private:
     std::function<bool()> authoritative_;
     std::function<void(GatewayLink&)> on_link_closed_;
     std::unordered_map<std::string, Session> sessions_;  // key: gateway_session_id wire bytes
+    std::unordered_map<common::EntityId, std::string> session_by_entity_;
     ZoneHostStats stats_;
 };
 

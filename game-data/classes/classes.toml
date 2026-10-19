@@ -1,0 +1,24 @@
+# Player classes. Skills are listed by id and must exist in skills/skills.toml.
+[[classes]]
+id = 1
+name = "warrior"
+max_hp = 200
+max_mp = 50
+mp_regen_per_sec = 2.0
+skills = [1, 2]
+
+[[classes]]
+id = 2
+name = "archer"
+max_hp = 140
+max_mp = 80
+mp_regen_per_sec = 3.0
+skills = [1, 3]
+
+[[classes]]
+id = 3
+name = "mage"
+max_hp = 110
+max_mp = 120
+mp_regen_per_sec = 4.0
+skills = [1, 3, 4]

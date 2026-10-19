@@ -28,6 +28,19 @@ TEST(Base64, DecodesStandardPaddingVariants) {
               32U);
 }
 
+TEST(Base64, EncodeRoundTrips) {
+    for (const std::string text : {"", "a", "ab", "abc", "abcd"}) {
+        const std::string encoded = EncodeBase64(AsBytes(text));
+        if (text.empty()) {
+            EXPECT_TRUE(encoded.empty());
+            continue;
+        }
+        EXPECT_EQ(ToWireString(DecodeBase64(encoded).value_or(std::vector<std::byte>{})), text)
+            << encoded;
+    }
+    EXPECT_EQ(EncodeBase64(AsBytes("abc")), "YWJj");
+}
+
 TEST(Base64, RejectsMalformedInput) {
     EXPECT_FALSE(DecodeBase64("").has_value());
     EXPECT_FALSE(DecodeBase64("abc").has_value()) << "length not a multiple of 4";

@@ -25,6 +25,13 @@ internal sealed class AuthOptions
     [Range(8, 128)]
     public int MinPasswordLength { get; init; } = 8;
 
+    /// <summary>
+    /// Register/login attempts allowed per client address per minute. Raise it for load generation
+    /// from one host; production keeps it low.
+    /// </summary>
+    [Range(1, 100_000)]
+    public int CredentialAttemptsPerMinutePerAddress { get; init; } = 10;
+
     public byte[] DecodedSigningKey() => Convert.FromBase64String(SigningKey);
 }
 

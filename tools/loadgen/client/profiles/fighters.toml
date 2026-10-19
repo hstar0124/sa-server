@@ -1,0 +1,45 @@
+# Combat smoke: fighters hunt the slime packs. PASS requires every bot to enter, no inconsistency,
+# and at least min_kills monsters to die within the run.
+[backend]
+base_url = "http://localhost:5100"
+
+[gateway]
+host = ""
+port = 0
+
+[world]
+id = 1
+class_id = 1
+
+[bots]
+wanderers = 1
+fighters = 5
+seed = 2
+account_prefix = "fighter"
+password = "bots-fight-monsters-2026"
+
+[run]
+duration_sec = 40
+min_bots_seeing_others = 1
+min_kills = 2
+
+[client]
+tick_hz = 20
+ping_interval_ms = 1000
+connect_timeout_ms = 5000
+
+[wanderer]
+arrive_distance_m = 1.0
+retarget_after_ticks = 400
+idle_ticks_min = 0
+idle_ticks_max = 10
+margin_m = 2.0
+
+[fighter]
+engage_radius_m = 40.0
+attack_skill_id = 1
+attack_range_m = 2.5
+attack_interval_ms = 900
+
+[logging]
+level = "info"

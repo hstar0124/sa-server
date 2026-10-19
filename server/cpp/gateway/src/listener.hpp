@@ -14,13 +14,15 @@
 namespace sa::gateway {
 
 struct ListenerConfig {
+    std::string name;  // for logs: "tcp", "websocket"
     std::string address;
     std::uint16_t port = 0;
     std::uint32_t max_connections = 0;
 };
 
 // Accepts client connections, enforces the ceiling, and keeps the live sessions so shutdown can
-// kick them. Session construction is injected so the listener knows nothing about dependencies.
+// kick them. Session construction is injected so the listener knows nothing about transports or
+// dependencies; one listener per transport (TCP, WebSocket) shares this class.
 class Listener {
 public:
     using SessionFactory = std::function<std::shared_ptr<ClientSession>(asio::ip::tcp::socket)>;

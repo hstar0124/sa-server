@@ -14,7 +14,7 @@ service WorldDirectory {
   // Gateway reports that a session ended (disconnect, kick, zone eviction).
   rpc EndSession(EndSessionRequest) returns (EndSessionResponse);
   // Zone process announces itself and keeps its lease alive. Ownership is only granted to zones
-  // whose lease has not expired; an expired lease ends the zone's authority (14.3).
+  // whose lease has not expired; an expired lease ends the zone's authority.
   rpc RenewZoneLease(RenewZoneLeaseRequest) returns (RenewZoneLeaseResponse);
   // Gateway process lease. Sessions belong to a gateway lease: when it expires they are dead.
   rpc RenewGatewayLease(RenewGatewayLeaseRequest) returns (RenewGatewayLeaseResponse);

@@ -15,7 +15,7 @@ constexpr float kEps = 1e-3F;
 
 TEST(ZoneMovement, PlayerMovesAtMaxSpeedAlongNormalisedDirection) {
     Zone zone = test::MakeZone();  // 10 Hz, 10 m/s -> 1 m per tick
-    const EntityId p = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{50.0F, 50.0F});
+    const EntityId p = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
 
     zone.Submit(MoveCommand{.player = p, .input_seq = 1, .direction = {30.0F, 40.0F}});  // not unit
     test::TickN(zone, 5);
@@ -27,7 +27,7 @@ TEST(ZoneMovement, PlayerMovesAtMaxSpeedAlongNormalisedDirection) {
 
 TEST(ZoneMovement, ZeroDirectionStops) {
     Zone zone = test::MakeZone();
-    const EntityId p = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{50.0F, 50.0F});
+    const EntityId p = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
     zone.Submit(MoveCommand{.player = p, .input_seq = 1, .direction = {1.0F, 0.0F}});
     test::TickN(zone, 3);
     zone.Submit(MoveCommand{.player = p, .input_seq = 2, .direction = {}});
@@ -39,7 +39,7 @@ TEST(ZoneMovement, ZeroDirectionStops) {
 
 TEST(ZoneMovement, StaleOrDuplicateInputSequenceIsIgnored) {
     Zone zone = test::MakeZone();
-    const EntityId p = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{50.0F, 50.0F});
+    const EntityId p = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
 
     zone.Submit(MoveCommand{.player = p, .input_seq = 5, .direction = {1.0F, 0.0F}});
     zone.Submit(MoveCommand{.player = p, .input_seq = 3, .direction = {-1.0F, 0.0F}});  // late
@@ -53,7 +53,7 @@ TEST(ZoneMovement, StaleOrDuplicateInputSequenceIsIgnored) {
 
 TEST(ZoneMovement, CannotLeaveTheMap) {
     Zone zone = test::MakeZone();
-    const EntityId p = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{98.0F, 50.0F});
+    const EntityId p = test::Spawn(zone, 1, Vec2{98.0F, 50.0F});
     zone.Submit(MoveCommand{.player = p, .input_seq = 1, .direction = {1.0F, 0.0F}});
     test::TickN(zone, 10);
 
@@ -63,7 +63,7 @@ TEST(ZoneMovement, CannotLeaveTheMap) {
 
 TEST(ZoneMovement, SlidesAlongAWallInsteadOfSticking) {
     Zone zone = test::MakeZone(test::FieldWithWall());  // wall x in [50,52], y in [0,60]
-    const EntityId p = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{45.0F, 30.0F});
+    const EntityId p = test::Spawn(zone, 1, Vec2{45.0F, 30.0F});
     // Diagonal into the wall: x is blocked, y keeps going.
     zone.Submit(MoveCommand{.player = p, .input_seq = 1, .direction = {1.0F, 1.0F}});
     test::TickN(zone, 20);
@@ -80,7 +80,7 @@ TEST(ZoneMovement, SameSeedAndInputsReproduceTheSameState) {
         std::vector<EntityId> ids;
         ids.reserve(kPlayers);
         for (int i = 0; i < kPlayers; ++i) {
-            ids.push_back(zone.SpawnPlayer(CharacterId{static_cast<std::uint64_t>(i + 1)}, 1));
+            ids.push_back(test::SpawnAnywhere(zone, static_cast<std::uint64_t>(i) + 1));
         }
         for (std::uint32_t seq = 1; seq <= 50; ++seq) {
             for (const EntityId id : ids) {
@@ -104,7 +104,7 @@ TEST(ZoneMovement, CommandBudgetDefersExcessToTheNextTick) {
     MovementRules rules = test::Rules();
     rules.commands_per_tick_budget = 2;
     Zone zone = test::MakeZone(test::OpenField(), rules);
-    const EntityId p = zone.SpawnPlayer(CharacterId{1}, 1, Vec2{50.0F, 50.0F});
+    const EntityId p = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
     for (std::uint32_t seq = 1; seq <= 5; ++seq) {
         zone.Submit(MoveCommand{.player = p, .input_seq = seq, .direction = {1.0F, 0.0F}});
     }
@@ -117,7 +117,7 @@ TEST(ZoneMovement, CommandBudgetDefersExcessToTheNextTick) {
 
 TEST(ZoneMovement, SpawnWithoutPositionUsesASpawnPoint) {
     Zone zone = test::MakeZone();
-    const EntityId p = zone.SpawnPlayer(CharacterId{1}, 1);
+    const EntityId p = test::SpawnAnywhere(zone, 1);
     const Vec2 pos = test::PosOf(zone, p);
     const auto& spawns = zone.map().spawn_points;
     EXPECT_TRUE(std::ranges::find(spawns, pos) != spawns.end());

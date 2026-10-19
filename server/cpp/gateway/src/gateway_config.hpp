@@ -26,6 +26,10 @@ struct GatewayConfig {
     std::string listen_address;
     std::uint16_t listen_port = 0;
     std::uint32_t max_connections = 0;
+    // [websocket] browser viewer transport (ADR-0004); same protocol, different framing
+    bool websocket_enabled = false;
+    std::string websocket_address;
+    std::uint16_t websocket_port = 0;
     // [protocol]
     common::FrameLimits frame_limits;
     std::uint32_t max_messages_per_second = 0;

@@ -86,6 +86,7 @@ enum RejectReason {
   REJECT_REASON_ZONE_FULL = 2;
   REJECT_REASON_STALE_EPOCH = 3;         // a newer owner_epoch is already active (stage 8)
   REJECT_REASON_NOT_AUTHORITATIVE = 4;   // the zone's Backend lease lapsed; it may not simulate
+  REJECT_REASON_UNKNOWN_CLASS = 5;       // the character's class is not in this zone's content
 }
 
 message SessionRejected {

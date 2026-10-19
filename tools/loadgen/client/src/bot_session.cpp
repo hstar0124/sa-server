@@ -13,8 +13,8 @@
 
 namespace sa::loadgen {
 
-BotSession::BotSession(asio::io_context& io, const LoadProfile& profile, std::uint64_t seed,
-                       Target target, BotReport& report)
+BotSession::BotSession(asio::io_context& io, const LoadProfile& profile,
+                       std::unique_ptr<bot::Brain> brain, Target target, BotReport& report)
     : io_(io),
       profile_(profile),
       target_(std::move(target)),
@@ -23,7 +23,7 @@ BotSession::BotSession(asio::io_context& io, const LoadProfile& profile, std::ui
       tick_timer_(io),
       ping_timer_(io),
       connect_timer_(io),
-      brain_(seed, profile.wanderer) {}
+      brain_(std::move(brain)) {}
 
 void BotSession::Start() {
     connect_timer_.expires_after(profile_.connect_timeout);
@@ -84,8 +84,9 @@ void BotSession::Fail(std::string what) {
 void BotSession::OnConnected() {
     report_.connected = true;
     connect_timer_.cancel();
-    connection_->Start(common::FramedConnection::Callbacks{
-        .on_frame = [self = shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
+    connection_->Start(common::MessageConnection::Callbacks{
+        .on_message = [self =
+                           shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
         .on_closed = [self = shared_from_this()](const std::error_code& ec) { self->OnClosed(ec); },
     });
     game::v1::ClientMessage hello;
@@ -132,7 +133,13 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
             Stop();
             return;
         case ServerMessage::kCommandResult:
-            return;  // stage 5
+            world_.OnCommandResult(message.command_result());
+            report_.combat = world_.combat();
+            return;
+        case ServerMessage::kCombatEvent:
+            world_.OnCombatEvent(message.combat_event());
+            report_.combat = world_.combat();
+            return;
         case ServerMessage::BODY_NOT_SET:
             Fail("empty server message");
             return;
@@ -162,17 +169,35 @@ void BotSession::ScheduleTick() {
 void BotSession::Tick() {
     const bot::Observation observation{.self_position = world_.self_position(),
                                        .map_size = world_.map_size(),
+                                       .self_hp = world_.self_hp(),
+                                       .self_max_hp = world_.self_max_hp(),
                                        .visible = world_.Visible(),
                                        .tick = world_.server_tick()};
-    const common::Vec2 direction = brain_.Decide(observation);
+    const bot::Intent intent = brain_->Decide(observation);
     game::v1::ClientMessage move;
     auto* input = move.mutable_move_input();
     input->set_input_seq(next_input_seq_++);
-    input->mutable_direction()->set_x(direction.x);
-    input->mutable_direction()->set_y(direction.y);
+    input->mutable_direction()->set_x(intent.direction.x);
+    input->mutable_direction()->set_y(intent.direction.y);
     input->set_client_tick(static_cast<std::uint32_t>(world_.server_tick()));
     if (connection_->Send(move)) {
         ++report_.inputs_sent;
+    }
+    if (intent.cast) {
+        game::v1::ClientMessage cast;
+        auto* skill = cast.mutable_cast_skill();
+        skill->set_request_id(++next_request_id_);
+        skill->set_skill_id(intent.cast->skill_id);
+        if (const auto* entity = std::get_if<common::EntityId>(&intent.cast->target)) {
+            skill->set_target_entity_id(entity->value());
+        } else {
+            const common::Vec2 direction = std::get<common::Vec2>(intent.cast->target);
+            skill->mutable_direction()->set_x(direction.x);
+            skill->mutable_direction()->set_y(direction.y);
+        }
+        if (connection_->Send(cast)) {
+            ++report_.casts_sent;
+        }
     }
 }
 

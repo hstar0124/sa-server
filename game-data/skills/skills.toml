@@ -1,0 +1,48 @@
+# Skill definitions (see README "전투"): data, not code. `kind` decides how the hit is found:
+#   targeted   - an entity id; checked for range at cast and again at activation
+#   projectile - a direction; spawns a projectile that damages the first monster it touches
+# cast_time_ms = 0 means instant. Cooldown and cost are enforced by the zone.
+
+[[skills]]
+id = 1
+name = "strike"
+kind = "targeted"
+cost_mp = 0
+cooldown_ms = 800
+cast_time_ms = 0
+range_m = 2.5
+damage = 20
+
+[[skills]]
+id = 2
+name = "heavy_blow"
+kind = "targeted"
+cost_mp = 15
+cooldown_ms = 4000
+cast_time_ms = 600
+range_m = 2.5
+damage = 60
+
+[[skills]]
+id = 3
+name = "arrow"
+kind = "projectile"
+cost_mp = 5
+cooldown_ms = 1000
+cast_time_ms = 0
+range_m = 30.0           # maximum travel distance
+damage = 25
+projectile_speed_mps = 25.0
+projectile_radius_m = 0.6
+
+[[skills]]
+id = 4
+name = "fireball"
+kind = "projectile"
+cost_mp = 20
+cooldown_ms = 3000
+cast_time_ms = 900
+range_m = 25.0
+damage = 70
+projectile_speed_mps = 15.0
+projectile_radius_m = 1.0
