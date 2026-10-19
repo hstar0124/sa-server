@@ -24,6 +24,7 @@
 | [18](18-repo-main-branch-restored.md) | 저장소 보호: 지워진 main을 되살리고 룰셋을 다시 시행한다 | – | |
 | [19](19-docs-self-contained.md) | 설계 노트 자기완결화: 노트 하나만 읽어도 이해되게 | – | |
 | [20](20-readme-diagrams.md) | README 다이어그램: 지금까지 만든 것을 그림으로 | – | |
+| [21](21-economy-schema.md) | 경제 스키마: 아이템·지갑·영수증·요청 결과를 제약으로 | 5 | |
 
 ## 형식
 
