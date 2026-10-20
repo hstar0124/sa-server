@@ -6,10 +6,6 @@
 #include <limits>
 
 namespace sa::bot {
-namespace {
-constexpr std::int64_t kMillisPerSecond =
-    std::chrono::milliseconds{std::chrono::seconds{1}}.count();
-}  // namespace
 
 Fighter::Fighter(std::uint64_t seed, FighterParams params)
     : params_(params), roam_(seed, params.roam) {}
@@ -48,13 +44,18 @@ Intent Fighter::Decide(const Observation& observation) {
     if (observation.tick_hz == 0 || observation.tick < next_cast_tick_) {
         return Intent{};  // in range, waiting for the next swing (or for the server's tick rate)
     }
-    // The interval is wall time; convert it with the rate of the tick it is compared against.
-    const auto interval_ticks = static_cast<std::uint64_t>(
-        (params_.attack_interval.count() * observation.tick_hz + kMillisPerSecond - 1) /
-        kMillisPerSecond);
-    next_cast_tick_ = observation.tick + std::max<std::uint64_t>(1, interval_ticks);
+    // The interval is wall time; convert it with the rate of the tick it is compared against,
+    // rounding up so the bot never swings early.
+    const std::chrono::nanoseconds tick_period =
+        std::chrono::nanoseconds{std::chrono::seconds{1}} / observation.tick_hz;
+    const auto interval_ticks =
+        static_cast<std::uint64_t>((std::chrono::nanoseconds{params_.attack_interval} +
+                                    tick_period - std::chrono::nanoseconds{1}) /
+                                   tick_period);
+    next_cast_tick_ =
+        common::TickIndex{observation.tick.value() + std::max<std::uint64_t>(1, interval_ticks)};
     ++casts_;
-    return Intent{.cast = CastIntent{.skill_id = params_.attack_skill_id, .target = monster->id}};
+    return Intent{.cast = CastIntent{.skill = params_.attack_skill, .target = monster->id}};
 }
 
 }  // namespace sa::bot

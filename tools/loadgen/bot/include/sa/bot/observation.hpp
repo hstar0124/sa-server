@@ -28,13 +28,13 @@ struct Observation {
     std::int32_t self_hp = 0;
     std::int32_t self_max_hp = 0;
     std::span<const SeenEntity> visible;
-    std::uint64_t tick = 0;
+    common::TickIndex tick;
     std::uint32_t tick_hz = 0;  // rate of `tick`, i.e. the server's simulation rate; 0 until known
 };
 
 // A skill use: targeted at an entity, or aimed along a direction.
 struct CastIntent {
-    std::uint32_t skill_id = 0;
+    common::SkillId skill;
     std::variant<common::EntityId, common::Vec2> target;
 };
 

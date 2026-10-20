@@ -19,13 +19,23 @@ common::Vec2 TargetOf(const Wanderer& w) {
     return *target;
 }
 
+// What the profiles use; the brain itself has no defaults.
+constexpr WandererParams kParams{
+    .arrive_distance_m = 1.0F, .retarget_after_ticks = 200, .margin_m = 2.0F};
+
+WandererParams With(void (*change)(WandererParams&)) {
+    WandererParams params = kParams;
+    change(params);
+    return params;
+}
+
 Observation At(common::Vec2 position, std::uint64_t tick = 0) {
     return Observation{.self_position = position,
                        .map_size = kMap,
                        .self_hp = 1,
                        .self_max_hp = 1,
                        .visible = {},
-                       .tick = tick};
+                       .tick = common::TickIndex{tick}};
 }
 
 common::Vec2 Dir(Intent intent) {
@@ -33,8 +43,8 @@ common::Vec2 Dir(Intent intent) {
 }
 
 TEST(Wanderer, SameSeedProducesSameTargets) {
-    Wanderer a{7, WandererParams{}};
-    Wanderer b{7, WandererParams{}};
+    Wanderer a{7, kParams};
+    Wanderer b{7, kParams};
     for (int i = 0; i < 20; ++i) {
         ASSERT_EQ(Dir(a.Decide(At({50.0F, 50.0F}))), Dir(b.Decide(At({50.0F, 50.0F}))));
     }
@@ -42,7 +52,7 @@ TEST(Wanderer, SameSeedProducesSameTargets) {
 }
 
 TEST(Wanderer, HeadsTowardItsTargetWithAUnitVector) {
-    Wanderer w{1, WandererParams{}};
+    Wanderer w{1, kParams};
     const common::Vec2 dir = Dir(w.Decide(At({50.0F, 50.0F})));
     ASSERT_TRUE(w.target().has_value());
     EXPECT_NEAR(dir.Length(), 1.0F, 1e-5F);
@@ -52,7 +62,7 @@ TEST(Wanderer, HeadsTowardItsTargetWithAUnitVector) {
 }
 
 TEST(Wanderer, TargetsStayInsideTheMarginAndArrivalPicksANewOne) {
-    Wanderer w{3, WandererParams{.margin_m = 10.0F}};
+    Wanderer w{3, With([](WandererParams& p) { p.margin_m = 10.0F; })};
     (void)w.Decide(At({50.0F, 50.0F}));
     const common::Vec2 first = TargetOf(w);
     EXPECT_GE(first.x, 10.0F);
@@ -69,7 +79,7 @@ TEST(Wanderer, TargetsStayInsideTheMarginAndArrivalPicksANewOne) {
 }
 
 TEST(Wanderer, GivesUpOnAnUnreachableTarget) {
-    Wanderer w{5, WandererParams{.retarget_after_ticks = 10}};
+    Wanderer w{5, With([](WandererParams& p) { p.retarget_after_ticks = 10; })};
     (void)w.Decide(At({50.0F, 50.0F}));
     const common::Vec2 first = TargetOf(w);
     for (int i = 0; i < 10; ++i) {
@@ -81,7 +91,10 @@ TEST(Wanderer, GivesUpOnAnUnreachableTarget) {
 }
 
 TEST(Wanderer, IdlesAfterArrivalWhenConfigured) {
-    Wanderer w{9, WandererParams{.idle_ticks_min = 3, .idle_ticks_max = 3}};
+    Wanderer w{9, With([](WandererParams& p) {
+                   p.idle_ticks_min = 3;
+                   p.idle_ticks_max = 3;
+               })};
     (void)w.Decide(At({50.0F, 50.0F}));
     const common::Vec2 target = TargetOf(w);
     EXPECT_EQ(Dir(w.Decide(At(target))), common::Vec2{});  // arrival tick

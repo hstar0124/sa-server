@@ -35,6 +35,16 @@ dir = "game-data"
 # In-process bots for simulation development. Keep 0 in any deployed configuration.
 [dev]
 local_bots = 0
+# Read only when local_bots > 0. The bots wander and dawdle a little at each destination so the
+# crowd does not move in lockstep.
+bot_class_id = 1
+
+[dev.wanderer]
+arrive_distance_m = 1.0
+retarget_after_ticks = 400
+idle_ticks_min = 0
+idle_ticks_max = 40
+margin_m = 2.0
 
 [shutdown]
 # After SIGTERM evicts every session, the time eviction frames get before the gateway links close.

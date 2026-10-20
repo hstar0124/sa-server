@@ -16,6 +16,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -167,9 +168,17 @@ inline ZoneHost::Identity Identity(std::uint32_t max_sessions = 10) {
                               .max_sessions = max_sessions};
 }
 
+// Gateway session ids are 16-byte instance ids on the wire. Tests name sessions ("s1") and this
+// turns a name into a valid, distinct id.
+inline std::string SessionWire(std::string_view name) {
+    std::string wire(common::InstanceId::kBytes, '\0');
+    std::ranges::copy(name.substr(0, wire.size()), wire.begin());
+    return wire;
+}
+
 inline internal::v1::SessionAttach AttachFor(const std::string& session, std::uint64_t character) {
     internal::v1::SessionAttach a;
-    a.set_gateway_session_id(session);
+    a.set_gateway_session_id(SessionWire(session));
     a.set_character_id(character);
     a.set_class_id(1);
     a.set_owner_epoch(1);
@@ -219,7 +228,7 @@ inline std::vector<game::v1::CommandResult> CommandResults(const FakeSink& sink)
 inline internal::v1::SessionInput StrikeInput(const std::string& session, common::EntityId target,
                                               std::uint64_t request) {
     internal::v1::SessionInput input;
-    input.set_gateway_session_id(session);
+    input.set_gateway_session_id(SessionWire(session));
     auto* cast = input.mutable_message()->mutable_cast_skill();
     cast->set_request_id(request);
     cast->set_skill_id(1);
@@ -230,7 +239,7 @@ inline internal::v1::SessionInput StrikeInput(const std::string& session, common
 inline internal::v1::SessionInput PickupInput(const std::string& session, common::EntityId item,
                                               std::uint64_t request) {
     internal::v1::SessionInput input;
-    input.set_gateway_session_id(session);
+    input.set_gateway_session_id(SessionWire(session));
     auto* pickup = input.mutable_message()->mutable_pickup_item();
     pickup->set_request_id(request);
     pickup->set_item_entity_id(item.value());

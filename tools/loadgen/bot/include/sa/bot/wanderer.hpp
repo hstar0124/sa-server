@@ -9,12 +9,13 @@
 
 namespace sa::bot {
 
+// Every value comes from the load profile (or the zone's dev bot config); no defaults to drift.
 struct WandererParams {
-    float arrive_distance_m = 1.0F;            // target counts as reached inside this radius
-    std::uint32_t retarget_after_ticks = 200;  // give up on a target that collisions keep blocking
-    std::uint32_t idle_ticks_min = 0;  // pause at each target for a random span in [min, max]
+    float arrive_distance_m = 0.0F;          // target counts as reached inside this radius
+    std::uint32_t retarget_after_ticks = 0;  // give up on a target that collisions keep blocking
+    std::uint32_t idle_ticks_min = 0;        // pause at each target for a random span in [min, max]
     std::uint32_t idle_ticks_max = 0;
-    float margin_m = 2.0F;  // keep targets away from the map edge
+    float margin_m = 0.0F;  // keep targets away from the map edge
 };
 
 // Picks random points on the map and walks to them. All randomness comes from the seed given at

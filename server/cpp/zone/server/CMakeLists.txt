@@ -8,7 +8,7 @@ add_library(sa_zone_host STATIC
 add_library(sa::zone_host ALIAS sa_zone_host)
 sa_apply_policy(sa_zone_host)
 target_include_directories(sa_zone_host PUBLIC src)
-target_link_libraries(sa_zone_host PUBLIC sa::zone_sim sa::common asio::asio)
+target_link_libraries(sa_zone_host PUBLIC sa::zone_sim sa::common sa::bot asio::asio)
 
 add_executable(zone_server
   src/main.cpp
@@ -17,7 +17,7 @@ add_executable(zone_server
   src/gateway_link_server.cpp
   src/lease_keeper.cpp)
 sa_apply_policy(zone_server)
-target_link_libraries(zone_server PRIVATE sa::zone_host sa::zone_data sa::bot)
+target_link_libraries(zone_server PRIVATE sa::zone_host sa::zone_data)
 
 if(SA_BUILD_TESTS)
   sa_add_test(sa_zone_host_tests

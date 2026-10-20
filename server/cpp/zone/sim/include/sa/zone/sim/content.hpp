@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sa/common/geometry.hpp"
+#include "sa/common/ids.hpp"
 #include "sa/common/strong_id.hpp"
 
 #include <chrono>
@@ -15,8 +16,8 @@
 // milliseconds here and are converted to ticks by the zone that knows its tick rate.
 namespace sa::zone::sim {
 
-using SkillId = common::StrongId<struct SkillIdTag, std::uint32_t>;
-using ClassId = common::StrongId<struct ClassIdTag, std::uint32_t>;
+using common::ClassId;
+using common::SkillId;
 using MonsterTemplateId = common::StrongId<struct MonsterTemplateIdTag, std::uint32_t>;
 using ItemTemplateId = common::StrongId<struct ItemTemplateIdTag, std::uint32_t>;
 

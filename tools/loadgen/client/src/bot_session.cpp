@@ -181,7 +181,7 @@ void BotSession::Tick() {
                                        .self_hp = world_.self_hp(),
                                        .self_max_hp = world_.self_max_hp(),
                                        .visible = world_.Visible(),
-                                       .tick = world_.server_tick(),
+                                       .tick = common::TickIndex{world_.server_tick()},
                                        .tick_hz = world_.simulation_hz()};
     const bot::Intent intent = brain_->Decide(observation);
     game::v1::ClientMessage move;
@@ -197,7 +197,7 @@ void BotSession::Tick() {
         game::v1::ClientMessage cast;
         auto* skill = cast.mutable_cast_skill();
         skill->set_request_id(++next_request_id_);
-        skill->set_skill_id(intent.cast->skill_id);
+        skill->set_skill_id(intent.cast->skill.value());
         if (const auto* entity = std::get_if<common::EntityId>(&intent.cast->target)) {
             skill->set_target_entity_id(entity->value());
         } else {

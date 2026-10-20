@@ -74,8 +74,8 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     out.backend_base_url = *backend;
     out.gateway_host = *gateway_host;
     out.gateway_port = *gateway_port;
-    out.world_id = *world;
-    out.class_id = *class_id;
+    out.world = common::WorldId{*world};
+    out.class_id = common::ClassId{*class_id};
     out.wanderers = *wanderers;
     out.fighters = *fighters;
     out.seed = *seed;
@@ -93,7 +93,7 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
                                        .idle_ticks_max = *idle_max,
                                        .margin_m = static_cast<float>(*margin)};
     out.fighter = bot::FighterParams{.engage_radius_m = static_cast<float>(*engage),
-                                     .attack_skill_id = *attack_skill,
+                                     .attack_skill = common::SkillId{*attack_skill},
                                      .attack_range_m = static_cast<float>(*attack_range),
                                      .attack_interval = std::chrono::milliseconds{*attack_interval},
                                      .roam = out.wanderer};

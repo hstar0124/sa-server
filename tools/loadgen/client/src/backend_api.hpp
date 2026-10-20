@@ -43,7 +43,7 @@ public:
                                                                 const std::string& password,
                                                                 common::WorldId world,
                                                                 const std::string& character_name,
-                                                                std::uint32_t class_id) const;
+                                                                common::ClassId class_id) const;
     // A fresh entry ticket. Tickets are short-lived, so ask right before connecting.
     [[nodiscard]] std::expected<EntryGrant, ApiError> Enter(const BotAccount& account,
                                                             common::WorldId world) const;
@@ -54,7 +54,7 @@ private:
     // Creates the character, or finds it when a previous run with the same seed already did.
     [[nodiscard]] std::expected<common::CharacterId, ApiError> EnsureCharacter(
         const std::string& token, common::WorldId world, const std::string& name,
-        std::uint32_t class_id) const;
+        common::ClassId class_id) const;
     [[nodiscard]] std::expected<common::CharacterId, ApiError> FindCharacter(
         const std::string& token, common::WorldId world, const std::string& name) const;
 

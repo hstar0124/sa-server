@@ -21,7 +21,7 @@ TEST(ZoneHost, AttachSpawnsAPlayerAndAcknowledgesTheSession) {
     EXPECT_EQ(host.session_count(), 1U);
     EXPECT_EQ(zone.stats().players, 1U);
     EXPECT_EQ(Only(sink, ZoneToGateway::kSessionAttached).session_attached().gateway_session_id(),
-              "s1");
+              SessionWire("s1"));
 }
 
 TEST(ZoneHost, AttachWelcomesTheClientWithItsOwnEntityId) {
@@ -90,7 +90,7 @@ TEST(ZoneHost, InputReachesTheSimulationAndSnapshotsFollowCadence) {
     sink.sent.clear();
 
     internal::v1::SessionInput input;
-    input.set_gateway_session_id("s1");
+    input.set_gateway_session_id(SessionWire("s1"));
     input.mutable_message()->mutable_move_input()->set_input_seq(1);
     input.mutable_message()->mutable_move_input()->mutable_direction()->set_x(1.0F);
     host.Input(input);
@@ -155,7 +155,7 @@ TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     TickAndSnapshot(zone, host);
 
     internal::v1::SessionDetach detach;
-    detach.set_gateway_session_id("b");
+    detach.set_gateway_session_id(SessionWire("b"));
     host.Detach(detach);
     gateway_a.sent.clear();
     TickAndSnapshot(zone, host);
@@ -163,6 +163,20 @@ TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     EXPECT_EQ(FirstSnapshotTo(gateway_a).despawned_size(), 1) << "a is told b left";
     EXPECT_EQ(zone.stats().players, 1U);
     EXPECT_EQ(host.stats().detaches, 1U);
+}
+
+TEST(ZoneHost, AnAttachWhoseSessionIdIsNotAnIdIsCountedAndIgnored) {
+    sim::Zone zone = MakeZone();
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeSink sink;
+    internal::v1::SessionAttach attach = AttachFor("s1", 1);
+    attach.set_gateway_session_id("short");  // ids are 16 bytes on the wire
+    host.Attach(sink, attach);
+
+    EXPECT_EQ(host.session_count(), 0U);
+    EXPECT_EQ(host.stats().bad_inputs, 1U);
+    EXPECT_TRUE(sink.sent.empty());
 }
 
 TEST(ZoneHost, ANonFiniteInputIsCountedAndNeverSubmitted) {
@@ -173,7 +187,7 @@ TEST(ZoneHost, ANonFiniteInputIsCountedAndNeverSubmitted) {
     host.Attach(sink, AttachFor("s1", 1));
 
     internal::v1::SessionInput input;
-    input.set_gateway_session_id("s1");
+    input.set_gateway_session_id(SessionWire("s1"));
     input.mutable_message()->mutable_move_input()->set_input_seq(1);
     input.mutable_message()->mutable_move_input()->mutable_direction()->set_x(
         std::numeric_limits<float>::infinity());
@@ -194,7 +208,7 @@ TEST(ZoneHost, CastSkillYieldsACommandResultOnTheNextTick) {
     sink.sent.clear();
 
     internal::v1::SessionInput input;
-    input.set_gateway_session_id("s1");
+    input.set_gateway_session_id(SessionWire("s1"));
     input.mutable_message()->mutable_cast_skill()->set_request_id(1);
     input.mutable_message()->mutable_cast_skill()->set_skill_id(1);
     input.mutable_message()->mutable_cast_skill()->set_target_entity_id(4242);  // no such monster

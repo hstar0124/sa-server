@@ -3,6 +3,7 @@
 #include "sa/bot/fighter.hpp"
 #include "sa/bot/wanderer.hpp"
 #include "sa/common/config_source.hpp"
+#include "sa/common/ids.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -24,8 +25,8 @@ struct LoadProfile {
     // Override the gateway address the Backend hands out (absent: use the Backend's).
     std::optional<std::string> gateway_host;
     std::optional<std::uint16_t> gateway_port;
-    std::uint64_t world_id = 0;
-    std::uint32_t class_id = 0;
+    common::WorldId world;
+    common::ClassId class_id;
 
     std::uint32_t wanderers = 0;  // bot roles; bot i is a fighter when i >= wanderers
     std::uint32_t fighters = 0;

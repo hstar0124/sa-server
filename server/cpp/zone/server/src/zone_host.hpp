@@ -59,7 +59,7 @@ public:
 
     // Lease lost or shutdown: every session is told to leave and the players despawn.
     void EvictAll(internal::v1::EvictReason reason);
-    void Evict(const std::string& session_id, internal::v1::EvictReason reason);
+    void Evict(const common::InstanceId& session_id, internal::v1::EvictReason reason);
 
     // GatewayLink::Handler
     void OnLinkReady(GatewayLink& link) override;
@@ -91,24 +91,25 @@ private:
         std::optional<codec::CharacterAssets> assets;
     };
 
-    void Reject(LinkSink& sink, const std::string& session_id, internal::v1::RejectReason reason);
-    static void SendToSession(const Session& session, const std::string& session_id,
+    void Reject(LinkSink& sink, const common::InstanceId& session_id,
+                internal::v1::RejectReason reason);
+    static void SendToSession(const Session& session, const common::InstanceId& session_id,
                               const game::v1::ServerMessage& message);
-    void SendAssets(const std::string& session_id, Session& session);
-    void RemoveSession(const std::string& session_id, bool despawn);
+    void SendAssets(const common::InstanceId& session_id, Session& session);
+    void RemoveSession(const common::InstanceId& session_id, bool despawn);
     // The live session of a player entity, or nullptr once it left.
     [[nodiscard]] Session* SessionOf(common::EntityId entity);
     [[nodiscard]] codec::ZoneAuthority AuthorityFor(const Session& session) const;
 
     // Economy round trips.
-    void RequestAssets(const std::string& session_id);
-    void OnAssets(const std::string& session_id, common::EntityId entity,
+    void RequestAssets(const common::InstanceId& session_id);
+    void OnAssets(const common::InstanceId& session_id, common::EntityId entity,
                   const std::optional<backend::v1::GetCharacterAssetsResponse>& response);
     void RecordKill(const sim::KillRecord& kill);
     void OnKillRecorded(common::EntityId killer, common::KillId kill_id,
                         const std::optional<backend::v1::RecordKillResponse>& response);
     void SettlePickup(const sim::PickupReservation& pickup);
-    void EvictNotOwner(const std::string& session_id);
+    void EvictNotOwner(const common::InstanceId& session_id);
     void OnPickupSettled(const sim::PickupReservation& pickup,
                          const std::optional<backend::v1::PickupItemResponse>& response);
 
@@ -117,8 +118,8 @@ private:
     EconomyGateway& economy_;
     std::function<bool()> authoritative_;
     std::function<void(GatewayLink&)> on_link_closed_;
-    std::unordered_map<std::string, Session> sessions_;  // key: gateway_session_id wire bytes
-    std::unordered_map<common::EntityId, std::string> session_by_entity_;
+    std::unordered_map<common::InstanceId, Session> sessions_;  // by gateway session id
+    std::unordered_map<common::EntityId, common::InstanceId> session_by_entity_;
     std::uint64_t kills_minted_ = 0;  // sequence for KillIdFor; never repeats within the process
     ZoneHostStats stats_;
 };

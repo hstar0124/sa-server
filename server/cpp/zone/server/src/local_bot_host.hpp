@@ -4,6 +4,8 @@
 #include "sa/common/ids.hpp"
 #include "sa/zone/sim/zone.hpp"
 
+#include "zone_server_config.hpp"
+
 #include <cstdint>
 #include <vector>
 
@@ -14,7 +16,7 @@ namespace sa::zone {
 // Mirrors what a client does: decide once per tick, consume a view at snapshot cadence.
 class LocalBotHost {
 public:
-    LocalBotHost(sim::Zone& zone, std::uint32_t count, std::uint32_t ticks_per_snapshot,
+    LocalBotHost(sim::Zone& zone, const DevBotConfig& config, std::uint32_t ticks_per_snapshot,
                  std::uint64_t seed);
 
     void OnTick(common::TickIndex tick);
