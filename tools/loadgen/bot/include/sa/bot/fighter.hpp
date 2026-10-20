@@ -3,6 +3,7 @@
 #include "sa/bot/observation.hpp"
 #include "sa/bot/wanderer.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 
@@ -11,9 +12,9 @@ namespace sa::bot {
 struct FighterParams {
     float engage_radius_m = 30.0F;  // notice monsters this far away
     std::uint32_t attack_skill_id = 1;
-    float attack_range_m = 2.5F;               // stop here and swing
-    std::uint32_t attack_interval_ticks = 20;  // between casts; the zone enforces the real cooldown
-    WandererParams roam;                       // what to do when nothing is in sight
+    float attack_range_m = 2.5F;                  // stop here and swing
+    std::chrono::milliseconds attack_interval{};  // between casts; the zone enforces the cooldown
+    WandererParams roam;                          // what to do when nothing is in sight
 };
 
 // Hunts monsters: walks to the nearest live one it can see, then casts its attack on a timer.

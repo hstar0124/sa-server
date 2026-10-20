@@ -20,8 +20,9 @@
 #include <functional>
 #include <iostream>
 #include <memory>
-#include <random>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -29,31 +30,44 @@ namespace {
 
 constexpr std::string_view kUsage = "usage: loadgen --profile <path/to/profile.toml>";
 
-// Deterministic per-bot identities: the same seed provisions the same accounts (ADR-0006).
-std::string BotUsername(const sa::loadgen::LoadProfile& profile, std::uint32_t index) {
-    std::mt19937_64 rng{profile.seed ^ (static_cast<std::uint64_t>(index) << 32U)};
-    return std::format("{}_{:08x}", profile.account_prefix, static_cast<std::uint32_t>(rng()));
-}
-
-// The character name follows the account, so two profiles can never claim each other's names.
-std::string BotCharacterName(const std::string& username) {
-    return std::format("Bot{:06x}",
-                       static_cast<std::uint32_t>(std::hash<std::string>{}(username)) & 0xFFFFFFU);
-}
-
-// Blocking HTTP before the clock starts: accounts, characters and tickets for every bot.
-void Provision(const sa::loadgen::LoadProfile& profile,
-               std::vector<sa::loadgen::BotReport>& reports,
-               std::vector<sa::loadgen::BotSession::Target>& targets) {
-    const sa::loadgen::BackendApi api{profile.backend_base_url};
+// Phase 1, blocking HTTP before the clock starts: accounts and characters. Register and login
+// hash passwords, so this is the slow part; no ticket exists yet that could expire meanwhile.
+std::vector<std::optional<sa::loadgen::BotAccount>> Provision(
+    const sa::loadgen::LoadProfile& profile, const sa::loadgen::BackendApi& api,
+    std::vector<sa::loadgen::BotReport>& reports) {
+    std::vector<std::optional<sa::loadgen::BotAccount>> accounts(profile.bot_count());
     for (std::uint32_t i = 0; i < profile.bot_count(); ++i) {
+        const sa::loadgen::BotIdentity identity = profile.IdentityOf(i);
         reports[i].index = i;
-        reports[i].username = BotUsername(profile, i);
-        auto grant = api.ProvisionAndEnter(reports[i].username, profile.password, profile.world_id,
-                                           BotCharacterName(reports[i].username), profile.class_id);
+        reports[i].username = identity.username;
+        auto account = api.Provision(identity.username, profile.password,
+                                     sa::common::WorldId{profile.world_id}, identity.character_name,
+                                     profile.class_id);
+        if (!account) {
+            reports[i].failure = account.error().message;
+            spdlog::warn("bot {} provisioning failed: {}", i, account.error().message);
+            continue;
+        }
+        accounts[i] = std::move(*account);
+    }
+    return accounts;
+}
+
+// Phase 2, right before the run: one short-lived entry ticket per bot. Entering hashes nothing,
+// so even a thousand bots get their tickets well within the ticket lifetime.
+void Enter(const sa::loadgen::LoadProfile& profile, const sa::loadgen::BackendApi& api,
+           const std::vector<std::optional<sa::loadgen::BotAccount>>& accounts,
+           std::vector<sa::loadgen::BotReport>& reports,
+           std::vector<sa::loadgen::BotSession::Target>& targets) {
+    for (std::uint32_t i = 0; i < profile.bot_count(); ++i) {
+        const std::optional<sa::loadgen::BotAccount>& account = accounts[i];
+        if (!account) {
+            continue;
+        }
+        auto grant = api.Enter(*account, sa::common::WorldId{profile.world_id});
         if (!grant) {
             reports[i].failure = grant.error().message;
-            spdlog::warn("bot {} provisioning failed: {}", i, grant.error().message);
+            spdlog::warn("bot {} entry failed: {}", i, grant.error().message);
             continue;
         }
         reports[i].provisioned = true;
@@ -104,7 +118,9 @@ int Run(int argc, char** argv) {
     std::vector<sa::loadgen::BotReport> reports(profile->bot_count());
     std::vector<sa::loadgen::BotSession::Target> targets(
         profile->bot_count());  // valid where provisioned
-    Provision(*profile, reports, targets);
+    const sa::loadgen::BackendApi api{profile->backend_base_url};
+    const auto accounts = Provision(*profile, api, reports);
+    Enter(*profile, api, accounts, reports, targets);
     spdlog::info("provisioned {}/{} bots",
                  sa::loadgen::RunReport::Aggregate(reports, profile->min_bots_seeing_others,
                                                    profile->min_kills)

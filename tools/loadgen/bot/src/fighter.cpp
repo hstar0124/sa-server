@@ -1,8 +1,15 @@
 #include "sa/bot/fighter.hpp"
 
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <limits>
 
 namespace sa::bot {
+namespace {
+constexpr std::int64_t kMillisPerSecond =
+    std::chrono::milliseconds{std::chrono::seconds{1}}.count();
+}  // namespace
 
 Fighter::Fighter(std::uint64_t seed, FighterParams params)
     : params_(params), roam_(seed, params.roam) {}
@@ -38,10 +45,14 @@ Intent Fighter::Decide(const Observation& observation) {
     if (to_monster.Length() > params_.attack_range_m) {
         return Intent{.direction = to_monster.Normalized()};
     }
-    if (observation.tick < next_cast_tick_) {
-        return Intent{};  // in range, waiting for the next swing
+    if (observation.tick_hz == 0 || observation.tick < next_cast_tick_) {
+        return Intent{};  // in range, waiting for the next swing (or for the server's tick rate)
     }
-    next_cast_tick_ = observation.tick + params_.attack_interval_ticks;
+    // The interval is wall time; convert it with the rate of the tick it is compared against.
+    const auto interval_ticks = static_cast<std::uint64_t>(
+        (params_.attack_interval.count() * observation.tick_hz + kMillisPerSecond - 1) /
+        kMillisPerSecond);
+    next_cast_tick_ = observation.tick + std::max<std::uint64_t>(1, interval_ticks);
     ++casts_;
     return Intent{.cast = CastIntent{.skill_id = params_.attack_skill_id, .target = monster->id}};
 }

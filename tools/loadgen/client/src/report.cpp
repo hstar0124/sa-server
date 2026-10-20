@@ -16,16 +16,19 @@ RunReport RunReport::Aggregate(const std::vector<BotReport>& bots,
         out.provisioned += b.provisioned ? 1U : 0U;
         out.connected += b.connected ? 1U : 0U;
         out.welcomed += b.welcomed ? 1U : 0U;
-        out.saw_another_player += b.max_visible > 0 ? 1U : 0U;
+        out.saw_another_player += b.max_visible_players > 0 ? 1U : 0U;
+        out.inputs_acked += b.last_acked_input > 0 ? 1U : 0U;
         out.failed += b.failure.empty() ? 0U : 1U;
         if (b.kicked) {
             ++out.kicks[game::v1::KickReason_Name(*b.kicked)];
         }
         out.snapshots += b.snapshots;
         out.inputs_sent += b.inputs_sent;
+        out.casts_sent += b.casts_sent;
         out.integrity_errors += b.integrity.Total();
         out.casts_accepted += b.combat.casts_accepted;
         out.casts_rejected += b.combat.casts_rejected;
+        out.results_unknown += b.combat.results_unknown;
         out.hits_dealt += b.combat.hits_dealt;
         out.kills += b.combat.kills;
         out.deaths += b.combat.deaths;
@@ -41,20 +44,26 @@ RunReport RunReport::Aggregate(const std::vector<BotReport>& bots,
 }
 
 bool RunReport::Succeeded() const noexcept {
-    const bool everyone_in = welcomed == bots && failed == 0 && kicks.empty();
+    // Entering is not enough: every bot must have had its movement processed, so a zone that
+    // ignores input fails even if bots happen to spawn next to each other.
+    const bool everyone_in =
+        welcomed == bots && inputs_acked == bots && failed == 0 && kicks.empty();
     const bool enough_met = saw_another_player >= min_bots_seeing_others;
     return everyone_in && enough_met && kills >= min_kills && integrity_errors == 0;
 }
 
 std::string RunReport::ToText() const {
     std::string text = std::format(
-        "bots={} provisioned={} connected={} welcomed={} saw_another_player={} (required {}) "
-        "failed={}\n"
+        "bots={} provisioned={} connected={} welcomed={} inputs_acked={} saw_another_player={} "
+        "(required {}) failed={}\n"
         "snapshots={} inputs_sent={} max_visible={} integrity_errors={}\n",
-        bots, provisioned, connected, welcomed, saw_another_player, min_bots_seeing_others, failed,
-        snapshots, inputs_sent, max_visible, integrity_errors);
-    text += std::format("casts accepted={} rejected={} hits={} kills={} (required {}) deaths={}\n",
-                        casts_accepted, casts_rejected, hits_dealt, kills, min_kills, deaths);
+        bots, provisioned, connected, welcomed, inputs_acked, saw_another_player,
+        min_bots_seeing_others, failed, snapshots, inputs_sent, max_visible, integrity_errors);
+    text += std::format(
+        "casts sent={} accepted={} rejected={} unknown={} hits={} kills={} (required {}) "
+        "deaths={}\n",
+        casts_sent, casts_accepted, casts_rejected, results_unknown, hits_dealt, kills, min_kills,
+        deaths);
     if (rtt_p50 && rtt_max) {
         text += std::format("ping_rtt_ms p50={} max={}\n", rtt_p50->count(), rtt_max->count());
     }

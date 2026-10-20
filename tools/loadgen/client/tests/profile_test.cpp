@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <chrono>
+
 namespace sa::loadgen {
 namespace {
 
@@ -46,7 +49,8 @@ TEST(LoadProfile, ParsesAndDefaultsGatewayOverrideToEmpty) {
     EXPECT_EQ(profile->bot_count(), 3U);
     EXPECT_FALSE(profile->IsFighter(0));
     EXPECT_TRUE(profile->IsFighter(1));
-    EXPECT_EQ(profile->fighter.attack_interval_ticks, 18U) << "900 ms at 20 Hz";
+    EXPECT_EQ(profile->fighter.attack_interval, std::chrono::milliseconds{900})
+        << "kept as wall time; the fighter converts it with the server's tick rate";
     EXPECT_EQ(profile->seed, 7U);
     EXPECT_TRUE(profile->gateway_host.empty());
     EXPECT_EQ(profile->duration.count(), 5);
@@ -63,6 +67,25 @@ TEST(LoadProfile, RejectsZeroBotsAndInvertedIdleRange) {
     inverted.replace(inverted.find("idle_ticks_min = 0"), 18, "idle_ticks_min = 50");
     EXPECT_FALSE(
         LoadProfile::FromConfig(*common::ConfigSource::FromText(inverted, "")).has_value());
+}
+
+TEST(LoadProfile, BotIdentitiesAreStablePerSeedAndValidNames) {
+    LoadProfile profile;
+    profile.seed = 7;
+    profile.account_prefix = "bot";
+    const BotIdentity first = profile.IdentityOf(0);
+    EXPECT_EQ(profile.IdentityOf(0).username, first.username) << "same seed and index";
+    EXPECT_EQ(profile.IdentityOf(0).character_name, first.character_name);
+    EXPECT_NE(profile.IdentityOf(1).character_name, first.character_name);
+    EXPECT_TRUE(first.username.starts_with("bot_"));
+    // The Backend's name rule: 2-16 letters or digits.
+    EXPECT_GE(first.character_name.size(), 2U);
+    EXPECT_LE(first.character_name.size(), 16U);
+    EXPECT_TRUE(std::ranges::all_of(first.character_name, [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    }));
+    profile.seed = 8;
+    EXPECT_NE(profile.IdentityOf(0).username, first.username) << "another seed, other accounts";
 }
 
 }  // namespace

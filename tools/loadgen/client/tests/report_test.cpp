@@ -5,12 +5,14 @@
 namespace sa::loadgen {
 namespace {
 
-BotReport Good(std::uint32_t index, std::size_t max_visible = 1) {
+BotReport Good(std::uint32_t index, std::size_t players_seen = 1) {
     BotReport b;
     b.index = index;
     b.provisioned = b.connected = b.welcomed = true;
-    b.max_visible = max_visible;
+    b.max_visible = players_seen;
+    b.max_visible_players = players_seen;
     b.snapshots = 10;
+    b.last_acked_input = 5;
     return b;
 }
 
@@ -54,6 +56,22 @@ TEST(RunReport, FailsOnKickFailureIsolationOrIntegrity) {
     EXPECT_FALSE(r.Succeeded());
     EXPECT_EQ(r.integrity_errors, 1U);
     EXPECT_NE(r.ToText().find("RESULT: FAIL"), std::string::npos);
+}
+
+TEST(RunReport, FailsWhenABotsMovementWasNeverProcessed) {
+    BotReport frozen = Good(1);
+    frozen.last_acked_input = 0;
+    const RunReport report = RunReport::Aggregate({Good(0), frozen}, 0, 0);
+    EXPECT_FALSE(report.Succeeded()) << "entered, but the zone never applied its input";
+    EXPECT_EQ(report.inputs_acked, 1U);
+}
+
+TEST(RunReport, MonstersAndItemsDoNotCountAsMeetingAnotherPlayer) {
+    BotReport sees_a_slime = Good(0, 0);
+    sees_a_slime.max_visible = 3;
+    const RunReport report = RunReport::Aggregate({sees_a_slime}, 1, 0);
+    EXPECT_EQ(report.saw_another_player, 0U);
+    EXPECT_FALSE(report.Succeeded());
 }
 
 }  // namespace

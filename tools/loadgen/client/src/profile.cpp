@@ -1,7 +1,9 @@
 #include "profile.hpp"
 
 #include <algorithm>
+#include <format>
 #include <optional>
+#include <random>
 
 namespace sa::loadgen {
 std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
@@ -66,14 +68,30 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
                                        .idle_ticks_min = *idle_min,
                                        .idle_ticks_max = *idle_max,
                                        .margin_m = static_cast<float>(*margin)};
-    // Interval in ticks of the client clock; the zone enforces the skill's real cooldown.
-    const std::uint32_t interval_ticks = (*attack_interval * *tick_hz) / 1000;
     out.fighter = bot::FighterParams{.engage_radius_m = static_cast<float>(*engage),
                                      .attack_skill_id = *attack_skill,
                                      .attack_range_m = static_cast<float>(*attack_range),
-                                     .attack_interval_ticks = std::max(1U, interval_ticks),
+                                     .attack_interval = std::chrono::milliseconds{*attack_interval},
                                      .roam = out.wanderer};
     return out;
+}
+
+namespace {
+// Character names allow 2-16 letters or digits: one letter and 13 hex digits (52 random bits)
+// make collisions between bots negligible even across many runs in one database.
+constexpr int kNameHexDigits = 13;
+constexpr std::uint64_t kNameMask = (std::uint64_t{1} << (4 * kNameHexDigits)) - 1;
+}  // namespace
+
+BotIdentity LoadProfile::IdentityOf(std::uint32_t index) const {
+    // Both names come from one seeded generator, never from std::hash, whose values differ
+    // between standard libraries.
+    std::mt19937_64 rng{seed ^ (static_cast<std::uint64_t>(index) << 32U)};
+    const std::uint64_t account = rng();
+    const std::uint64_t character = rng();
+    return BotIdentity{
+        .username = std::format("{}_{:08x}", account_prefix, static_cast<std::uint32_t>(account)),
+        .character_name = std::format("B{:0{}x}", character & kNameMask, kNameHexDigits)};
 }
 
 }  // namespace sa::loadgen

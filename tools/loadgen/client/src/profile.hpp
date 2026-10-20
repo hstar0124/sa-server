@@ -12,6 +12,12 @@
 namespace sa::loadgen {
 
 // One run of the bot client. Everything random derives from `seed` (ADR-0006).
+// Account and character names of one bot; the same seed and index always give the same names.
+struct BotIdentity {
+    std::string username;
+    std::string character_name;
+};
+
 struct LoadProfile {
     std::string backend_base_url;  // e.g. http://localhost:5100
     std::string gateway_host;      // empty = use the address the Backend hands out
@@ -40,6 +46,8 @@ struct LoadProfile {
 
     [[nodiscard]] std::uint32_t bot_count() const noexcept { return wanderers + fighters; }
     [[nodiscard]] bool IsFighter(std::uint32_t index) const noexcept { return index >= wanderers; }
+    // Deterministic per-bot identities, so re-running a seed reuses its accounts (ADR-0006).
+    [[nodiscard]] BotIdentity IdentityOf(std::uint32_t index) const;
 
     static constexpr std::string_view kEnvPrefix = "SA_LOADGEN__";
 

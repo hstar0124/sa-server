@@ -43,7 +43,8 @@ void LocalBotHost::OnTick(common::TickIndex tick) {
                                            .self_hp = 1,
                                            .self_max_hp = 1,
                                            .visible = {},
-                                           .tick = tick.value()};
+                                           .tick = tick.value(),
+                                           .tick_hz = zone_.config().simulation_rate.hz};
         const common::Vec2 direction = b.brain.Decide(observation).direction;
         zone_.Submit(sim::MoveCommand{
             .player = b.entity, .input_seq = b.next_input_seq++, .direction = direction});
