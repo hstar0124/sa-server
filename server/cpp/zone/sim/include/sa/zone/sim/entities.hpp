@@ -65,10 +65,12 @@ struct GroundItem {
 // The Backend's verdict on a reservation, as the host reports it back to the zone.
 enum class PickupOutcome : std::uint8_t {
     kAcquired,
-    kAlreadyTaken,   // somebody else committed first: the item leaves the ground
-    kInventoryFull,  // the item stays; the reservation is released
-    kUnknownItem,    // the Backend never had it: the item leaves the ground
-    kUnavailable,    // no answer; the reservation is released and the client may retry
+    kAlreadyTaken,     // somebody else committed first: the item leaves the ground
+    kInventoryFull,    // the item stays; the reservation is released
+    kUnknownItem,      // the Backend never had it: the item leaves the ground
+    kUnavailable,      // no answer; the reservation is released and the client may retry
+    kNotOwner,         // this zone no longer owns the character; the reservation is released
+    kRequestMismatch,  // the Backend holds a different body under this key; a final refusal
 };
 
 }  // namespace sa::zone::sim

@@ -31,14 +31,15 @@ struct ZoneHostStats {
     std::uint64_t kills_refused = 0;  // stale authority, content mismatch, unknown template
     std::uint64_t pickups_acquired = 0;
     std::uint64_t pickups_refused = 0;
-    std::uint64_t backend_failures = 0;  // no answer at all
+    std::uint64_t backend_failures = 0;     // no answer at all, after the client's retries
+    std::uint64_t not_owner_evictions = 0;  // the Backend says another zone owns the character
     std::uint64_t inventory_updates_sent = 0;
 };
 
 // Binds gateway sessions to simulated players and settles the zone's economy requests with the
 // Backend. Owns the session table and is the only code that translates between link messages,
-// Economy RPCs and Zone calls. Single-threaded with the zone: Backend replies arrive on the same
-// thread through the gateway's executor.
+// Economy RPCs and Zone calls. Single-threaded with the zone: the EconomyClient posts Backend
+// replies to the io_context that also runs the tick, so no reply races a tick.
 class ZoneHost final : public GatewayLink::Handler {
 public:
     struct Identity {
@@ -58,6 +59,7 @@ public:
 
     // Lease lost or shutdown: every session is told to leave and the players despawn.
     void EvictAll(internal::v1::EvictReason reason);
+    void Evict(const std::string& session_id, internal::v1::EvictReason reason);
 
     // GatewayLink::Handler
     void OnLinkReady(GatewayLink& link) override;
@@ -106,6 +108,7 @@ private:
     void OnKillRecorded(common::EntityId killer, common::KillId kill_id,
                         const std::optional<backend::v1::RecordKillResponse>& response);
     void SettlePickup(const sim::PickupReservation& pickup);
+    void EvictNotOwner(const std::string& session_id);
     void OnPickupSettled(const sim::PickupReservation& pickup,
                          const std::optional<backend::v1::PickupItemResponse>& response);
 
@@ -116,6 +119,7 @@ private:
     std::function<void(GatewayLink&)> on_link_closed_;
     std::unordered_map<std::string, Session> sessions_;  // key: gateway_session_id wire bytes
     std::unordered_map<common::EntityId, std::string> session_by_entity_;
+    std::uint64_t kills_minted_ = 0;  // sequence for KillIdFor; never repeats within the process
     ZoneHostStats stats_;
 };
 

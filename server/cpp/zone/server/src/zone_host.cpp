@@ -4,6 +4,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -160,14 +162,22 @@ void ZoneHost::EvictAll(internal::v1::EvictReason reason) {
         ids.push_back(id);
     }
     for (const std::string& id : ids) {
-        const Session session = sessions_.at(id);
-        ZoneToGateway evicted;
-        evicted.mutable_session_evicted()->set_gateway_session_id(id);
-        evicted.mutable_session_evicted()->set_reason(reason);
-        session.sink->Send(evicted);
-        RemoveSession(id, true);
-        ++stats_.evictions;
+        Evict(id, reason);
     }
+}
+
+void ZoneHost::Evict(const std::string& session_id, internal::v1::EvictReason reason) {
+    const auto it = sessions_.find(session_id);
+    if (it == sessions_.end()) {
+        return;
+    }
+    const Session session = it->second;
+    ZoneToGateway evicted;
+    evicted.mutable_session_evicted()->set_gateway_session_id(session_id);
+    evicted.mutable_session_evicted()->set_reason(reason);
+    session.sink->Send(evicted);
+    RemoveSession(session_id, true);
+    ++stats_.evictions;
 }
 
 // ---- output ------------------------------------------------------------------------------------
@@ -240,11 +250,19 @@ void ZoneHost::OnAssets(const std::string& session_id, common::EntityId entity,
     }
     if (!response) {
         ++stats_.backend_failures;
-        spdlog::warn("assets of character {} unavailable; the client keeps an empty inventory",
+        spdlog::warn("assets of character {} unavailable; asking again on the next economy answer",
                      it->second.character.value());
         return;
     }
     it->second.assets = codec::ToAssets(*response, zone_.rules().economy.primary_currency);
+    // A pickup that committed while its answer was lost leaves the item visible here although
+    // the Backend holds it in this inventory; the fresh read settles it.
+    std::vector<common::ItemInstanceId> held;
+    held.reserve(it->second.assets->items.size());
+    for (const codec::InventoryEntry& entry : it->second.assets->items) {
+        held.push_back(entry.instance);
+    }
+    zone_.RemoveSettledGroundItems(held);
     SendAssets(session_id, it->second);
 }
 
@@ -253,7 +271,7 @@ void ZoneHost::RecordKill(const sim::KillRecord& kill) {
     if (session == nullptr) {
         return;  // the killer left before the kill was recorded; the grant cannot be fenced
     }
-    const common::KillId kill_id = common::KillId::Generate();
+    const common::KillId kill_id = codec::KillIdFor(identity_.zone_instance, ++kills_minted_);
     economy_.RecordKill(codec::ToRecordKillRequest(kill, kill_id, zone_.config().world_id,
                                                    AuthorityFor(*session), zone_.content().version),
                         [this, killer = kill.killer,
@@ -264,9 +282,18 @@ void ZoneHost::RecordKill(const sim::KillRecord& kill) {
 
 void ZoneHost::OnKillRecorded(common::EntityId killer, common::KillId kill_id,
                               const std::optional<backend::v1::RecordKillResponse>& response) {
+    const auto by_entity = session_by_entity_.find(killer);
+    const std::string* session_id =
+        by_entity == session_by_entity_.end() ? nullptr : &by_entity->second;
     if (!response) {
+        // The last attempt may have timed out after the Backend committed: the gold may be in the
+        // wallet and the drops on the Backend's ground. Re-read the killer's assets so the client
+        // at least sees the wallet; the kill id is kept in the log for reconciliation.
         ++stats_.backend_failures;
-        spdlog::warn("kill {} was not recorded; the reward is lost", kill_id.ToHex());
+        spdlog::warn("kill {}: no answer after every attempt; outcome unknown", kill_id.ToHex());
+        if (session_id != nullptr) {
+            RequestAssets(*session_id);
+        }
         return;
     }
     switch (response->outcome()) {
@@ -282,6 +309,12 @@ void ZoneHost::OnKillRecorded(common::EntityId killer, common::KillId kill_id,
             break;
         }
         case backend::v1::KILL_OUTCOME_STALE_AUTHORITY:
+            ++stats_.kills_refused;
+            spdlog::warn("kill {} refused: this zone does not own the killer", kill_id.ToHex());
+            if (session_id != nullptr) {
+                EvictNotOwner(*session_id);
+            }
+            return;
         case backend::v1::KILL_OUTCOME_CONTENT_VERSION_MISMATCH:
         case backend::v1::KILL_OUTCOME_UNKNOWN_TEMPLATE:
         case backend::v1::KILL_OUTCOME_UNSPECIFIED:
@@ -291,21 +324,24 @@ void ZoneHost::OnKillRecorded(common::EntityId killer, common::KillId kill_id,
                          backend::v1::KillOutcome_Name(response->outcome()));
             return;
     }
-    const auto by_entity = session_by_entity_.find(killer);
-    if (by_entity == session_by_entity_.end()) {
+    if (session_id == nullptr) {
         return;
     }
-    Session& session = sessions_.at(by_entity->second);
-    if (session.assets) {
-        session.assets->gold = response->gold_balance();
-        SendAssets(by_entity->second, session);
+    Session& session = sessions_.at(*session_id);
+    if (!session.assets) {
+        RequestAssets(*session_id);
+        return;
     }
+    // Gold only rises in this stage (kills credit, nothing spends), so the larger balance is the
+    // newer one even when two kill answers arrive out of order. Spending needs a wallet version.
+    session.assets->gold = std::max(session.assets->gold, response->gold_balance());
+    SendAssets(*session_id, session);
 }
 
 void ZoneHost::SettlePickup(const sim::PickupReservation& pickup) {
     const Session* session = SessionOf(pickup.player);
     if (session == nullptr) {
-        zone_.ResolvePickup(pickup.item, sim::PickupOutcome::kUnavailable);
+        zone_.ResolvePickup(pickup, sim::PickupOutcome::kUnavailable);
         return;
     }
     economy_.PickupItem(
@@ -317,35 +353,59 @@ void ZoneHost::SettlePickup(const sim::PickupReservation& pickup) {
 
 void ZoneHost::OnPickupSettled(const sim::PickupReservation& pickup,
                                const std::optional<backend::v1::PickupItemResponse>& response) {
+    const auto by_entity = session_by_entity_.find(pickup.player);
+    const std::string* session_id =
+        by_entity == session_by_entity_.end() ? nullptr : &by_entity->second;
     if (!response) {
+        // Unknown even after the client's retries: release the reservation, and read the assets
+        // so that an item the Backend did commit disappears here and shows in the inventory.
         ++stats_.backend_failures;
-        zone_.ResolvePickup(pickup.item, sim::PickupOutcome::kUnavailable);
+        zone_.ResolvePickup(pickup, sim::PickupOutcome::kUnavailable);
+        if (session_id != nullptr) {
+            RequestAssets(*session_id);
+        }
         return;
     }
     const sim::PickupOutcome outcome = codec::ToPickupOutcome(response->outcome());
-    zone_.ResolvePickup(pickup.item, outcome);
+    zone_.ResolvePickup(pickup, outcome);
     if (outcome != sim::PickupOutcome::kAcquired) {
         ++stats_.pickups_refused;
-        if (outcome == sim::PickupOutcome::kUnavailable) {
+        if (outcome == sim::PickupOutcome::kNotOwner && session_id != nullptr) {
+            EvictNotOwner(*session_id);
+        } else if (outcome == sim::PickupOutcome::kUnavailable ||
+                   outcome == sim::PickupOutcome::kRequestMismatch) {
             spdlog::warn("pickup by character {} not settled: {}", pickup.character.value(),
                          backend::v1::PickupOutcome_Name(response->outcome()));
         }
         return;
     }
     ++stats_.pickups_acquired;
-    const auto by_entity = session_by_entity_.find(pickup.player);
-    if (by_entity == session_by_entity_.end()) {
+    if (session_id == nullptr) {
         return;
     }
-    Session& session = sessions_.at(by_entity->second);
+    Session& session = sessions_.at(*session_id);
     if (!session.assets) {
-        return;  // the initial inventory never arrived; nothing consistent to extend
+        RequestAssets(*session_id);  // the first read failed; this answer proves the Backend is up
+        return;
     }
     if (const auto entry = codec::ToInventoryEntry(response->item())) {
-        session.assets->items.push_back(*entry);
+        const bool known = std::ranges::any_of(session.assets->items, [&](const auto& item) {
+            return item.instance == entry->instance;
+        });
+        if (!known) {
+            session.assets->items.push_back(*entry);
+        }
     }
-    session.assets->version = response->inventory_version();
-    SendAssets(by_entity->second, session);
+    // Two pickups in flight may answer out of order; a version never goes back.
+    session.assets->version = std::max(session.assets->version, response->inventory_version());
+    SendAssets(*session_id, session);
+}
+
+void ZoneHost::EvictNotOwner(const std::string& session_id) {
+    // Another zone owns the character now (a re-entry elsewhere, or this zone's lease lapsed):
+    // nothing this session does here can be granted, so it ends and the client enters again.
+    ++stats_.not_owner_evictions;
+    Evict(session_id, internal::v1::EVICT_REASON_NOT_OWNER);
 }
 
 // ---- helpers -----------------------------------------------------------------------------------

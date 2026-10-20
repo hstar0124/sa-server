@@ -25,6 +25,9 @@ bool SortedContains(const std::vector<common::EntityId>& sorted, common::EntityI
 
 std::expected<Zone, std::string> Zone::Create(ZoneConfig config, MapData map, ZoneRules rules,
                                               ContentBundle content, Rng rng) {
+    if (config.command_retry_window == 0) {
+        return std::unexpected("command_retry_window must be positive");
+    }
     if (auto valid = map.ValidateAgainst(content); !valid) {
         return std::unexpected(valid.error());
     }
@@ -72,6 +75,7 @@ std::optional<common::EntityId> Zone::SpawnPlayer(common::CharacterId character,
     }
     const common::EntityId id = AllocateEntityId();
     Player player{.character = character, .cls = &cls->second, .position = at};
+    player.recent_requests = RecentRequests{config_.command_retry_window};
     player.vitals = Vitals{.hp = cls->second.max_hp,
                            .max_hp = cls->second.max_hp,
                            .mp = cls->second.max_mp,
@@ -426,24 +430,19 @@ std::optional<CommandResultEvent> Zone::RecentRequests::Find(common::RequestId i
 }
 
 void Zone::RecentRequests::Remember(const CommandResultEvent& result) {
+    if (ring_.empty()) {
+        return;
+    }
     const auto filled = std::span{ring_}.first(size_);
     if (const auto it =
             std::ranges::find(filled, result.request_id, &CommandResultEvent::request_id);
         it != filled.end()) {
-        *it = result;  // revised verdict for the same request (pending -> final)
+        *it = result;
         return;
     }
     ring_.at(next_) = result;
-    next_ = (next_ + 1) % kCapacity;
-    size_ = std::min(size_ + 1, kCapacity);
-}
-
-void Zone::RecentRequests::Forget(common::RequestId id) {
-    const auto filled = std::span{ring_}.first(size_);
-    if (const auto it = std::ranges::find(filled, id, &CommandResultEvent::request_id);
-        it != filled.end()) {
-        it->request_id = common::RequestId{};  // the none id never matches a client request
-    }
+    next_ = (next_ + 1) % ring_.size();
+    size_ = std::min(size_ + 1, ring_.size());
 }
 
 }  // namespace sa::zone::sim

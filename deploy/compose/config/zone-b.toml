@@ -21,7 +21,7 @@ address = "localhost:5101"
 rpc_timeout_ms = 2000
 lease_renew_interval_ms = 5000   # see README "소유권과 lease": heartbeat 5 s, lease 15 s
 lease_safety_margin_ms = 2000
-kill_record_attempts = 3         # same kill_id each time; the receipt makes it idempotent
+economy_call_attempts = 3        # each economy call repeats safely: kill id, request key, read
 retry_delay_ms = 500
 
 # Paths are relative to the working directory (repository root in development, /app in containers).

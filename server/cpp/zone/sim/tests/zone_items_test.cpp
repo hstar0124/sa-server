@@ -5,7 +5,9 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <span>
 #include <stdexcept>
+#include <variant>
 #include <vector>
 
 namespace sa::zone::sim {
@@ -55,9 +57,9 @@ void KillTheSlime(Zone& zone, EntityId player) {
     (void)zone.DrainEvents();
 }
 
-EntityId DropGelAt(Zone& zone, Vec2 at) {
-    const GroundItem gel{
-        .instance = common::ItemInstanceId::Generate(), .item = test::kGel, .position = at};
+EntityId DropGelAt(Zone& zone, Vec2 at,
+                   common::ItemInstanceId instance = common::ItemInstanceId::Generate()) {
+    const GroundItem gel{.instance = instance, .item = test::kGel, .position = at};
     const auto ids = zone.SpawnGroundItems(std::span{&gel, 1});
     if (ids.size() != 1) {
         throw std::logic_error{"gel not spawned"};
@@ -70,6 +72,15 @@ CommandResultEvent PickupAndTick(Zone& zone, EntityId player, std::uint64_t requ
     zone.Submit(PickupCommand{.player = player, .request_id = RequestId{request}, .item = item});
     zone.Tick();
     return OnlyResult(zone, player);
+}
+
+// The one reservation the zone handed to the host since the last drain.
+PickupReservation TakeReservation(Zone& zone) {
+    const auto requests = zone.DrainHostRequests();
+    if (requests.size() != 1 || !std::holds_alternative<PickupReservation>(requests.front())) {
+        throw std::logic_error{"expected exactly one pickup reservation"};
+    }
+    return std::get<PickupReservation>(requests.front());
 }
 
 TEST(ZoneItems, AKillByAPlayerEmitsOneKillRecordWithTheRolledDrops) {
@@ -133,18 +144,15 @@ TEST(ZoneItems, PickupIsValidatedThenReservedAndSettledByTheBackendAnswer) {
     EXPECT_EQ(PickupAndTick(zone, p, 3, near).status, CommandStatus::kPending)
         << "a retry of the pending request answers pending again";
 
-    const auto requests = zone.DrainHostRequests();
-    ASSERT_EQ(requests.size(), 1U) << "the retry did not reserve a second time";
-    const auto* reservation = std::get_if<PickupReservation>(&requests.front());
-    ASSERT_NE(reservation, nullptr);
-    EXPECT_EQ(reservation->player, p);
-    EXPECT_EQ(reservation->character, common::CharacterId{1});
-    EXPECT_EQ(reservation->request_id, RequestId{3});
-    EXPECT_EQ(reservation->item, near);
-    EXPECT_FALSE(reservation->instance.IsNil());
+    const PickupReservation reservation = TakeReservation(zone);  // the retry did not reserve again
+    EXPECT_EQ(reservation.player, p);
+    EXPECT_EQ(reservation.character, common::CharacterId{1});
+    EXPECT_EQ(reservation.request_id, RequestId{3});
+    EXPECT_EQ(reservation.item, near);
+    EXPECT_FALSE(reservation.instance.IsNil());
     EXPECT_EQ(zone.stats().pickups_requested, 1U);
 
-    zone.ResolvePickup(near, PickupOutcome::kAcquired);
+    zone.ResolvePickup(reservation, PickupOutcome::kAcquired);
     const CommandResultEvent settled = OnlyResult(zone, p);
     EXPECT_TRUE(settled.accepted());
     EXPECT_EQ(settled.request_id, RequestId{3});
@@ -161,23 +169,23 @@ TEST(ZoneItems, RefusalsReleaseOrRemoveTheItemAccordingToTheOutcome) {
     const EntityId gel = DropGelAt(zone, kHome + Vec2{1.0F, 0.0F});
 
     ASSERT_EQ(PickupAndTick(zone, p, 1, gel).status, CommandStatus::kPending);
-    zone.ResolvePickup(gel, PickupOutcome::kInventoryFull);
+    zone.ResolvePickup(TakeReservation(zone), PickupOutcome::kInventoryFull);
     EXPECT_EQ(OnlyResult(zone, p).reason, RejectReason::kInventoryFull);
     EXPECT_EQ(zone.GroundItems(), std::vector{gel}) << "a full inventory leaves the item lying";
 
     ASSERT_EQ(PickupAndTick(zone, p, 2, gel).status, CommandStatus::kPending)
         << "released, so a new request can reserve it";
-    zone.ResolvePickup(gel, PickupOutcome::kUnavailable);
+    zone.ResolvePickup(TakeReservation(zone), PickupOutcome::kUnavailable);
     const CommandResultEvent unknown = OnlyResult(zone, p);
     EXPECT_EQ(unknown.status, CommandStatus::kUnknown);
     EXPECT_EQ(unknown.reason, RejectReason::kServiceUnavailable);
-    (void)zone.DrainHostRequests();
     EXPECT_EQ(PickupAndTick(zone, p, 2, gel).status, CommandStatus::kPending)
         << "the same request id runs again after an unknown outcome";
-    EXPECT_EQ(zone.DrainHostRequests().size(), 1U);
+    const PickupReservation again = TakeReservation(zone);
 
-    zone.ResolvePickup(gel, PickupOutcome::kAlreadyTaken);
-    EXPECT_EQ(OnlyResult(zone, p).reason, RejectReason::kItemReserved);
+    zone.ResolvePickup(again, PickupOutcome::kAlreadyTaken);
+    EXPECT_EQ(OnlyResult(zone, p).reason, RejectReason::kItemNotFound)
+        << "taken by someone else is not a reservation that might clear";
     EXPECT_TRUE(zone.GroundItems().empty()) << "taken by someone else: gone from the ground";
 }
 
@@ -189,7 +197,7 @@ TEST(ZoneItems, ReservedItemsDoNotExpireAndTheDeadCannotReach) {
     ASSERT_EQ(PickupAndTick(zone, p, 1, gel).status, CommandStatus::kPending);
     test::TickN(zone, 40);
     EXPECT_EQ(zone.GroundItems(), std::vector{gel}) << "held for the pending answer";
-    zone.ResolvePickup(gel, PickupOutcome::kInventoryFull);
+    zone.ResolvePickup(TakeReservation(zone), PickupOutcome::kInventoryFull);
     (void)zone.DrainEvents();
 
     // The slime beats the pauper to death while the gel lies at their feet.
@@ -200,6 +208,100 @@ TEST(ZoneItems, ReservedItemsDoNotExpireAndTheDeadCannotReach) {
     (void)zone.DrainEvents();
     const EntityId fresh = DropGelAt(zone, test::PosOf(zone, p));
     EXPECT_EQ(PickupAndTick(zone, p, 2, fresh).reason, RejectReason::kDead);
+}
+
+TEST(ZoneItems, RequestsWithoutAnIdAreRejectedAndNeverRemembered) {
+    Zone zone = test::MakeZone();
+    const EntityId p = test::Spawn(zone, 1, kHome);
+    const EntityId gel = DropGelAt(zone, kHome + Vec2{1.0F, 0.0F});
+
+    const CommandResultEvent pickup = PickupAndTick(zone, p, 0, gel);
+    EXPECT_EQ(pickup.reason, RejectReason::kInvalidRequest);
+    EXPECT_TRUE(zone.DrainHostRequests().empty()) << "nothing was reserved";
+
+    zone.Submit(
+        CastCommand{.player = p, .request_id = RequestId{}, .skill = test::kStrike, .target = gel});
+    zone.Tick();
+    EXPECT_EQ(OnlyResult(zone, p).reason, RejectReason::kInvalidRequest);
+    EXPECT_EQ(PickupAndTick(zone, p, 0, gel).reason, RejectReason::kInvalidRequest)
+        << "id 0 never matches a remembered result";
+}
+
+TEST(ZoneItems, APendingPickupOutlivesARetryWindowFullOfOtherRequests) {
+    Zone zone = test::MakeZone();
+    const EntityId p = test::Spawn(zone, 1, kHome);
+    const EntityId gel = DropGelAt(zone, kHome + Vec2{1.0F, 0.0F});
+    ASSERT_EQ(PickupAndTick(zone, p, 1, gel).status, CommandStatus::kPending);
+    const PickupReservation reservation = TakeReservation(zone);
+
+    // More decided requests than the window holds; each is a cast of a skill nobody knows.
+    for (std::uint64_t r = 2; r < 2 + test::kTestRetryWindow + 1; ++r) {
+        zone.Submit(CastCommand{
+            .player = p, .request_id = RequestId{r}, .skill = SkillId{999}, .target = gel});
+    }
+    zone.Tick();
+    (void)zone.DrainEvents();
+
+    EXPECT_EQ(PickupAndTick(zone, p, 1, gel).status, CommandStatus::kPending)
+        << "answered from the reservation, not from the window";
+    EXPECT_TRUE(zone.DrainHostRequests().empty()) << "the retry did not reserve a second time";
+    zone.ResolvePickup(reservation, PickupOutcome::kAcquired);
+    EXPECT_TRUE(OnlyResult(zone, p).accepted()) << "one final answer for the one request";
+}
+
+TEST(ZoneItems, NotOwnerAndRequestMismatchAreFinalAndReleaseTheItem) {
+    Zone zone = test::MakeZone();
+    const EntityId p = test::Spawn(zone, 1, kHome);
+    const EntityId gel = DropGelAt(zone, kHome + Vec2{1.0F, 0.0F});
+
+    ASSERT_EQ(PickupAndTick(zone, p, 1, gel).status, CommandStatus::kPending);
+    zone.ResolvePickup(TakeReservation(zone), PickupOutcome::kNotOwner);
+    EXPECT_EQ(OnlyResult(zone, p).reason, RejectReason::kNotOwner);
+    EXPECT_EQ(PickupAndTick(zone, p, 1, gel).reason, RejectReason::kNotOwner)
+        << "final: a retry gets the same verdict and does not reach the Backend";
+    EXPECT_TRUE(zone.DrainHostRequests().empty());
+
+    ASSERT_EQ(PickupAndTick(zone, p, 2, gel).status, CommandStatus::kPending)
+        << "the item was released";
+    zone.ResolvePickup(TakeReservation(zone), PickupOutcome::kRequestMismatch);
+    EXPECT_EQ(OnlyResult(zone, p).reason, RejectReason::kInvalidRequest);
+    EXPECT_EQ(zone.GroundItems(), std::vector{gel});
+}
+
+TEST(ZoneItems, AnAnswerReachesThePlayerEvenWhenTheItemIsGone) {
+    Zone zone = test::MakeZone();
+    const EntityId p = test::Spawn(zone, 1, kHome);
+    zone.ResolvePickup(PickupReservation{.player = p,
+                                         .character = common::CharacterId{1},
+                                         .request_id = RequestId{7},
+                                         .item = EntityId{999},
+                                         .instance = common::ItemInstanceId::Generate()},
+                       PickupOutcome::kAcquired);
+    const CommandResultEvent result = OnlyResult(zone, p);
+    EXPECT_TRUE(result.accepted());
+    EXPECT_EQ(result.request_id, RequestId{7});
+}
+
+TEST(ZoneItems, ItemsTheBackendAlreadyHoldsLeaveTheGroundUnlessReserved) {
+    Zone zone = test::MakeZone();
+    const EntityId p = test::Spawn(zone, 1, kHome);
+    const auto lost = common::ItemInstanceId::Generate();
+    const auto reserved = common::ItemInstanceId::Generate();
+    const auto unrelated = common::ItemInstanceId::Generate();
+    const EntityId lost_item = DropGelAt(zone, kHome + Vec2{1.0F, 0.0F}, lost);
+    const EntityId reserved_item = DropGelAt(zone, kHome + Vec2{0.0F, 1.0F}, reserved);
+    const EntityId unrelated_item = DropGelAt(zone, kHome + Vec2{-1.0F, 0.0F}, unrelated);
+    ASSERT_EQ(PickupAndTick(zone, p, 1, reserved_item).status, CommandStatus::kPending);
+
+    const std::vector held{lost, reserved};
+    zone.RemoveSettledGroundItems(held);
+
+    auto ground = zone.GroundItems();
+    std::ranges::sort(ground);
+    auto expected = std::vector{reserved_item, unrelated_item};
+    std::ranges::sort(expected);
+    EXPECT_EQ(ground, expected) << "the lost pickup's item left; the reserved one waits";
+    EXPECT_EQ(std::ranges::count(ground, lost_item), 0);
 }
 
 }  // namespace

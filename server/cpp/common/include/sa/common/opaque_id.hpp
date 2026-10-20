@@ -47,6 +47,12 @@ public:
         return id;
     }
 
+    // From exactly kBytes bytes, e.g. a truncated digest; cannot fail.
+    [[nodiscard]] static OpaqueId FromExact(std::span<const std::byte, kBytes> bytes) {
+        OpaqueId id;
+        std::ranges::copy(bytes, id.bytes_.begin());
+        return id;
+    }
     // From a protobuf `bytes` field.
     [[nodiscard]] static std::optional<OpaqueId> FromString(std::string_view wire) {
         return FromBytes(AsBytes(wire));

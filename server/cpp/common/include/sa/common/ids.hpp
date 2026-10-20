@@ -29,5 +29,7 @@ using RequestId = StrongId<struct RequestIdTag>;
 // drop to inventory to trade; a kill id names one monster lifecycle's grant.
 using ItemInstanceId = OpaqueId<struct ItemInstanceIdTag>;
 using KillId = OpaqueId<struct KillIdTag>;
+// Idempotency key the Backend stores for one zone-originated command (e.g. a pickup).
+using RequestKey = OpaqueId<struct RequestKeyTag>;
 
 }  // namespace sa::common
