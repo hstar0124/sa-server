@@ -86,18 +86,22 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
 
     // FOR SHARE: a concurrent redeem (which takes FOR UPDATE on the same row) waits until this grant
     // has committed, so a hand-over to another zone can never interleave with a grant under the old one.
+    // The zone's lease must be live too: an expired lease ends the zone's authority even while the
+    // ownership row still names it.
     private const string OwnershipSql = """
-        SELECT zone_id AS "ZoneId", zone_instance_id AS "ZoneInstanceId", owner_epoch AS "OwnerEpoch", state AS "State"
-        FROM game.character_ownership
-        WHERE world_id = @WorldId AND character_id = @CharacterId
-        FOR SHARE
+        SELECT o.zone_id AS "ZoneId", o.zone_instance_id AS "ZoneInstanceId", o.owner_epoch AS "OwnerEpoch", o.state AS "State",
+               (l.lease_expires_at > now()) AS "ZoneAlive"
+        FROM game.character_ownership o
+        JOIN game.zone_leases l ON l.zone_instance_id = o.zone_instance_id
+        WHERE o.world_id = @WorldId AND o.character_id = @CharacterId
+        FOR SHARE OF o
         """;
 
     /// <summary>The zone id the character is simulated in, or null when the caller is not its current owner.</summary>
     private static async Task<int?> OwnedZoneAsync(NpgsqlConnection connection, NpgsqlTransaction tx, WorldId worldId, CharacterId characterId, ZoneAuthority authority, CancellationToken ct)
     {
         OwnershipRow? row = await connection.QuerySingleOrDefaultAsync<OwnershipRow>(Cmd(OwnershipSql, new { WorldId = worldId, CharacterId = characterId }, tx, ct));
-        bool holds = row is { State: "active" } && row.OwnerEpoch == authority.OwnerEpoch && authority.ZoneInstanceId.SameAs(row.ZoneInstanceId);
+        bool holds = row is { State: "active", ZoneAlive: true } && row.OwnerEpoch == authority.OwnerEpoch && authority.ZoneInstanceId.SameAs(row.ZoneInstanceId);
         return holds ? row!.ZoneId : null;
     }
 
@@ -149,13 +153,26 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
 
         // The zone rolls, the Backend checks the roll against the same table: a zone cannot invent drops.
         DropTable? table = content.DropTableFor(command.MonsterTemplateId);
-        if (table is null || command.Drops.Any(drop => !table.Allows(drop.ItemTemplateId)))
+        if (table is null || !table.Accepts(command.Drops.Select(drop => drop.ItemTemplateId)))
         {
             return KillResult.Refused(KillOutcome.UnknownTemplate);
         }
 
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(ct);
         await using NpgsqlTransaction tx = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        var killScope = new { KillId = command.KillId.Bytes, command.WorldId, CharacterId = command.Killer, Currency = content.PrimaryCurrency };
+
+        // A retry of a kill that already committed is answered from its receipt before authority is
+        // checked: the grant happened under the authority of its time, and the player may have
+        // re-entered (a new epoch) while the answer was lost. Only the zone that recorded it may ask.
+        ReceiptRow? receipt = await connection.QuerySingleOrDefaultAsync<ReceiptRow>(Cmd(ReceiptSql, killScope, tx, ct));
+        if (receipt is not null)
+        {
+            bool same = command.Authority.ZoneInstanceId.SameAs(receipt.ZoneInstanceId) && receipt.KillerCharacterId == command.Killer.Value;
+            return same
+                ? await EchoKillAsync(connection, tx, killScope, ct)
+                : KillResult.Refused(KillOutcome.StaleAuthority);
+        }
 
         int? zoneId = await OwnedZoneAsync(connection, tx, command.WorldId, command.Killer, command.Authority, ct);
         if (zoneId is null)
@@ -163,7 +180,6 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
             return KillResult.Refused(KillOutcome.StaleAuthority);
         }
 
-        var killScope = new { KillId = command.KillId.Bytes, command.WorldId, CharacterId = command.Killer, Currency = content.PrimaryCurrency };
         int inserted = await connection.ExecuteAsync(Cmd(InsertReceiptSql, new
         {
             KillId = command.KillId.Bytes,
@@ -177,12 +193,8 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         }, tx, ct));
         if (inserted == 0)
         {
-            // Same kill seen before (a retry after a lost response): echo what is still on the ground, grant nothing.
-            IReadOnlyList<DroppedItem> existing = (await connection.QueryAsync<DroppedItemRow>(Cmd(GroundItemsOfKillSql, killScope, tx, ct)))
-                .Select(r => r.ToItem()).ToList();
-            long balance = await connection.ExecuteScalarAsync<long?>(Cmd(BalanceSql, killScope, tx, ct)) ?? 0;
-            await tx.CommitAsync(ct);
-            return new KillResult(KillOutcome.AlreadyRecorded, existing, 0, balance);
+            // The same kill committed concurrently (a retry racing the original): echo, grant nothing.
+            return await EchoKillAsync(connection, tx, killScope, ct);
         }
 
         List<DroppedItem> items = command.Drops.Select(drop => new DroppedItem(ItemInstanceId.New(), drop.ItemTemplateId, drop.X, drop.Y)).ToList();
@@ -218,6 +230,21 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
 
         await tx.CommitAsync(ct);
         return new KillResult(KillOutcome.Recorded, items, table.Gold, newBalance);
+    }
+
+    private const string ReceiptSql = """
+        SELECT zone_instance_id AS "ZoneInstanceId", killer_character_id AS "KillerCharacterId"
+        FROM game.kill_receipts WHERE kill_id = @KillId AND world_id = @WorldId
+        """;
+
+    /// <summary>Answers a repeated kill: what is still on the ground and the balance, granting nothing.</summary>
+    private static async Task<KillResult> EchoKillAsync(NpgsqlConnection connection, NpgsqlTransaction tx, object killScope, CancellationToken ct)
+    {
+        IReadOnlyList<DroppedItem> existing = (await connection.QueryAsync<DroppedItemRow>(Cmd(GroundItemsOfKillSql, killScope, tx, ct)))
+            .Select(r => r.ToItem()).ToList();
+        long balance = await connection.ExecuteScalarAsync<long?>(Cmd(BalanceSql, killScope, tx, ct)) ?? 0;
+        await tx.CommitAsync(ct);
+        return new KillResult(KillOutcome.AlreadyRecorded, existing, 0, balance);
     }
 
     // ---- pickups --------------------------------------------------------------------------
@@ -288,14 +315,26 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(ct);
         await using NpgsqlTransaction tx = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
 
+        var requestKey = new RequestKey(command.WorldId, PickupScope, command.RequestId.Bytes);
+        byte[] hash = command.BodyHash();
+
+        // A request that already has an outcome is answered from it before authority is checked, for
+        // the same reason as a repeated kill: the outcome was decided under the authority of its time.
+        StoredRequestRow? earlier = await connection.QuerySingleOrDefaultAsync<StoredRequestRow>(Cmd(StoredRequestSql, requestKey, tx, ct));
+        if (earlier is not null && earlier.Outcome != PendingOutcome)
+        {
+            await tx.CommitAsync(ct);
+            return earlier.RequestHash.AsSpan().SequenceEqual(hash)
+                ? StoredPickup.Replay(earlier, command.ItemInstanceId)
+                : PickupResult.Refused(PickupOutcome.RequestMismatch);
+        }
+
         int? zoneId = await OwnedZoneAsync(connection, tx, command.WorldId, command.CharacterId, command.Authority, ct);
         if (zoneId is null)
         {
             return PickupResult.Refused(PickupOutcome.StaleAuthority);
         }
 
-        var requestKey = new RequestKey(command.WorldId, PickupScope, command.RequestId.Bytes);
-        byte[] hash = command.BodyHash();
         int claimed = await connection.ExecuteAsync(Cmd(ClaimRequestSql, new { requestKey.WorldId, requestKey.Scope, requestKey.RequestId, RequestHash = hash, Outcome = PendingOutcome }, tx, ct));
         if (claimed == 0)
         {
@@ -400,11 +439,14 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
     public async Task<CharacterAssets> GetAssetsAsync(WorldId worldId, CharacterId characterId, CancellationToken ct)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(ct);
+        // One snapshot for the three reads, so the items always match the inventory version.
+        await using NpgsqlTransaction tx = await connection.BeginTransactionAsync(IsolationLevel.RepeatableRead, ct);
         var key = new { WorldId = worldId, CharacterId = characterId };
-        List<InventoryItem> items = (await connection.QueryAsync<InventoryItemRow>(new CommandDefinition(InventoryItemsSql, key, cancellationToken: ct))).Select(r => r.ToItem()).ToList();
-        List<WalletEntry> wallet = (await connection.QueryAsync<WalletEntry>(new CommandDefinition(WalletSql, key, cancellationToken: ct))).ToList();
-        InventoryRow inventory = await connection.QuerySingleOrDefaultAsync<InventoryRow>(new CommandDefinition(InventorySql, key, cancellationToken: ct))
+        List<InventoryItem> items = (await connection.QueryAsync<InventoryItemRow>(Cmd(InventoryItemsSql, key, tx, ct))).Select(r => r.ToItem()).ToList();
+        List<WalletEntry> wallet = (await connection.QueryAsync<WalletEntry>(Cmd(WalletSql, key, tx, ct))).ToList();
+        InventoryRow inventory = await connection.QuerySingleOrDefaultAsync<InventoryRow>(Cmd(InventorySql, key, tx, ct))
                                  ?? new InventoryRow(content.InventoryCapacity, 0);
+        await tx.CommitAsync(ct);
         return new CharacterAssets(items, wallet, inventory.Capacity, inventory.Version);
     }
 
@@ -413,9 +455,11 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
 
     private sealed record RequestKey(WorldId WorldId, string Scope, byte[] RequestId);
 
-    private sealed record OwnershipRow(int ZoneId, byte[] ZoneInstanceId, long OwnerEpoch, string State);
+    private sealed record OwnershipRow(int ZoneId, byte[] ZoneInstanceId, long OwnerEpoch, string State, bool ZoneAlive);
 
     private sealed record ItemWhereabouts(string Location, int? ZoneId);
+
+    private sealed record ReceiptRow(byte[] ZoneInstanceId, long KillerCharacterId);
 
     private sealed record DroppedItemRow(byte[] Id, int ItemTemplateId, float X, float Y)
     {
