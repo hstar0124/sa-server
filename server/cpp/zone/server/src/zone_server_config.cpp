@@ -13,6 +13,7 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     const auto max_sessions = source.Require<std::uint32_t>("zone.max_sessions");
     const auto map_file = source.Require<std::string>("content.map_file");
     const auto rules_file = source.Require<std::string>("content.movement_rules_file");
+    const auto economy_file = source.Require<std::string>("content.economy_rules_file");
     const auto content_dir = source.Require<std::string>("content.dir");
     const auto link_address = source.Require<std::string>("gateway_link.listen_address");
     const auto link_port = source.Require<std::uint16_t>("gateway_link.listen_port");
@@ -22,11 +23,14 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     const auto rpc_timeout = source.Require<std::uint32_t>("backend.rpc_timeout_ms");
     const auto renew_interval = source.Require<std::uint32_t>("backend.lease_renew_interval_ms");
     const auto safety_margin = source.Require<std::uint32_t>("backend.lease_safety_margin_ms");
+    const auto kill_attempts = source.Require<std::uint32_t>("backend.kill_record_attempts");
+    const auto retry_delay = source.Require<std::uint32_t>("backend.retry_delay_ms");
     const auto shutdown_grace = source.Require<std::uint32_t>("shutdown.grace_ms");
     if (auto err = common::FirstConfigError(
             world_id, zone_id, hz, snapshot_hz, catch_up, stats_interval, max_sessions, map_file,
-            rules_file, content_dir, link_address, link_port, link_max, link_frame, backend_address,
-            rpc_timeout, renew_interval, safety_margin, shutdown_grace)) {
+            rules_file, economy_file, content_dir, link_address, link_port, link_max, link_frame,
+            backend_address, rpc_timeout, renew_interval, safety_margin, kill_attempts, retry_delay,
+            shutdown_grace)) {
         return std::unexpected(*err);
     }
     if (*hz == 0) {
@@ -36,8 +40,9 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
         return std::unexpected(
             common::ConfigError{"zone.snapshot_hz must be positive and divide zone.simulation_hz"});
     }
-    if (*renew_interval == 0 || *rpc_timeout == 0) {
-        return std::unexpected(common::ConfigError{"backend intervals must be positive"});
+    if (*renew_interval == 0 || *rpc_timeout == 0 || *kill_attempts == 0) {
+        return std::unexpected(
+            common::ConfigError{"backend intervals and kill_record_attempts must be positive"});
     }
     auto logging = common::LoggingConfig::FromConfig(source);
     if (!logging) {
@@ -55,6 +60,7 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     out.max_sessions = *max_sessions;
     out.map_file = *map_file;
     out.movement_rules_file = *rules_file;
+    out.economy_rules_file = *economy_file;
     out.content_dir = *content_dir;
     out.local_bots = source.GetOr<std::uint32_t>("dev.local_bots", 0);
     out.link_listen_address = *link_address;
@@ -65,6 +71,8 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     out.backend_rpc_timeout = std::chrono::milliseconds{*rpc_timeout};
     out.lease_renew_interval = std::chrono::milliseconds{*renew_interval};
     out.lease_safety_margin = std::chrono::milliseconds{*safety_margin};
+    out.kill_record_attempts = *kill_attempts;
+    out.backend_retry_delay = std::chrono::milliseconds{*retry_delay};
     out.shutdown_grace = std::chrono::milliseconds{*shutdown_grace};
     out.logging = *logging;
     return out;

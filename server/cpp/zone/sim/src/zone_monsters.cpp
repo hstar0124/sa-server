@@ -37,7 +37,7 @@ void Zone::SpawnMonster(std::size_t slot_index) {
     MonsterSlot& slot = monster_slots_[slot_index];
     const common::EntityId id = AllocateEntityId();
     const std::uint32_t think_period =
-        std::max(1U, config_.simulation_rate.hz / combat_.monster_think_hz);
+        std::max(1U, config_.simulation_rate.hz / rules_.combat.monster_think_hz);
     Monster monster{.def = slot.def, .slot = slot_index, .home = slot.home, .position = slot.home};
     monster.vitals = Vitals{.hp = slot.def->max_hp, .max_hp = slot.def->max_hp};
     // Stagger decisions across slots so they do not all think on the same tick.
@@ -50,10 +50,14 @@ void Zone::SpawnMonster(std::size_t slot_index) {
     slot.respawn_at.reset();
 }
 
-void Zone::OnMonsterDeath(common::EntityId id) {
+void Zone::OnMonsterDeath(common::EntityId id, common::EntityId killer) {
     const auto it = monsters_.find(id);
     if (it == monsters_.end()) {
         return;
+    }
+    // Only a player earns the kill; a killer that already left the zone earns nothing.
+    if (const auto player = players_.find(killer); player != players_.end()) {
+        RollDrops(killer, player->second, it->second);
     }
     MonsterSlot& slot = monster_slots_[it->second.slot];
     slot.live.reset();
@@ -98,7 +102,7 @@ std::optional<common::EntityId> Zone::NearestLivePlayerWithin(common::Vec2 cente
 
 void Zone::UpdateMonsters() {
     const std::uint32_t think_period =
-        std::max(1U, config_.simulation_rate.hz / combat_.monster_think_hz);
+        std::max(1U, config_.simulation_rate.hz / rules_.combat.monster_think_hz);
     for (auto& [id, monster] : monsters_) {
         if (tick_ >= monster.next_think) {
             Think(id, monster);

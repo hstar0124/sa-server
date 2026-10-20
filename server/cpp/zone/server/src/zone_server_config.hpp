@@ -28,7 +28,9 @@ struct ZoneServerConfig {
 
     std::filesystem::path map_file;
     std::filesystem::path movement_rules_file;
-    std::filesystem::path content_dir;  // game-data root: version, classes, skills, monsters
+    std::filesystem::path economy_rules_file;
+    std::filesystem::path
+        content_dir;  // game-data root: version, classes, skills, monsters, items, drops
 
     // Gateway-facing link (contracts/internal).
     std::string link_listen_address;
@@ -42,6 +44,9 @@ struct ZoneServerConfig {
     std::chrono::milliseconds backend_rpc_timeout{};
     std::chrono::milliseconds lease_renew_interval{};
     std::chrono::milliseconds lease_safety_margin{};
+    // RecordKill retries on transport failures (the kill id keeps the retry idempotent).
+    std::uint32_t kill_record_attempts = 0;
+    std::chrono::milliseconds backend_retry_delay{};
 
     // How long shutdown waits for evictions, detaches and lease RPCs to drain (design
     // document 16.3).

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sa/common/opaque_id.hpp"
 #include "sa/common/strong_id.hpp"
 
 #include <cstdint>
@@ -23,5 +24,10 @@ using TickIndex = StrongId<struct TickIndexTag>;
 
 // Client-side monotonic request key within one session (contracts/game).
 using RequestId = StrongId<struct RequestIdTag>;
+
+// Minted identities that outlive a process (see README "자산과 멱등성"): an item keeps its id from
+// drop to inventory to trade; a kill id names one monster lifecycle's grant.
+using ItemInstanceId = OpaqueId<struct ItemInstanceIdTag>;
+using KillId = OpaqueId<struct KillIdTag>;
 
 }  // namespace sa::common

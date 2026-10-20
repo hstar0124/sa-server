@@ -19,6 +19,8 @@ constexpr SkillId kHeavyBlow{2};  // targeted, 600 ms cast, 15 mp, 60 dmg
 constexpr SkillId kArrow{3};      // projectile, instant, 5 mp, 25 dmg, 30 m
 constexpr SkillId kUnlearned{4};  // exists, not on the warrior
 constexpr MonsterTemplateId kSlime{101};
+constexpr ItemTemplateId kGel{2001};    // always dropped by the slime
+constexpr ItemTemplateId kSword{2101};  // never dropped (chance 0)
 
 inline ContentBundle Content() {
     ContentBundle c;
@@ -71,6 +73,12 @@ inline ContentBundle Content() {
                                           .max_mp = 50,
                                           .mp_regen_per_sec = 10.0F,
                                           .skills = {kStrike, kHeavyBlow, kArrow}};
+    c.items[kGel] = ItemDefinition{.id = kGel, .name = "gel"};
+    c.items[kSword] = ItemDefinition{.id = kSword, .name = "sword"};
+    c.drops[kSlime] = DropTable{.monster = kSlime,
+                                .gold = 3,
+                                .entries = {DropEntry{.item = kGel, .chance = 1.0F},
+                                            DropEntry{.item = kSword, .chance = 0.0F}}};
     c.monsters[kSlime] = MonsterDefinition{.id = kSlime,
                                            .name = "slime",
                                            .max_hp = 60,
@@ -115,6 +123,17 @@ inline CombatRules Combat() {
     return CombatRules{.monster_think_hz = 5, .player_respawn = 1000ms};
 }
 
+inline EconomyRules Economy() {
+    return EconomyRules{.inventory_capacity = 20,
+                        .pickup_range_m = 2.0F,
+                        .ground_item_despawn = 3000ms,
+                        .primary_currency = "gold"};
+}
+
+inline ZoneRules AllRules(MovementRules movement = Rules()) {
+    return ZoneRules{.movement = movement, .combat = Combat(), .economy = Economy()};
+}
+
 inline ZoneConfig Config(std::uint32_t hz = 10) {
     return ZoneConfig{.world_id = common::WorldId{1},
                       .zone_id = common::ZoneId{1},
@@ -123,7 +142,7 @@ inline ZoneConfig Config(std::uint32_t hz = 10) {
 
 inline Zone MakeZone(MapData map = OpenField(), MovementRules rules = Rules(),
                      std::uint64_t seed = 1) {
-    auto zone = Zone::Create(Config(), std::move(map), rules, Combat(), Content(), Rng{seed});
+    auto zone = Zone::Create(Config(), std::move(map), AllRules(rules), Content(), Rng{seed});
     if (!zone) {
         throw std::logic_error{"test zone could not be created: " + zone.error()};
     }

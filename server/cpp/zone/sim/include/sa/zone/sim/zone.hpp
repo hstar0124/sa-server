@@ -16,6 +16,7 @@
 #include <deque>
 #include <expected>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <variant>
@@ -29,6 +30,13 @@ struct ZoneConfig {
     TickRate simulation_rate{};
 };
 
+// Everything tunable that is not content: movement, combat and economy rules from game-data.
+struct ZoneRules {
+    MovementRules movement;
+    CombatRules combat;
+    EconomyRules economy;
+};
+
 struct ZoneStats {
     std::uint64_t commands_applied = 0;
     std::uint64_t commands_deferred = 0;  // left queued because the per-tick budget ran out
@@ -37,9 +45,13 @@ struct ZoneStats {
     std::uint64_t casts_rejected = 0;
     std::uint64_t hits = 0;
     std::uint64_t kills = 0;
+    std::uint64_t drop_rolls = 0;  // items rolled on kills, before the Backend confirmed them
+    std::uint64_t pickups_requested = 0;
+    std::uint64_t pickups_acquired = 0;
     std::size_t players = 0;
     std::size_t monsters = 0;
     std::size_t projectiles = 0;
+    std::size_t ground_items = 0;
 };
 
 // One simulated region. All mutable state is owned here and advanced only by Tick(), which the
@@ -47,15 +59,15 @@ struct ZoneStats {
 // clocks, no randomness other than the injected Rng (ADR-0008).
 //
 // Implementation is split by concern across zone.cpp (membership, input, interest, views),
-// zone_combat.cpp (skills, projectiles, damage, death) and zone_monsters.cpp (spawns, AI).
+// zone_combat.cpp (skills, projectiles, damage, death), zone_monsters.cpp (spawns, AI) and
+// zone_items.cpp (drop rolls, ground items, pickups).
 class Zone {
 public:
-    using Command = std::variant<MoveCommand, CastCommand>;
+    using Command = std::variant<MoveCommand, CastCommand, PickupCommand>;
 
     // Fails when the map's spawns name monsters the content does not define.
     [[nodiscard]] static std::expected<Zone, std::string> Create(ZoneConfig config, MapData map,
-                                                                 MovementRules rules,
-                                                                 CombatRules combat,
+                                                                 ZoneRules rules,
                                                                  ContentBundle content, Rng rng);
 
     // ---- membership -------------------------------------------------------------------------
@@ -73,15 +85,27 @@ public:
     // ---- simulation -------------------------------------------------------------------------
     void Tick();
 
+    // ---- backend answers (see README "자산과 멱등성") ----------------------------
+    // Items the Backend committed for a kill; each becomes a visible entity that despawns after
+    // the economy rule's delay unless picked up. Items whose template the content does not know
+    // are skipped, so the returned ids may be fewer than the inputs.
+    std::vector<common::EntityId> SpawnGroundItems(std::span<const GroundItem> items);
+    // Settles the reservation made for `item`: tells the reserving player and removes or
+    // releases the item according to the outcome.
+    void ResolvePickup(common::EntityId item, PickupOutcome outcome);
+
     // ---- output -----------------------------------------------------------------------------
     // Interest-set delta for one player since its previous view. Call at snapshot cadence.
     [[nodiscard]] PlayerView CollectView(common::EntityId player);
     // Command results and combat notifications produced since the last drain, with recipients.
     [[nodiscard]] std::vector<DeliveredEvent> DrainEvents();
+    // Kills to record and pickups to settle since the last drain; the host owns them from here.
+    [[nodiscard]] std::vector<HostRequest> DrainHostRequests();
 
     // ---- inspection -------------------------------------------------------------------------
     [[nodiscard]] const ZoneConfig& config() const noexcept { return config_; }
     [[nodiscard]] const MapData& map() const noexcept { return map_; }
+    [[nodiscard]] const ZoneRules& rules() const noexcept { return rules_; }
     [[nodiscard]] const ContentBundle& content() const noexcept { return content_; }
     [[nodiscard]] common::TickIndex current_tick() const noexcept { return tick_; }
     [[nodiscard]] const ZoneStats& stats() const noexcept { return stats_; }
@@ -90,6 +114,7 @@ public:
     [[nodiscard]] std::optional<Vitals> VitalsOf(common::EntityId entity) const;
     [[nodiscard]] std::optional<EntityKind> KindOf(common::EntityId entity) const;
     [[nodiscard]] std::vector<common::EntityId> LiveMonsters() const;
+    [[nodiscard]] std::vector<common::EntityId> GroundItems() const;
     [[nodiscard]] Rng& rng() noexcept { return rng_; }
 
 private:
@@ -101,16 +126,18 @@ private:
         common::TickIndex resolve_at;
     };
 
-    // Last N request ids with their outcome, so a retried request answers the same way
-    // without re-applying (see README "전투").
+    // Last N request results, so a retried request answers the same way without re-applying
+    // (see README "전투"). A result may be revised (pending -> final) or forgotten (unknown: the
+    // retry must run again).
     class RecentRequests {
     public:
-        [[nodiscard]] std::optional<RejectReason> Find(common::RequestId id) const;
-        void Remember(common::RequestId id, RejectReason reason);
+        [[nodiscard]] std::optional<CommandResultEvent> Find(common::RequestId id) const;
+        void Remember(const CommandResultEvent& result);
+        void Forget(common::RequestId id);
 
     private:
         static constexpr std::size_t kCapacity = 32;
-        std::array<std::pair<common::RequestId, RejectReason>, kCapacity> ring_{};
+        std::array<CommandResultEvent, kCapacity> ring_{};
         std::size_t next_ = 0;
         std::size_t size_ = 0;
     };
@@ -170,8 +197,18 @@ private:
         float travelled_m = 0.0F;
     };
 
-    Zone(ZoneConfig config, MapData map, MovementRules rules, CombatRules combat,
-         ContentBundle content, Rng rng);
+    // An item on the ground. While reserved it belongs to nobody yet but cannot be reserved
+    // again or despawn; the Backend's answer settles it.
+    struct DroppedItem {
+        common::ItemInstanceId instance;
+        const ItemDefinition* def = nullptr;
+        common::Vec2 position;
+        common::TickIndex despawn_at;
+        std::optional<common::EntityId> reserved_by;
+        common::RequestId reservation;
+    };
+
+    Zone(ZoneConfig config, MapData map, ZoneRules rules, ContentBundle content, Rng rng);
 
     // ---- zone.cpp ---------------------------------------------------------------------------
     common::EntityId AllocateEntityId();
@@ -203,7 +240,7 @@ private:
     void ApplyDamage(common::EntityId attacker, common::EntityId target, SkillId skill,
                      std::int32_t damage);
     void OnPlayerDeath(common::EntityId id, Player& player);
-    void OnMonsterDeath(common::EntityId id);
+    void OnMonsterDeath(common::EntityId id, common::EntityId killer);
     void RegenerateMp();
     void RespawnPlayers();
     // First monster whose body comes within `radius` of the segment from -> to (swept test, so a
@@ -222,10 +259,16 @@ private:
     [[nodiscard]] std::optional<common::EntityId> NearestLivePlayerWithin(common::Vec2 center,
                                                                           float radius) const;
 
+    // ---- zone_items.cpp ---------------------------------------------------------------------
+    void RollDrops(common::EntityId killer, const Player& killer_player, const Monster& monster);
+    void ApplyPickup(const PickupCommand& command);
+    [[nodiscard]] RejectReason ValidatePickup(const Player& player, common::EntityId item) const;
+    void ExpireGroundItems();
+    void RemoveGroundItem(common::EntityId id);
+
     ZoneConfig config_;
     MapData map_;
-    MovementRules rules_;
-    CombatRules combat_;
+    ZoneRules rules_;
     ContentBundle content_;
     Rng rng_;
     float dt_seconds_;
@@ -235,10 +278,12 @@ private:
     std::unordered_map<common::EntityId, Player> players_;
     std::unordered_map<common::EntityId, Monster> monsters_;
     std::unordered_map<common::EntityId, Projectile> projectiles_;
+    std::unordered_map<common::EntityId, DroppedItem> items_;
     std::unordered_map<common::EntityId, EntityKind> kinds_;
     std::vector<MonsterSlot> monster_slots_;
     std::deque<Command> pending_;
     std::vector<DeliveredEvent> outbox_;
+    std::vector<HostRequest> host_requests_;
     std::vector<common::EntityId> scratch_;  // reused query buffer
     ZoneStats stats_;
 };

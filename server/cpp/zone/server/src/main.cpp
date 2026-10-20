@@ -7,6 +7,7 @@
 #include "sa/zone/sim/rng.hpp"
 #include "sa/zone/sim/zone.hpp"
 
+#include "economy_client.hpp"
 #include "gateway_link_server.hpp"
 #include "lease_keeper.hpp"
 #include "local_bot_host.hpp"
@@ -77,26 +78,30 @@ private:
 // Loads everything the zone reads from game-data; any failure is fatal at start-up.
 struct LoadedWorld {
     sa::zone::sim::MapData map;
-    sa::zone::sim::MovementRules rules;
-    sa::zone::sim::CombatRules combat;
+    sa::zone::sim::ZoneRules rules;
     sa::zone::sim::ContentBundle content;
 };
 
 std::optional<LoadedWorld> LoadWorld(const sa::zone::ZoneServerConfig& config) {
     auto map = sa::zone::data::LoadMap(config.map_file);
-    auto rules = sa::zone::data::LoadMovementRules(config.movement_rules_file);
+    auto movement = sa::zone::data::LoadMovementRules(config.movement_rules_file);
     auto combat = sa::zone::data::LoadCombatRules(config.movement_rules_file);
+    auto economy = sa::zone::data::LoadEconomyRules(config.economy_rules_file);
     auto content = sa::zone::data::LoadContent(config.content_dir);
     for (const sa::zone::data::LoadError* err :
-         {map ? nullptr : &map.error(), rules ? nullptr : &rules.error(),
-          combat ? nullptr : &combat.error(), content ? nullptr : &content.error()}) {
+         {map ? nullptr : &map.error(), movement ? nullptr : &movement.error(),
+          combat ? nullptr : &combat.error(), economy ? nullptr : &economy.error(),
+          content ? nullptr : &content.error()}) {
         if (err != nullptr) {
             spdlog::critical("game-data: {}", err->message);
             return std::nullopt;
         }
     }
-    return LoadedWorld{
-        .map = std::move(*map), .rules = *rules, .combat = *combat, .content = std::move(*content)};
+    return LoadedWorld{.map = std::move(*map),
+                       .rules = sa::zone::sim::ZoneRules{.movement = *movement,
+                                                         .combat = *combat,
+                                                         .economy = std::move(*economy)},
+                       .content = std::move(*content)};
 }
 
 int Run(int argc, char** argv);
@@ -154,7 +159,7 @@ int Run(int argc, char** argv) {
         sa::zone::sim::ZoneConfig{.world_id = config->world_id,
                                   .zone_id = config->zone_id,
                                   .simulation_rate = config->simulation_rate},
-        std::move(world->map), world->rules, world->combat, std::move(world->content),
+        std::move(world->map), std::move(world->rules), std::move(world->content),
         sa::zone::sim::Rng{seed});
     if (!created) {
         spdlog::critical("zone: {}", created.error());
@@ -168,13 +173,19 @@ int Run(int argc, char** argv) {
     const sa::common::InstanceId zone_instance = sa::common::InstanceId::Generate();
     spdlog::info("zone_instance_id={}", zone_instance.ToHex());
 
-    sa::zone::ZoneLeaseRenewer renewer{
-        io,
-        grpc::CreateChannel(config->backend_address, grpc::InsecureChannelCredentials()),
-        config->backend_rpc_timeout,
-        config->world_id,
-        config->zone_id,
-        zone_instance};
+    auto backend_channel =
+        grpc::CreateChannel(config->backend_address, grpc::InsecureChannelCredentials());
+    sa::zone::ZoneLeaseRenewer renewer{io,
+                                       backend_channel,
+                                       config->backend_rpc_timeout,
+                                       config->world_id,
+                                       config->zone_id,
+                                       zone_instance};
+    sa::zone::EconomyClient economy{
+        io, backend_channel,
+        sa::zone::EconomyClientConfig{.rpc_timeout = config->backend_rpc_timeout,
+                                      .kill_record_attempts = config->kill_record_attempts,
+                                      .retry_delay = config->backend_retry_delay}};
     sa::common::LeaseKeeper lease{
         io, "zone",
         sa::common::LeaseKeeperConfig{.renew_interval = config->lease_renew_interval,
@@ -187,7 +198,7 @@ int Run(int argc, char** argv) {
                                      .simulation_hz = config->simulation_rate.hz,
                                      .ticks_per_snapshot = config->TicksPerSnapshot(),
                                      .max_sessions = config->max_sessions},
-        [&lease] { return lease.IsAlive(); }};
+        economy, [&lease] { return lease.IsAlive(); }};
     lease.set_on_lost([&host] { host.EvictAll(sa::internal::v1::EVICT_REASON_LEASE_LOST); });
 
     sa::zone::GatewayLinkServer link_server{
@@ -247,6 +258,11 @@ int Run(int argc, char** argv) {
     io.run();
     spdlog::info("sessions attached={} detached={} evicted={} snapshots={}", host.stats().attaches,
                  host.stats().detaches, host.stats().evictions, host.stats().snapshots_sent);
+    spdlog::info(
+        "economy kills_recorded={} kills_refused={} pickups_acquired={} "
+        "pickups_refused={} backend_failures={}",
+        host.stats().kills_recorded, host.stats().kills_refused, host.stats().pickups_acquired,
+        host.stats().pickups_refused, host.stats().backend_failures);
     spdlog::info("stopped at tick={}", zone.current_tick().value());
     return EXIT_SUCCESS;
 }

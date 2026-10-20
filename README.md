@@ -27,7 +27,7 @@ flowchart TD
 | 프로그램 | 언어 | 책임 |
 |---|---|---|
 | GameGateway | C++23 | 연결, 프레이밍, 티켓 검증, 세션 상태 기계, Zone 라우팅, 유량 제한 |
-| ZoneServer | C++23 | 지역 시뮬레이션(이동·충돌·전투·몬스터 AI·관심 관리), 세션 표, Backend lease 유지 |
+| ZoneServer | C++23 | 지역 시뮬레이션(이동·충돌·전투·몬스터 AI·관심 관리), 드롭 굴림·바닥 아이템·획득 예약과 Backend 정산, 세션 표, Backend lease 유지 |
 | GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory), 자산(Economy: 처치 기록·획득·조회). 모듈형 모놀리스 |
 | 브라우저 뷰어 | JavaScript | 2D 뷰어. 같은 `.proto`를 브라우저에서 읽고 WebSocket으로 접속해 WASD로 움직이며, 다른 엔티티를 보간 버퍼로 그린다. 버퍼 길이·인위적 유실·외삽을 조절해 동기화를 눈으로 본다. 몬스터·투사체·체력 막대를 그리고, Space·E로 스킬을 쓰고 전투 로그를 띄운다 |
 | loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장하고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 역할은 배회(Wanderer)와 전투(Fighter)다. 전투 봇은 보이는 가장 가까운 몬스터에 다가가 사거리 안에서 주기적으로 공격하고, 시전 수락·거절·처치·사망을 센다. 배회 두뇌는 Zone 안의 프로세스 봇으로도 돈다 |
@@ -61,12 +61,14 @@ flowchart TB
         ZD["data 로더<br/>game-data TOML → 구조체"]
         ZG["GatewayLinkServer<br/>Gateway 연결 수락"]
         ZL["LeaseKeeper<br/>Backend lease 갱신"]
+        ZE["EconomyClient<br/>gRPC: 처치 기록·획득, 마감 시간"]
         ZT --> ZS
         ZT --> ZH
         ZH --> ZC --> ZS
         ZG --> ZH
         ZD --> ZS
         ZL -. "권위 여부" .-> ZH
+        ZH --> ZE
     end
 
     subgraph backend["Backend (C# / .NET)"]
@@ -89,7 +91,7 @@ flowchart TB
 
 | 데이터 | 실행 중 변경 주체 | 기준 저장 |
 |---|---|---|
-| 위치·속도, 관심 집합, 체력·마나, 시전·쿨타임, 투사체, 몬스터 상태 | Zone | 메모리. 재시작하면 초기화 |
+| 위치·속도, 관심 집합, 체력·마나, 시전·쿨타임, 투사체, 몬스터 상태, 바닥 아이템 표시와 획득 예약 | Zone | 메모리. 재시작하면 초기화 |
 | 계정, 캐릭터 | Backend | PostgreSQL |
 | 입장 티켓, 세션, 캐릭터의 소유 Zone과 소유권 세대(owner_epoch), 프로세스 lease | Backend WorldDirectory | PostgreSQL |
 | 아이템, 인벤토리, 지갑, 원장, 처치 영수증, 요청 결과 | Backend Economy | PostgreSQL |
@@ -228,7 +230,7 @@ Gateway의 세션 로직은 I/O 없는 상태 기계라서 모든 전이를 소�
 
 ```mermaid
 flowchart LR
-    A["입력 적용<br/>(틱당 예산)"] --> B["시전 완료 발동"] --> C["이동·충돌<br/>(AABB, 축 분리)"] --> D["몬스터 판단·이동"] --> E["투사체"] --> F["마나 재생·부활·리스폰"] --> G["관심 집합 갱신<br/>(격자 + 히스테리시스)"] --> H["이벤트 전달 / 주기마다 스냅샷 델타"]
+    A["입력 적용<br/>(틱당 예산)"] --> B["시전 완료 발동"] --> C["이동·충돌<br/>(AABB, 축 분리)"] --> D["몬스터 판단·이동"] --> E["투사체"] --> F["마나 재생·부활·리스폰<br/>바닥 아이템 소멸"] --> G["관심 집합 갱신<br/>(격자 + 히스테리시스)"] --> H["이벤트 전달 / 주기마다 스냅샷 델타"]
 ```
 
 | 설정 | 값(측정 전 기본값) |
@@ -334,6 +336,30 @@ Backend의 `Modules/Economy`가 이 계약을 구현한다. 호출 하나가 트
 - **처치 기록**: 호출한 Zone이 지금 그 캐릭터의 소유자인지(Zone 인스턴스와 `owner_epoch`)를 소유권 행에 공유 잠금을 걸고 확인한다. 콘텐츠 버전이 같아야 하고, 드롭은 그 몬스터의 드롭 표가 허용하는 아이템만 받는다. 영수증을 넣는 데 성공한 쪽만 드롭 아이템을 그 Zone의 바닥에 만들고 골드를 지갑에 더하며 원장에 남긴다. 같은 `kill_id`가 다시 오면 저장된 아이템을 돌려주고 아무것도 더 주지 않는다.
 - **아이템 획득**: 요청 ID를 먼저 넣고, 이긴 요청만 진행한다. 캐릭터의 인벤토리 행을 잠가 한 캐릭터의 획득을 줄 세운 뒤, 아이템이 아직 소유 Zone의 바닥에 있을 때만 조건부 UPDATE로 비어 있는 가장 앞 칸에 넣는다. 결과는 요청 ID와 함께 저장해, 재시도는 같은 답을 받고 다른 본문은 거절된다.
 - **자산 조회**: 인벤토리와 지갑의 현재 상태를 돌려준다.
+
+Zone은 자산을 확정하지 않는다. 굴리고, 예약하고, Backend의 답을 반영한다. 틱은 답을 기다리지 않는다.
+
+- **드롭**: 몬스터가 죽으면 드롭 표의 항목마다 시드 난수로 굴리고, 몬스터 생명주기마다 처치 ID를 붙여 처치 기록을 보낸다. 전송이 실패하면 다시 보내는데, 처치 ID가 같아 보상은 한 번이다. 아이템은 Backend가 커밋한 뒤에야 시체 주변 바닥에 생긴다.
+- **획득**: 클라이언트가 `PickupItem`(요청 ID, 아이템 엔티티)을 보내면 Zone이 거리와 예약 여부를 본다. 통과하면 아이템을 그 플레이어에게 예약하고 대기(`PENDING`)를 돌려준다. 예약된 아이템은 다른 플레이어가 집지 못하고 소멸하지도 않는다. Backend의 답이 오면 최종 결과와 인벤토리 전체 상태를 보낸다. 답이 오지 않으면 결과를 "모름"(`UNKNOWN`)으로 두고, 같은 요청 ID의 재시도가 다시 Backend까지 간다.
+- **요청 키**: Backend에 저장하는 획득 요청 키는 캐릭터·소유권 세대·요청 ID의 다이제스트다. 클라이언트의 요청 번호는 세션마다 처음부터 다시 세므로, 입장마다 바뀌는 소유권 세대를 넣어 이전 세션의 결과와 겹치지 않게 한다.
+- **소멸**: 아무도 예약하지 않은 바닥 아이템은 정해진 시간이 지나면 Zone이 치운다.
+
+```mermaid
+sequenceDiagram
+    participant C as 클라이언트
+    participant Z as Zone
+    participant B as Backend
+    Note over Z: 몬스터 사망: 드롭 굴림, 처치 ID 발급
+    Z->>B: RecordKill(처치 ID, 소유권 세대, 콘텐츠 버전, 드롭)
+    B-->>Z: RECORDED + 아이템 ID (영수증·아이템·골드·원장을 한 트랜잭션에)
+    Note over Z: 커밋된 아이템만 바닥에 생김
+    C->>Z: PickupItem(요청 ID, 아이템)
+    Note over Z: 거리·예약 검사, 아이템 예약
+    Z-->>C: CommandResult(PENDING)
+    Z->>B: PickupItem(요청 키, 소유권 세대, 아이템)
+    B-->>Z: ACQUIRED / ALREADY_TAKEN / INVENTORY_FULL ...
+    Z-->>C: CommandResult(최종) + InventoryUpdate(전체 상태)
+```
 
 Backend도 `Economy:ContentDir`의 같은 game-data를 읽는다. Zone과 다른 콘텐츠 버전으로 보고된 처치는 거절한다.
 

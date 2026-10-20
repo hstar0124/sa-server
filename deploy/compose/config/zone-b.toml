@@ -21,11 +21,14 @@ address = "localhost:5101"
 rpc_timeout_ms = 2000
 lease_renew_interval_ms = 5000   # see README "소유권과 lease": heartbeat 5 s, lease 15 s
 lease_safety_margin_ms = 2000
+kill_record_attempts = 3         # same kill_id each time; the receipt makes it idempotent
+retry_delay_ms = 500
 
 # Paths are relative to the working directory (repository root in development, /app in containers).
 [content]
 map_file = "game-data/maps/zone-1.toml"
 movement_rules_file = "game-data/rules/movement.toml"
+economy_rules_file = "game-data/rules/economy.toml"
 dir = "game-data"
 
 # In-process bots for simulation development. Keep 0 in any deployed configuration.

@@ -3,7 +3,7 @@ add_library(sa_common STATIC
   src/config_source.cpp
   src/logging.cpp
   src/hmac.cpp
-  src/instance_id.cpp
+  src/opaque_id.cpp
   src/framed_connection.cpp
   src/lease_keeper.cpp
   src/bytes.cpp
