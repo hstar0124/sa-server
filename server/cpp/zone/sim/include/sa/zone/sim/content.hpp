@@ -92,6 +92,11 @@ struct ContentBundle {
 struct CombatRules {
     std::uint32_t monster_think_hz = 0;
     std::chrono::milliseconds player_respawn{};
+    // A chasing or returning monster that has not moved stall_distance_m within stall_timeout is
+    // stuck: there is no pathfinding, so a wall between it and its goal would hold it forever. A
+    // stuck chase turns into a return; a stuck return puts the monster back at its home.
+    std::chrono::milliseconds monster_stall_timeout{};
+    float monster_stall_distance_m = 0.0F;
 
     [[nodiscard]] std::expected<void, std::string> Validate() const;
 };

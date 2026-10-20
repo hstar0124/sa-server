@@ -127,12 +127,12 @@ void Zone::Think(common::EntityId id, Monster& monster) {
             if (const auto found = NearestLivePlayerWithin(monster.position, def.aggro_radius_m)) {
                 monster.target = *found;
                 monster.state = AiState::kChase;
+                StartHeadway(monster);
             }
             return;
         case AiState::kChase:
-            if (!target_alive || leashed) {
-                monster.state = AiState::kReturn;
-                monster.goal = monster.home;
+            if (!target_alive || leashed || Stalled(monster)) {
+                ReturnHome(monster);
                 return;
             }
             if (in_attack_range) {
@@ -144,13 +144,13 @@ void Zone::Think(common::EntityId id, Monster& monster) {
             return;
         case AiState::kAttack:
             if (!target_alive || leashed) {
-                monster.state = AiState::kReturn;
-                monster.goal = monster.home;
+                ReturnHome(monster);
                 return;
             }
             if (!in_attack_range) {
                 monster.state = AiState::kChase;
                 monster.goal = target->second.position;
+                StartHeadway(monster);
                 return;
             }
             if (tick_ >= monster.attack_ready_at) {
@@ -160,17 +160,49 @@ void Zone::Think(common::EntityId id, Monster& monster) {
             return;
         case AiState::kReturn:
             if (common::WithinDistance(monster.position, monster.home, kArriveDistanceM)) {
-                monster.state = AiState::kIdle;
-                monster.goal.reset();
-                monster.target = {};
-                // Returning restores full health: a leash cannot be used to whittle a monster down.
-                if (monster.vitals.hp != monster.vitals.max_hp) {
-                    monster.vitals.hp = monster.vitals.max_hp;
-                    monster.changed_at = tick_;
-                }
+                SettleAtHome(monster);
+            } else if (Stalled(monster)) {
+                // Held by a wall on the way home: put it back rather than leave it out of place.
+                monster.position = monster.home;
+                monster.changed_at = tick_;
+                grid_.Move(id, monster.home);
+                SettleAtHome(monster);
             }
             return;
     }
+}
+
+void Zone::ReturnHome(Monster& monster) {
+    monster.state = AiState::kReturn;
+    monster.goal = monster.home;
+    StartHeadway(monster);
+}
+
+void Zone::SettleAtHome(Monster& monster) {
+    monster.state = AiState::kIdle;
+    monster.goal.reset();
+    monster.target = {};
+    // Returning restores full health: a leash cannot be used to whittle a monster down.
+    if (monster.vitals.hp != monster.vitals.max_hp) {
+        monster.vitals.hp = monster.vitals.max_hp;
+        monster.changed_at = tick_;
+    }
+}
+
+void Zone::StartHeadway(Monster& monster) {
+    monster.headway_from = monster.position;
+    monster.stall_deadline = TicksFromNow(rules_.combat.monster_stall_timeout);
+}
+
+// Judged by the monster's own movement, not by the distance to its goal: a monster that keeps
+// running after a faster player is chasing, not stuck, and the leash ends that chase.
+bool Zone::Stalled(Monster& monster) {
+    if (!common::WithinDistance(monster.position, monster.headway_from,
+                                rules_.combat.monster_stall_distance_m)) {
+        StartHeadway(monster);
+        return false;
+    }
+    return tick_ >= monster.stall_deadline;
 }
 
 void Zone::MoveMonster(common::EntityId id, Monster& monster) {

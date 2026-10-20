@@ -121,7 +121,10 @@ inline MovementRules Rules() {
 }
 
 inline CombatRules Combat() {
-    return CombatRules{.monster_think_hz = 5, .player_respawn = 1000ms};
+    return CombatRules{.monster_think_hz = 5,
+                       .player_respawn = 1000ms,
+                       .monster_stall_timeout = 1000ms,
+                       .monster_stall_distance_m = 1.0F};
 }
 
 inline EconomyRules Economy() {

@@ -193,6 +193,10 @@ private:
         std::optional<common::Vec2> goal;
         common::TickIndex next_think;
         common::TickIndex attack_ready_at;
+        // Where the monster stood when it last made headway, and the tick by which it must move
+        // on from there; checked while chasing or returning (CombatRules: stall).
+        common::Vec2 headway_from;
+        common::TickIndex stall_deadline;
     };
 
     // A home position that keeps one monster alive or waits to respawn it.
@@ -275,6 +279,10 @@ private:
     void SpawnMonster(std::size_t slot_index);
     void UpdateMonsters();
     void Think(common::EntityId id, Monster& monster);
+    void ReturnHome(Monster& monster);
+    void SettleAtHome(Monster& monster);
+    void StartHeadway(Monster& monster);
+    [[nodiscard]] bool Stalled(Monster& monster);
     void MoveMonster(common::EntityId id, Monster& monster);
     void RespawnMonsters();
     [[nodiscard]] std::optional<common::EntityId> NearestLivePlayerWithin(common::Vec2 center,

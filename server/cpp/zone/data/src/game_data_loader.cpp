@@ -238,10 +238,15 @@ std::expected<sim::MovementRules, LoadError> RulesFromTable(const toml::table& t
 std::expected<sim::CombatRules, LoadError> CombatFromTable(const toml::table& table) {
     const auto think = RequireU32(table, "combat.monster_think_hz");
     const auto respawn = RequireMs(table, "combat.player_respawn_ms");
-    if (auto err = FirstError(think, respawn)) {
+    const auto stall_timeout = RequireMs(table, "combat.monster_stall_timeout_ms");
+    const auto stall_distance = RequireFloat(table, "combat.monster_stall_distance_m");
+    if (auto err = FirstError(think, respawn, stall_timeout, stall_distance)) {
         return std::unexpected(*err);
     }
-    const sim::CombatRules rules{.monster_think_hz = *think, .player_respawn = *respawn};
+    const sim::CombatRules rules{.monster_think_hz = *think,
+                                 .player_respawn = *respawn,
+                                 .monster_stall_timeout = *stall_timeout,
+                                 .monster_stall_distance_m = *stall_distance};
     if (auto valid = rules.Validate(); !valid) {
         return std::unexpected(LoadError{"invalid combat rules: " + valid.error()});
     }

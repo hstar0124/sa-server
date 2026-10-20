@@ -134,6 +134,10 @@ std::expected<void, std::string> CombatRules::Validate() const {
     if (player_respawn.count() < 0) {
         return std::unexpected("combat.player_respawn_ms must not be negative");
     }
+    if (monster_stall_timeout.count() <= 0 || monster_stall_distance_m <= 0.0F) {
+        return std::unexpected(
+            "combat.monster_stall_timeout_ms and combat.monster_stall_distance_m must be positive");
+    }
     return {};
 }
 
