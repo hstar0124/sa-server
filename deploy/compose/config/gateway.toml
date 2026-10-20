@@ -17,6 +17,9 @@ max_messages_per_second = 60
 # Closing a client waits this long for it to read our last message and close its side, then
 # resets the connection and frees its slot. Bounds clients that stop reading.
 close_linger_ms = 2000
+# From accepting a connection (WebSocket handshake included) to a valid Hello; idle sockets are
+# kicked so they cannot hold every connection slot.
+hello_timeout_ms = 5000
 
 [ticket]
 # Shared with the Backend (WorldDirectory:TicketSigningKey). Inject via SA_GATEWAY__TICKET__SIGNING_KEY_BASE64.

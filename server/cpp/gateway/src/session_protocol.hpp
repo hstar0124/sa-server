@@ -10,6 +10,7 @@
 #include <game/server_messages.pb.h>
 #include <internal/zone_link.pb.h>
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -20,6 +21,9 @@ namespace sa::gateway {
 
 struct SessionProtocolConfig {
     std::uint32_t max_messages_per_second = 0;
+    // From accepting the connection (which includes a WebSocket handshake) to a valid Hello.
+    // Without it, idle sockets could hold every connection slot.
+    std::chrono::milliseconds hello_timeout{};
 };
 
 // Per-connection state machine (see README "네트워크와 입장"), free of I/O so every transition
@@ -75,6 +79,10 @@ public:
     // Output from the zone for this session; passes through only while in the zone.
     [[nodiscard]] Reaction OnZoneOutput(const game::v1::ServerMessage& message);
     [[nodiscard]] Reaction OnClientDisconnected();
+    // The hello timeout passed; kicks a connection that has not sent a valid Hello yet.
+    [[nodiscard]] Reaction OnHelloDeadline();
+    // The gateway ends the session itself: shutdown, or the loss of its own lease.
+    [[nodiscard]] Reaction OnServerClose(game::v1::KickReason reason);
 
     [[nodiscard]] State state() const noexcept { return state_; }
     [[nodiscard]] std::optional<common::ZoneId> zone() const noexcept { return zone_; }
@@ -82,7 +90,9 @@ public:
 
 private:
     [[nodiscard]] Reaction OnHello(const game::v1::Hello& hello, std::uint64_t now_ms);
-    [[nodiscard]] Reaction Kick(game::v1::KickReason reason);
+    [[nodiscard]] Reaction Kick(
+        game::v1::KickReason reason,
+        internal::v1::DetachReason detach_reason = internal::v1::DETACH_REASON_PROTOCOL_ERROR);
     // Transitions to Closed and emits the cleanup effects the current state requires.
     void Teardown(Reaction& reaction, internal::v1::DetachReason detach_reason,
                   std::string end_reason);

@@ -192,14 +192,28 @@ SessionProtocol::Reaction SessionProtocol::OnClientDisconnected() {
     return reaction;
 }
 
-SessionProtocol::Reaction SessionProtocol::Kick(game::v1::KickReason reason) {
+SessionProtocol::Reaction SessionProtocol::OnHelloDeadline() {
+    if (state_ != State::kAwaitingHello) {
+        return {};
+    }
+    return Kick(game::v1::KICK_REASON_PROTOCOL_ERROR);
+}
+
+SessionProtocol::Reaction SessionProtocol::OnServerClose(game::v1::KickReason reason) {
+    if (state_ == State::kClosed) {
+        return {};
+    }
+    return Kick(reason, internal::v1::DETACH_REASON_GATEWAY_SHUTDOWN);
+}
+
+SessionProtocol::Reaction SessionProtocol::Kick(game::v1::KickReason reason,
+                                                internal::v1::DetachReason detach_reason) {
     Reaction reaction;
     ServerMessage reply;
     reply.mutable_kick()->set_reason(reason);
     reaction.replies.push_back(std::move(reply));
     reaction.close = true;
-    Teardown(reaction, internal::v1::DETACH_REASON_PROTOCOL_ERROR,
-             "kick:" + game::v1::KickReason_Name(reason));
+    Teardown(reaction, detach_reason, "kick:" + game::v1::KickReason_Name(reason));
     return reaction;
 }
 

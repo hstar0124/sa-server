@@ -106,12 +106,14 @@ int Run(int argc, char** argv) {
         {sa::gateway::EntryTicketVerifier::Key{.id = config->ticket_key_id,
                                                .secret = config->ticket_key}},
         config->ticket_max_clock_skew_ms};
-    const sa::gateway::SessionProtocolConfig protocol{.max_messages_per_second =
-                                                          config->max_messages_per_second};
+    const sa::gateway::SessionProtocolConfig protocol{
+        .max_messages_per_second = config->max_messages_per_second,
+        .hello_timeout = config->hello_timeout};
 
     // One session factory, two transports: the listener hands over a socket, the transport wraps
     // it.
-    const sa::gateway::ClientSession::Dependencies deps{.verifier = verifier,
+    const sa::gateway::ClientSession::Dependencies deps{.io = io,
+                                                        .verifier = verifier,
                                                         .protocol = protocol,
                                                         .directory = directory,
                                                         .zones = zones,
@@ -165,6 +167,11 @@ int Run(int argc, char** argv) {
         });
     });
 
+    // Once our lease lapses the Backend reaps our sessions and may admit the same characters
+    // through another gateway; nothing here may keep driving them. The local view of the lease
+    // ends a safety margin before the Backend's, so this runs first.
+    lease.set_on_lost(
+        [&registry] { registry.CloseAll(sa::game::v1::KICK_REASON_SERVICE_UNAVAILABLE); });
     lease.Start();
     zones.StartAll();
     tcp_listener.Start();

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <variant>
 
 namespace sa::gateway {
 namespace {
@@ -233,6 +234,32 @@ TEST_F(SessionProtocolTest, ARedeemWithAnUnknownOutcomeEndsTheSessionInCaseItWas
     (void)left.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
     (void)left.OnClientDisconnected();
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(left.OnRedeemFailed()));
+}
+
+TEST_F(SessionProtocolTest, NoHelloByTheDeadlineIsKickedAndAHelloInTimeIsNot) {
+    const auto silent = protocol.OnHelloDeadline();
+    EXPECT_EQ(OnlyReply(silent).kick().reason(), game::v1::KICK_REASON_PROTOCOL_ERROR);
+    EXPECT_TRUE(silent.close);
+
+    SessionProtocol greeted{verifier, kConfig, common::InstanceId::Generate()};
+    (void)greeted.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    EXPECT_FALSE(greeted.OnHelloDeadline().close);
+}
+
+TEST_F(SessionProtocolTest, AServerCloseKicksWithItsReasonDetachesAndEndsTheSession) {
+    EnterZone();
+    const auto closed = protocol.OnServerClose(game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
+    EXPECT_EQ(OnlyReply(closed).kick().reason(), game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
+    EXPECT_TRUE(closed.close);
+    const auto detach = std::ranges::find_if(closed.effects, [](const auto& effect) {
+        return std::holds_alternative<SessionProtocol::DetachFromZone>(effect);
+    });
+    ASSERT_NE(detach, closed.effects.end());
+    EXPECT_EQ(std::get<SessionProtocol::DetachFromZone>(*detach).reason,
+              internal::v1::DETACH_REASON_GATEWAY_SHUTDOWN);
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(closed));
+    EXPECT_FALSE(protocol.OnServerClose(game::v1::KICK_REASON_SERVER_SHUTDOWN).close)
+        << "closing twice does nothing";
 }
 
 TEST_F(SessionProtocolTest, FloodingIsRateLimited) {

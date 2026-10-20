@@ -33,6 +33,7 @@ struct GatewayConfig {
     // [protocol]
     common::FrameLimits frame_limits;
     std::uint32_t max_messages_per_second = 0;
+    std::chrono::milliseconds hello_timeout{};
     // How long closing a client connection may wait for the client to take our last bytes and
     // close its side, before the connection is reset and its slot freed.
     std::chrono::milliseconds client_close_linger{};
