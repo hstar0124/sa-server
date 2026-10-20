@@ -25,6 +25,18 @@ inline constexpr std::chrono::seconds kRunLimit{5};
 inline constexpr std::chrono::milliseconds kRunSlice{5};
 inline constexpr std::size_t kPeerReadChunk = 1024;
 
+// Runs `io` in slices until `done()` holds; a test that never gets there fails loudly.
+inline void RunUntil(asio::io_context& io, const std::function<bool()>& done) {
+    const auto deadline = std::chrono::steady_clock::now() + kRunLimit;
+    while (!done()) {
+        if (std::chrono::steady_clock::now() > deadline) {
+            throw std::runtime_error{"test did not reach its condition in time"};
+        }
+        io.restart();
+        io.run_for(kRunSlice);
+    }
+}
+
 class Loopback {
 public:
     Loopback() {
@@ -83,17 +95,7 @@ public:
         return head;
     }
 
-    // Runs the io_context until `done()` holds; a test that never gets there fails loudly.
-    void RunUntil(const std::function<bool()>& done) {
-        const auto deadline = std::chrono::steady_clock::now() + kRunLimit;
-        while (!done()) {
-            if (std::chrono::steady_clock::now() > deadline) {
-                throw std::runtime_error{"loopback test did not reach its condition in time"};
-            }
-            io_.restart();
-            io_.run_for(kRunSlice);
-        }
-    }
+    void RunUntil(const std::function<bool()>& done) { testing::RunUntil(io_, done); }
 
 private:
     // One read at the peer of at most `into.size()` bytes, running the io_context in slices
