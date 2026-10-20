@@ -91,14 +91,16 @@ RejectReason Zone::ValidateCast(const Player& player, const SkillDefinition& ski
             if (monster == monsters_.end() || !monster->second.vitals.IsAlive()) {
                 return RejectReason::kInvalidTarget;
             }
-            if (common::Distance(player.position, monster->second.position) > skill.range_m) {
+            if (!common::WithinDistance(player.position, monster->second.position, skill.range_m)) {
                 return RejectReason::kOutOfRange;
             }
             return RejectReason::kNone;
         }
         case SkillKind::kProjectile: {
+            // A direction without a usable unit vector (zero, NaN, infinite) would launch a
+            // projectile that never travels and never ends.
             const auto* direction = std::get_if<common::Vec2>(&target);
-            if (direction == nullptr || direction->IsZero()) {
+            if (direction == nullptr || direction->Normalized().IsZero()) {
                 return RejectReason::kInvalidTarget;
             }
             return RejectReason::kNone;
@@ -128,8 +130,8 @@ void Zone::Activate(common::EntityId caster, Player& player, const SkillDefiniti
             const auto target_id = std::get<common::EntityId>(target);
             const auto monster = monsters_.find(target_id);
             if (monster == monsters_.end() ||
-                common::Distance(player.position, monster->second.position) >
-                    skill.range_m * kRangeTolerance) {
+                !common::WithinDistance(player.position, monster->second.position,
+                                        skill.range_m * kRangeTolerance)) {
                 return;
             }
             ApplyDamage(caster, target_id, skill.id, skill.damage);

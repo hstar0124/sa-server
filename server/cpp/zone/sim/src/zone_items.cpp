@@ -146,7 +146,8 @@ RejectReason Zone::ValidatePickup(const Player& player, common::EntityId item_id
     if (item == items_.end()) {
         return RejectReason::kItemNotFound;
     }
-    if (common::Distance(player.position, item->second.position) > rules_.economy.pickup_range_m) {
+    if (!common::WithinDistance(player.position, item->second.position,
+                                rules_.economy.pickup_range_m)) {
         return RejectReason::kOutOfRange;
     }
     if (item->second.reserved_by) {

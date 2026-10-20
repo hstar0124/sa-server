@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 namespace sa::zone::sim {
@@ -53,6 +54,17 @@ RejectReason CastAndTick(Zone& zone, EntityId player, std::uint64_t request, Ski
         throw std::logic_error{"expected exactly one command result"};
     }
     return results.front().reason;
+}
+
+TEST(ZoneCombat, AProjectileWithoutAUsableDirectionIsRejected) {
+    Zone zone = test::MakeZone(test::FieldWithSlime());
+    const EntityId p = test::Spawn(zone, 1, kFarFromSlime);
+
+    // Normalising an infinite vector yields zero: such a projectile would never travel or end.
+    EXPECT_EQ(
+        CastAndTick(zone, p, 1, test::kArrow, Vec2{std::numeric_limits<float>::infinity(), 0.0F}),
+        RejectReason::kInvalidTarget);
+    EXPECT_EQ(zone.stats().projectiles, 0U);
 }
 
 TEST(ZoneCombat, StrikeHitsAnAdjacentMonsterAndTellsTheAttacker) {

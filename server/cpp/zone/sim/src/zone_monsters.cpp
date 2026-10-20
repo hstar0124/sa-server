@@ -116,9 +116,11 @@ void Zone::Think(common::EntityId id, Monster& monster) {
     const MonsterDefinition& def = *monster.def;
     const auto target = players_.find(monster.target);
     const bool target_alive = target != players_.end() && target->second.vitals.IsAlive();
-    const float to_target =
-        target_alive ? common::Distance(monster.position, target->second.position) : 0.0F;
-    const bool leashed = common::Distance(monster.home, monster.position) > def.leash_radius_m;
+    const bool in_attack_range =
+        target_alive &&
+        common::WithinDistance(monster.position, target->second.position, def.attack_range_m);
+    const bool leashed =
+        !common::WithinDistance(monster.home, monster.position, def.leash_radius_m);
 
     switch (monster.state) {
         case AiState::kIdle:
@@ -133,7 +135,7 @@ void Zone::Think(common::EntityId id, Monster& monster) {
                 monster.goal = monster.home;
                 return;
             }
-            if (to_target <= def.attack_range_m) {
+            if (in_attack_range) {
                 monster.state = AiState::kAttack;
                 monster.goal.reset();
                 return;
@@ -146,7 +148,7 @@ void Zone::Think(common::EntityId id, Monster& monster) {
                 monster.goal = monster.home;
                 return;
             }
-            if (to_target > def.attack_range_m) {
+            if (!in_attack_range) {
                 monster.state = AiState::kChase;
                 monster.goal = target->second.position;
                 return;
@@ -157,7 +159,7 @@ void Zone::Think(common::EntityId id, Monster& monster) {
             }
             return;
         case AiState::kReturn:
-            if (common::Distance(monster.position, monster.home) <= kArriveDistanceM) {
+            if (common::WithinDistance(monster.position, monster.home, kArriveDistanceM)) {
                 monster.state = AiState::kIdle;
                 monster.goal.reset();
                 monster.target = {};

@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 namespace sa::zone::sim {
 namespace {
 
@@ -34,6 +36,18 @@ TEST(ZoneMovement, ZeroDirectionStops) {
     test::TickN(zone, 3);
 
     EXPECT_NEAR(test::PosOf(zone, p).x, 53.0F, kEps);
+    EXPECT_EQ(test::SnapshotOf(zone, p).velocity, Vec2{});
+}
+
+TEST(ZoneMovement, ADirectionWithoutAUnitVectorLeavesThePlayerStandingAndFinite) {
+    // The codec refuses these; the simulation must stay sound even if one gets through.
+    Zone zone = test::MakeZone();
+    const EntityId p = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    zone.Submit(MoveCommand{
+        .player = p, .input_seq = 1, .direction = {std::numeric_limits<float>::infinity(), 0.0F}});
+    test::TickN(zone, 3);
+
+    EXPECT_EQ(test::PosOf(zone, p), (Vec2{50.0F, 50.0F}));
     EXPECT_EQ(test::SnapshotOf(zone, p).velocity, Vec2{});
 }
 

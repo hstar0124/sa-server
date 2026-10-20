@@ -4,6 +4,18 @@
 #include <cmath>
 
 namespace sa::zone::sim {
+namespace {
+
+// Index of the cell holding `raw` (a coordinate already divided by the cell size), clamped to
+// the grid. NaN lands in cell 0 instead of reaching an undefined float-to-integer cast.
+std::uint32_t ClampToCells(float raw, std::uint32_t cells) noexcept {
+    if (std::isnan(raw) || raw <= 0.0F) {
+        return 0;
+    }
+    return static_cast<std::uint32_t>(std::min(raw, static_cast<float>(cells - 1)));
+}
+
+}  // namespace
 
 SpatialGrid::SpatialGrid(common::Vec2 map_size, float cell_size)
     : cell_size_(cell_size),
@@ -12,13 +24,11 @@ SpatialGrid::SpatialGrid(common::Vec2 map_size, float cell_size)
       cells_(static_cast<std::size_t>(columns_) * rows_) {}
 
 std::uint32_t SpatialGrid::ColumnFor(float x) const noexcept {
-    const float raw = std::floor(x / cell_size_);
-    return static_cast<std::uint32_t>(std::clamp(raw, 0.0F, static_cast<float>(columns_ - 1)));
+    return ClampToCells(std::floor(x / cell_size_), columns_);
 }
 
 std::uint32_t SpatialGrid::RowFor(float y) const noexcept {
-    const float raw = std::floor(y / cell_size_);
-    return static_cast<std::uint32_t>(std::clamp(raw, 0.0F, static_cast<float>(rows_ - 1)));
+    return ClampToCells(std::floor(y / cell_size_), rows_);
 }
 
 SpatialGrid::CellIndex SpatialGrid::CellFor(common::Vec2 position) const noexcept {

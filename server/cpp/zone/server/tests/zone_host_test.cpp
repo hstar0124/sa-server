@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 namespace sa::zone {
 namespace {
 
@@ -161,6 +163,26 @@ TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     EXPECT_EQ(FirstSnapshotTo(gateway_a).despawned_size(), 1) << "a is told b left";
     EXPECT_EQ(zone.stats().players, 1U);
     EXPECT_EQ(host.stats().detaches, 1U);
+}
+
+TEST(ZoneHost, ANonFiniteInputIsCountedAndNeverSubmitted) {
+    sim::Zone zone = MakeZone();
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeSink sink;
+    host.Attach(sink, AttachFor("s1", 1));
+
+    internal::v1::SessionInput input;
+    input.set_gateway_session_id("s1");
+    input.mutable_message()->mutable_move_input()->set_input_seq(1);
+    input.mutable_message()->mutable_move_input()->mutable_direction()->set_x(
+        std::numeric_limits<float>::infinity());
+    host.Input(input);
+    zone.Tick();
+
+    EXPECT_EQ(host.stats().bad_inputs, 1U);
+    EXPECT_EQ(host.stats().inputs, 0U);
+    EXPECT_EQ(zone.stats().commands_applied, 0U);
 }
 
 TEST(ZoneHost, CastSkillYieldsACommandResultOnTheNextTick) {

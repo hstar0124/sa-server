@@ -118,14 +118,20 @@ void ZoneHost::Input(const internal::v1::SessionInput& input) {
         return;
     }
     const game::v1::ClientMessage& message = input.message();
+    const auto submit = [this](const auto& decoded) {
+        if (!decoded) {
+            ++stats_.bad_inputs;  // refused by the codec: never reaches the simulation
+            return;
+        }
+        zone_.Submit(*decoded);
+        ++stats_.inputs;
+    };
     switch (message.body_case()) {
         case game::v1::ClientMessage::kMoveInput:
-            zone_.Submit(codec::ToMoveCommand(it->second.entity, message.move_input()));
-            ++stats_.inputs;
+            submit(codec::ToMoveCommand(it->second.entity, message.move_input()));
             return;
         case game::v1::ClientMessage::kCastSkill:
-            zone_.Submit(codec::ToCastCommand(it->second.entity, message.cast_skill()));
-            ++stats_.inputs;
+            submit(codec::ToCastCommand(it->second.entity, message.cast_skill()));
             return;
         case game::v1::ClientMessage::kPickupItem:
             zone_.Submit(codec::ToPickupCommand(it->second.entity, message.pickup_item()));
