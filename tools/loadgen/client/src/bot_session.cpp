@@ -225,7 +225,7 @@ void BotSession::SchedulePing() {
 void BotSession::Ping() {
     game::v1::ClientMessage ping;
     ping.mutable_ping()->set_nonce(++ping_nonce_);
-    ping.mutable_ping()->set_client_time_ms(common::UnixMillisNow());
+    ping.mutable_ping()->set_client_time_ms(common::ToUnixMillis(common::WallNow()));
     ping_sent_at_ = std::chrono::steady_clock::now();
     // A closing connection drops the ping; no pong is expected from it then.
     std::ignore = connection_->Send(ping);

@@ -17,7 +17,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const auto hello_timeout = source.Require<std::uint32_t>("protocol.hello_timeout_ms");
     const auto key_b64 = source.Require<std::string>("ticket.signing_key_base64");
     const auto key_id = source.Require<std::uint32_t>("ticket.key_id");
-    const auto skew = source.Require<std::uint64_t>("ticket.max_clock_skew_ms");
+    const auto skew = source.Require<std::uint32_t>("ticket.max_clock_skew_ms");
     const auto backend_address = source.Require<std::string>("backend.address");
     const auto rpc_timeout = source.Require<std::uint32_t>("backend.rpc_timeout_ms");
     const auto renew = source.Require<std::uint32_t>("backend.lease_renew_interval_ms");
@@ -93,8 +93,8 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     out.client_close_linger = std::chrono::milliseconds{*client_linger};
     out.hello_timeout = std::chrono::milliseconds{*hello_timeout};
     out.ticket_key = std::move(*key);
-    out.ticket_key_id = *key_id;
-    out.ticket_max_clock_skew_ms = *skew;
+    out.ticket_key_id = TicketKeyId{*key_id};
+    out.ticket_max_clock_skew = std::chrono::milliseconds{*skew};
     out.backend_address = *backend_address;
     out.backend_rpc_timeout = std::chrono::milliseconds{*rpc_timeout};
     out.lease_renew_interval = std::chrono::milliseconds{*renew};

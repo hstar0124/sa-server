@@ -57,21 +57,21 @@ void DirectoryClient::EndSession(const common::InstanceId& session_id, std::stri
 void DirectoryClient::RenewGatewayLease(common::LeaseKeeper::Done done) {
     backend::v1::RenewGatewayLeaseRequest request;
     request.set_gateway_instance_id(gateway_instance_.ToWire());
-    const std::uint64_t sent_wall_ms = common::UnixMillisNow();
+    const common::WallTime sent_at = common::WallNow();
     common::CallUnary<WorldDirectory::Stub, backend::v1::RenewGatewayLeaseRequest,
                       backend::v1::RenewGatewayLeaseResponse>(
         io_.get_executor(), *stub_, &WorldDirectory::Stub::async_interface::RenewGatewayLease,
         std::move(request), rpc_timeout_,
-        [done = std::move(done), sent_wall_ms](
-            const grpc::Status& status, const backend::v1::RenewGatewayLeaseResponse& response) {
+        [done = std::move(done), sent_at](const grpc::Status& status,
+                                          const backend::v1::RenewGatewayLeaseResponse& response) {
             if (!status.ok() || !response.renewed()) {
                 spdlog::warn("RenewGatewayLease: {} ({})", status.error_message(),
                              static_cast<int>(status.error_code()));
                 done(std::nullopt);
                 return;
             }
-            done(common::LeaseKeeper::DurationFromServerExpiry(response.lease_expires_at_ms(),
-                                                               sent_wall_ms));
+            done(common::LeaseKeeper::DurationFromServerExpiry(
+                common::FromUnixMillis(response.lease_expires_at_ms()), sent_at));
         });
 }
 

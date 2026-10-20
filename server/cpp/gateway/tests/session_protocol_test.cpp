@@ -51,6 +51,17 @@ backend::v1::RedeemEntryTicketResponse Granted(std::uint32_t zone = 1, std::uint
     return r;
 }
 
+using namespace std::chrono_literals;
+
+// A message arriving `offset` after the test's reference instant, on both clocks. The monotonic
+// origin is well past zero, so the first message always opens a fresh rate window.
+ArrivalTime At(std::chrono::milliseconds offset = {}) {
+    constexpr std::chrono::hours kMonotonicOrigin{1};
+    return ArrivalTime{
+        .monotonic = std::chrono::steady_clock::time_point{kMonotonicOrigin + offset},
+        .wall = test::kNow + offset};
+}
+
 const ServerMessage& OnlyReply(const SessionProtocol::Reaction& r) {
     if (r.replies.size() != 1) {
         throw std::logic_error{"expected exactly one reply"};
@@ -79,8 +90,7 @@ protected:
 
     // Drives the happy path up to the zone attach and returns the attach effect.
     SessionProtocol::AttachToZone EnterZone() {
-        const auto hello =
-            protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+        const auto hello = protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
         EXPECT_EQ(protocol.state(), State::kRedeeming);
         EXPECT_TRUE(HasEffect<SessionProtocol::RedeemTicket>(hello));
         const auto redeem = protocol.OnRedeemResult(Granted());
@@ -93,9 +103,9 @@ protected:
 };
 
 TEST_F(SessionProtocolTest, PingIsAnsweredInAnyOpenState) {
-    const auto reaction = protocol.OnClientMessage(PingMessage(9), test::kNow);
+    const auto reaction = protocol.OnClientMessage(PingMessage(9), At());
     EXPECT_EQ(OnlyReply(reaction).pong().nonce(), 9U);
-    EXPECT_EQ(OnlyReply(reaction).pong().server_time_ms(), test::kNow);
+    EXPECT_EQ(OnlyReply(reaction).pong().server_time_ms(), common::ToUnixMillis(test::kNow));
     EXPECT_FALSE(reaction.close);
 }
 
@@ -112,7 +122,7 @@ TEST_F(SessionProtocolTest, HappyPathCarriesVerifiedIdentityIntoTheAttach) {
 
 TEST_F(SessionProtocolTest, InZoneInputsAreForwardedAndOutputsPassThrough) {
     EnterZone();
-    const auto forward = protocol.OnClientMessage(MoveMessage(3), test::kNow);
+    const auto forward = protocol.OnClientMessage(MoveMessage(3), At());
     EXPECT_EQ(OnlyEffect<SessionProtocol::ForwardToZone>(forward).message.move_input().input_seq(),
               3U);
 
@@ -132,7 +142,7 @@ TEST_F(SessionProtocolTest, DisconnectInZoneDetachesAndEndsTheSession) {
 }
 
 TEST_F(SessionProtocolTest, InputBeforeHelloOrBeforeAttachIsAProtocolError) {
-    auto reaction = protocol.OnClientMessage(MoveMessage(1), test::kNow);
+    auto reaction = protocol.OnClientMessage(MoveMessage(1), At());
     EXPECT_EQ(OnlyReply(reaction).kick().reason(), game::v1::KICK_REASON_PROTOCOL_ERROR);
     EXPECT_TRUE(reaction.close);
     EXPECT_EQ(protocol.state(), State::kClosed);
@@ -142,10 +152,10 @@ TEST_F(SessionProtocolTest, InputBeforeHelloOrBeforeAttachIsAProtocolError) {
 TEST_F(SessionProtocolTest, BadTicketOrVersionIsKickedWithoutContactingTheBackend) {
     SessionProtocol bad_version{verifier, kConfig, common::InstanceId::Generate()};
     const auto v = bad_version.OnClientMessage(
-        HelloMessage(test::SignedTicket({}), game::v1::PROTOCOL_VERSION_UNSPECIFIED), test::kNow);
+        HelloMessage(test::SignedTicket({}), game::v1::PROTOCOL_VERSION_UNSPECIFIED), At());
     EXPECT_EQ(OnlyReply(v).kick().reason(), game::v1::KICK_REASON_PROTOCOL_VERSION);
 
-    const auto t = protocol.OnClientMessage(HelloMessage("garbage"), test::kNow);
+    const auto t = protocol.OnClientMessage(HelloMessage("garbage"), At());
     EXPECT_EQ(OnlyReply(t).kick().reason(), game::v1::KICK_REASON_INVALID_TICKET);
     EXPECT_TRUE(t.effects.empty());
 }
@@ -164,7 +174,7 @@ TEST_F(SessionProtocolTest, RedeemOutcomesMapToKicksAndNeverLeaveASessionDanglin
                          Case{.outcome = backend::v1::REDEEM_OUTCOME_UNKNOWN_GATEWAY,
                               .kick = game::v1::KICK_REASON_SERVICE_UNAVAILABLE}}) {
         SessionProtocol p{verifier, kConfig, common::InstanceId::Generate()};
-        (void)p.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+        (void)p.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
         backend::v1::RedeemEntryTicketResponse r;
         r.set_outcome(c.outcome);
         const auto reaction = p.OnRedeemResult(r);
@@ -177,7 +187,7 @@ TEST_F(SessionProtocolTest, RedeemOutcomesMapToKicksAndNeverLeaveASessionDanglin
 }
 
 TEST_F(SessionProtocolTest, ZoneRejectionAfterGrantEndsTheBackendSession) {
-    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
     (void)protocol.OnRedeemResult(Granted());
     const auto reaction = protocol.OnZoneRejected(internal::v1::REJECT_REASON_ZONE_FULL);
     EXPECT_EQ(OnlyReply(reaction).kick().reason(), game::v1::KICK_REASON_ZONE_UNAVAILABLE);
@@ -194,7 +204,7 @@ TEST_F(SessionProtocolTest, EvictionAndLinkLossKickWithoutDetaching) {
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(evicted));
 
     SessionProtocol other{verifier, kConfig, common::InstanceId::Generate()};
-    (void)other.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)other.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
     (void)other.OnRedeemResult(Granted());
     (void)other.OnZoneAttached(common::EntityId{1});
     const auto down = other.OnZoneLinkDown();
@@ -203,7 +213,7 @@ TEST_F(SessionProtocolTest, EvictionAndLinkLossKickWithoutDetaching) {
 }
 
 TEST_F(SessionProtocolTest, AGrantArrivingAfterTheClientLeftEndsTheBackendSession) {
-    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
     const auto left = protocol.OnClientDisconnected();
     EXPECT_FALSE(HasEffect<SessionProtocol::EndSession>(left)) << "nothing granted yet";
 
@@ -217,7 +227,7 @@ TEST_F(SessionProtocolTest, AGrantArrivingAfterTheClientLeftEndsTheBackendSessio
 }
 
 TEST_F(SessionProtocolTest, ARefusalArrivingAfterTheClientLeftOwesNothing) {
-    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
     (void)protocol.OnClientDisconnected();
     backend::v1::RedeemEntryTicketResponse refused;
     refused.set_outcome(backend::v1::REDEEM_OUTCOME_ACTIVE_SESSION_EXISTS);
@@ -225,13 +235,13 @@ TEST_F(SessionProtocolTest, ARefusalArrivingAfterTheClientLeftOwesNothing) {
 }
 
 TEST_F(SessionProtocolTest, ARedeemWithAnUnknownOutcomeEndsTheSessionInCaseItWasGranted) {
-    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
     const auto failed = protocol.OnRedeemFailed();
     EXPECT_EQ(OnlyReply(failed).kick().reason(), game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(failed));
 
     SessionProtocol left{verifier, kConfig, common::InstanceId::Generate()};
-    (void)left.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)left.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
     (void)left.OnClientDisconnected();
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(left.OnRedeemFailed()));
 }
@@ -242,7 +252,7 @@ TEST_F(SessionProtocolTest, NoHelloByTheDeadlineIsKickedAndAHelloInTimeIsNot) {
     EXPECT_TRUE(silent.close);
 
     SessionProtocol greeted{verifier, kConfig, common::InstanceId::Generate()};
-    (void)greeted.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)greeted.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
     EXPECT_FALSE(greeted.OnHelloDeadline().close);
 }
 
@@ -266,7 +276,7 @@ TEST_F(SessionProtocolTest, FloodingIsRateLimited) {
     EnterZone();
     // One second after the Hello a new window starts: max_messages_per_second messages pass and
     // the next one is a flood.
-    const std::uint64_t window = test::kNow + 1'000;
+    const ArrivalTime window = At(1'000ms);
     for (std::uint32_t seq = 1; seq <= kConfig.max_messages_per_second; ++seq) {
         EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(seq), window).close) << seq;
     }
@@ -278,10 +288,9 @@ TEST_F(SessionProtocolTest, FloodingIsRateLimited) {
 TEST_F(SessionProtocolTest, RateLimitWindowResets) {
     EnterZone();
     for (std::uint32_t i = 0; i < kConfig.max_messages_per_second; ++i) {
-        (void)protocol.OnClientMessage(MoveMessage(i + 1), test::kNow + 5'000);
+        (void)protocol.OnClientMessage(MoveMessage(i + 1), At(5'000ms));
     }
-    EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(99), test::kNow + 6'000).close)
-        << "new window";
+    EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(99), At(6'000ms)).close) << "new window";
 }
 
 }  // namespace

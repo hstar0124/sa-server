@@ -105,7 +105,7 @@ int Run(int argc, char** argv) {
     const sa::gateway::EntryTicketVerifier verifier{
         {sa::gateway::EntryTicketVerifier::Key{.id = config->ticket_key_id,
                                                .secret = config->ticket_key}},
-        config->ticket_max_clock_skew_ms};
+        config->ticket_max_clock_skew};
     const sa::gateway::SessionProtocolConfig protocol{
         .max_messages_per_second = config->max_messages_per_second,
         .hello_timeout = config->hello_timeout};

@@ -23,14 +23,14 @@ void ZoneLeaseRenewer::operator()(common::LeaseKeeper::Done done) {
     request.mutable_zone()->set_zone_id(zone_.value());
     request.mutable_zone()->set_zone_instance_id(instance_.ToWire());
 
-    const std::uint64_t sent_wall_ms = common::UnixMillisNow();
+    const common::WallTime sent_at = common::WallNow();
     common::CallUnary<backend::v1::WorldDirectory::Stub, backend::v1::RenewZoneLeaseRequest,
                       backend::v1::RenewZoneLeaseResponse>(
         io_.get_executor(), *stub_,
         &backend::v1::WorldDirectory::Stub::async_interface::RenewZoneLease, std::move(request),
         rpc_timeout_,
-        [done = std::move(done), sent_wall_ms](
-            const grpc::Status& status, const backend::v1::RenewZoneLeaseResponse& response) {
+        [done = std::move(done), sent_at](const grpc::Status& status,
+                                          const backend::v1::RenewZoneLeaseResponse& response) {
             if (!status.ok()) {
                 spdlog::warn("RenewZoneLease: {} ({})", status.error_message(),
                              static_cast<int>(status.error_code()));
@@ -42,8 +42,8 @@ void ZoneLeaseRenewer::operator()(common::LeaseKeeper::Done done) {
                 done(std::nullopt);
                 return;
             }
-            done(common::LeaseKeeper::DurationFromServerExpiry(response.lease_expires_at_ms(),
-                                                               sent_wall_ms));
+            done(common::LeaseKeeper::DurationFromServerExpiry(
+                common::FromUnixMillis(response.lease_expires_at_ms()), sent_at));
         });
 }
 
