@@ -92,7 +92,13 @@ void ClientSession::OnZoneLinkDown(common::ZoneId zone) {
 
 void ClientSession::Apply(SessionProtocol::Reaction reaction) {
     for (const game::v1::ServerMessage& reply : reaction.replies) {
-        connection_->Send(reply);
+        // A closing connection drops what it cannot send anymore; anything else is a bug worth
+        // seeing (a reply larger than the client frame limit).
+        if (const auto sent = connection_->Send(reply);
+            !sent && sent.error() != common::SendError::kClosed) {
+            spdlog::warn("session {}: reply dropped: {}", id_.ToHex(),
+                         common::Describe(sent.error()));
+        }
     }
     for (SessionProtocol::Effect& effect : reaction.effects) {
         std::visit([this](auto& e) { Perform(std::move(e)); }, effect);

@@ -7,6 +7,9 @@
 #include <asio/error.hpp>
 #include <gtest/gtest.h>
 
+#include <game/server_messages.pb.h>
+
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -58,6 +61,25 @@ TEST(FramedConnection, AHandlerThatClosesAndDropsTheConnectionLeavesNothingDangl
 
     EXPECT_EQ(messages, 1) << "nothing is delivered after the handler closed the connection";
     EXPECT_EQ(closed, 1);
+}
+
+TEST(FramedConnection, SendSaysWhyAMessageWasNotQueued) {
+    Loopback lo;
+    constexpr std::size_t kTinyLimit = 4;
+    auto connection = std::make_shared<FramedConnection>(
+        lo.TakeServerSocket(), FrameLimits{.max_payload_bytes = kTinyLimit}, std::nullopt);
+    bool closed = false;
+    connection->Start(MessageConnection::Callbacks{
+        .on_message = [](std::span<const std::byte>) {},
+        .on_closed = [&](const std::error_code&) { closed = true; },
+    });
+    game::v1::ServerMessage big;
+    big.mutable_pong()->set_client_time_ms(~std::uint64_t{0});  // ten bytes as a varint alone
+    EXPECT_EQ(connection->Send(big).error(), SendError::kTooLarge);
+
+    connection->Abort();
+    EXPECT_EQ(connection->Send(game::v1::ServerMessage{}).error(), SendError::kClosed);
+    EXPECT_TRUE(closed);
 }
 
 TEST(WebSocketConnection, AHandlerThatClosesAndDropsTheConnectionLeavesNothingDangling) {

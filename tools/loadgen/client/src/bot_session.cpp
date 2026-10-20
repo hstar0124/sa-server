@@ -10,6 +10,7 @@
 #include <game/client_messages.pb.h>
 
 #include <string>
+#include <tuple>
 
 namespace sa::loadgen {
 
@@ -93,7 +94,9 @@ void BotSession::OnConnected() {
     game::v1::ClientMessage hello;
     hello.mutable_hello()->set_protocol_version(common::protocol::kCurrentVersion);
     hello.mutable_hello()->set_entry_ticket(common::ToWireString(target_.signed_ticket));
-    connection_->Send(hello);
+    if (const auto sent = connection_->Send(hello); !sent) {
+        Fail(std::string{"hello not sent: "} + std::string{common::Describe(sent.error())});
+    }
 }
 
 void BotSession::OnFrame(std::span<const std::byte> payload) {
@@ -187,7 +190,7 @@ void BotSession::Tick() {
     input->mutable_direction()->set_x(intent.direction.x);
     input->mutable_direction()->set_y(intent.direction.y);
     input->set_client_tick(static_cast<std::uint32_t>(world_.server_tick()));
-    if (connection_->Send(move)) {
+    if (connection_->Send(move).has_value()) {
         ++report_.inputs_sent;
     }
     if (intent.cast) {
@@ -202,7 +205,7 @@ void BotSession::Tick() {
             skill->mutable_direction()->set_x(direction.x);
             skill->mutable_direction()->set_y(direction.y);
         }
-        if (connection_->Send(cast)) {
+        if (connection_->Send(cast).has_value()) {
             ++report_.casts_sent;
         }
     }
@@ -224,7 +227,8 @@ void BotSession::Ping() {
     ping.mutable_ping()->set_nonce(++ping_nonce_);
     ping.mutable_ping()->set_client_time_ms(common::UnixMillisNow());
     ping_sent_at_ = std::chrono::steady_clock::now();
-    connection_->Send(ping);
+    // A closing connection drops the ping; no pong is expected from it then.
+    std::ignore = connection_->Send(ping);
 }
 
 }  // namespace sa::loadgen

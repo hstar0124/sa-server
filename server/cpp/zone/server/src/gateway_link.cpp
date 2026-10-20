@@ -19,9 +19,9 @@ void GatewayLink::Start() {
 }
 
 void GatewayLink::Send(const internal::v1::ZoneToGateway& message) {
-    if (!connection_->Send(message)) {
-        spdlog::warn("gateway link {}: outbound message dropped (too large or link closed)",
-                     PeerAddress());
+    if (const auto sent = connection_->Send(message); !sent) {
+        spdlog::warn("gateway link {}: outbound message dropped: {}", PeerAddress(),
+                     common::Describe(sent.error()));
     }
 }
 
