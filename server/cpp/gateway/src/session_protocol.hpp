@@ -106,7 +106,8 @@ private:
     std::optional<common::ZoneId> zone_;
     bool session_granted_ = false;   // the Backend holds a live session row for us
     bool redeem_in_flight_ = false;  // asked the Backend; its answer has not arrived
-    // Token bucket: refilled once per second window.
+    // Fixed one-second windows: up to max_messages_per_second per window. A burst that straddles
+    // a window boundary can reach twice that, which the limit tolerates.
     std::uint64_t window_start_ms_ = 0;
     std::uint32_t messages_in_window_ = 0;
 };

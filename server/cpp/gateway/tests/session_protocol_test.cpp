@@ -264,14 +264,14 @@ TEST_F(SessionProtocolTest, AServerCloseKicksWithItsReasonDetachesAndEndsTheSess
 
 TEST_F(SessionProtocolTest, FloodingIsRateLimited) {
     EnterZone();
-    for (std::uint32_t i = 0; i < kConfig.max_messages_per_second - 2;
-         ++i) {  // Hello + 1 already counted? no: new window
-        EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(i + 1), test::kNow + 1'000).close) << i;
+    // One second after the Hello a new window starts: max_messages_per_second messages pass and
+    // the next one is a flood.
+    const std::uint64_t window = test::kNow + 1'000;
+    for (std::uint32_t seq = 1; seq <= kConfig.max_messages_per_second; ++seq) {
+        EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(seq), window).close) << seq;
     }
-    // The 11th message within the same second is one too many.
-    EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(50), test::kNow + 1'000).close);
-    EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(51), test::kNow + 1'000).close);
-    const auto reaction = protocol.OnClientMessage(MoveMessage(52), test::kNow + 1'000);
+    const auto reaction =
+        protocol.OnClientMessage(MoveMessage(kConfig.max_messages_per_second + 1), window);
     EXPECT_EQ(OnlyReply(reaction).kick().reason(), game::v1::KICK_REASON_RATE_LIMITED);
 }
 

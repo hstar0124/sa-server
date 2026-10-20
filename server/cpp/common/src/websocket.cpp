@@ -160,8 +160,7 @@ std::string RejectionResponse() {
            "Content-Length: 0\r\n\r\n";
 }
 
-// ---- frames
-// ---------------------------------------------------------------------------------------
+// ---- frames -------------------------------------------------------------------------------------
 
 void FrameDecoder::Feed(std::span<const std::byte> bytes) {
     CompactIfWorthwhile();

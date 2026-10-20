@@ -120,8 +120,7 @@ void ZoneLink::ScheduleReconnect(const std::string& why) {
     });
 }
 
-// ---- inbound
-// --------------------------------------------------------------------------------------
+// ---- inbound ------------------------------------------------------------------------------------
 
 void ZoneLink::OnFrame(std::span<const std::byte> payload) {
     ZoneToGateway message;
@@ -175,8 +174,7 @@ void ZoneLink::OnFrame(std::span<const std::byte> payload) {
     connection_->Abort();
 }
 
-// ---- outbound
-// -------------------------------------------------------------------------------------
+// ---- outbound -----------------------------------------------------------------------------------
 
 void ZoneLink::Send(const GatewayToZone& message) {
     if (!connection_ || !connection_->Send(message)) {
