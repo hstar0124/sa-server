@@ -67,8 +67,7 @@ void Zone::RespawnMonsters() {
     }
 }
 
-// ---- AI
-// -------------------------------------------------------------------------------------------------
+// ---- AI -----------------------------------------------------------------------------------------
 
 std::optional<common::EntityId> Zone::NearestLivePlayerWithin(common::Vec2 center,
                                                               float radius) const {

@@ -154,8 +154,7 @@ void Zone::Activate(common::EntityId caster, Player& player, const SkillDefiniti
     }
 }
 
-// ---- projectiles
-// ------------------------------------------------------------------------------------
+// ---- projectiles --------------------------------------------------------------------------------
 
 namespace {
 
@@ -219,8 +218,7 @@ void Zone::UpdateProjectiles() {
     }
 }
 
-// ---- damage and death
-// ---------------------------------------------------------------------------------
+// ---- damage and death ---------------------------------------------------------------------------
 
 void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, SkillId skill,
                        std::int32_t damage) {

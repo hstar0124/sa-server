@@ -58,14 +58,13 @@ common::TickIndex Zone::TicksFromNow(std::chrono::milliseconds duration) const {
                              static_cast<std::uint64_t>(std::max<std::int64_t>(0, ticks))};
 }
 
-// ---- membership
-// -----------------------------------------------------------------------------------
+// ---- membership ---------------------------------------------------------------------------------
 
-std::optional<common::EntityId> Zone::SpawnPlayer(common::CharacterId character, ClassId class_id,
-                                                  std::optional<common::Vec2> position) {
+std::expected<common::EntityId, SpawnError> Zone::SpawnPlayer(
+    common::CharacterId character, ClassId class_id, std::optional<common::Vec2> position) {
     const auto cls = content_.classes.find(class_id);
     if (cls == content_.classes.end()) {
-        return std::nullopt;
+        return std::unexpected(SpawnError::kUnknownClass);
     }
     common::Vec2 at = position.value_or(common::Vec2{});
     if (!position) {
@@ -96,8 +95,7 @@ void Zone::DespawnPlayer(common::EntityId player) {
     // Observers learn about the departure through their next interest recomputation.
 }
 
-// ---- input
-// --------------------------------------------------------------------------------------------
+// ---- input --------------------------------------------------------------------------------------
 
 void Zone::Submit(Command command) {
     std::visit(
@@ -189,8 +187,7 @@ void Zone::ApplyMove(const MoveCommand& command) {
     ++stats_.commands_applied;
 }
 
-// ---- simulation
-// ---------------------------------------------------------------------------------------
+// ---- simulation ---------------------------------------------------------------------------------
 
 void Zone::Tick() {
     tick_ = tick_.Next();
@@ -271,8 +268,7 @@ common::Vec2 Zone::StepTowards(common::Vec2 from, common::Vec2 goal, float speed
     return ResolveCollisions(from, from + delta.Normalized() * step);
 }
 
-// ---- interest management
-// ---------------------------------------------------------------------------
+// ---- interest management ------------------------------------------------------------------------
 
 void Zone::UpdateInterestSets() {
     for (auto& [id, player] : players_) {
@@ -307,8 +303,7 @@ void Zone::RecomputeInterest(common::EntityId self, Player& player) {
     player.interest = std::move(next);
 }
 
-// ---- output
-// -----------------------------------------------------------------------------------------
+// ---- output -------------------------------------------------------------------------------------
 
 bool Zone::ChangedSince(common::EntityId entity, common::TickIndex tick) const {
     if (const auto p = players_.find(entity); p != players_.end()) {
@@ -373,8 +368,7 @@ void Zone::DeliverToObservers(common::EntityId subject, const ZoneEvent& event) 
     }
 }
 
-// ---- inspection
-// ----------------------------------------------------------------------------------------
+// ---- inspection ---------------------------------------------------------------------------------
 
 std::optional<common::Vec2> Zone::PositionOf(common::EntityId entity) const {
     if (const auto p = players_.find(entity); p != players_.end()) {
@@ -455,8 +449,7 @@ std::vector<common::EntityId> Zone::LiveMonsters() const {
     return out;
 }
 
-// ---- recent requests
-// -----------------------------------------------------------------------------------
+// ---- recent requests ----------------------------------------------------------------------------
 
 std::optional<CommandResultEvent> Zone::RecentRequests::Find(common::RequestId id) const {
     const auto filled = std::span{ring_}.first(size_);

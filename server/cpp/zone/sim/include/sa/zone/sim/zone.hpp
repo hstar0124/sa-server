@@ -34,6 +34,11 @@ struct ZoneConfig {
     std::size_t command_retry_window = 0;
 };
 
+// Why a player could not enter the zone.
+enum class SpawnError : std::uint8_t {
+    kUnknownClass,  // the character's class is not in this zone's content (a content skew)
+};
+
 // Everything tunable that is not content: movement, combat and economy rules from game-data.
 struct ZoneRules {
     MovementRules movement;
@@ -78,8 +83,8 @@ public:
 
     // ---- membership -------------------------------------------------------------------------
     // Places the player at `position`, or at a spawn point chosen by the zone's RNG. The class
-    // must exist in the content bundle; an unknown class is a caller bug and yields nullopt.
-    [[nodiscard]] std::optional<common::EntityId> SpawnPlayer(
+    // comes from the Backend's character record and may be missing from this zone's content.
+    [[nodiscard]] std::expected<common::EntityId, SpawnError> SpawnPlayer(
         common::CharacterId character, ClassId class_id,
         std::optional<common::Vec2> position = std::nullopt);
     void DespawnPlayer(common::EntityId player);

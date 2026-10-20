@@ -12,8 +12,8 @@
 namespace sa::zone {
 
 // Drives Zone::Tick() from an Asio timer on the io_context thread. This is the single logical
-// thread that owns the zone state (see README "Zone의 한 틱"); network completions will be queued
-// onto the same io_context in later stages.
+// thread that owns the zone state (see README "Zone의 한 틱"): Gateway link reads, Backend RPC
+// completions and retry timers run on the same io_context, so none of them races a tick.
 class TickRunner {
 public:
     // Invoked after every simulation tick, on the zone thread; hosts hang snapshot delivery and
