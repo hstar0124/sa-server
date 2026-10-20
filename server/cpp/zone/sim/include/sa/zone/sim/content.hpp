@@ -18,6 +18,10 @@ namespace sa::zone::sim {
 
 using common::ClassId;
 using common::SkillId;
+
+// A monster's swing is not a skill; combat events carry skill id 0 for it (CombatEvent.skill_id
+// in contracts/game). Content skill ids start at 1.
+inline constexpr SkillId kMonsterBasicAttack{};
 using MonsterTemplateId = common::StrongId<struct MonsterTemplateIdTag, std::uint32_t>;
 using ItemTemplateId = common::StrongId<struct ItemTemplateIdTag, std::uint32_t>;
 

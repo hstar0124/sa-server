@@ -140,7 +140,7 @@ void Zone::Think(common::EntityId id, Monster& monster) {
             }
             if (tick_ >= monster.attack_ready_at) {
                 monster.attack_ready_at = TicksFromNow(def.attack_cooldown);
-                ApplyDamage(id, monster.target, SkillId{}, def.attack_damage);
+                ApplyDamage(id, monster.target, kMonsterBasicAttack, def.attack_damage);
             }
             return;
         case AiState::kReturn:

@@ -7,6 +7,9 @@ namespace sa::zone::sim {
 namespace {
 
 std::expected<void, std::string> ValidateSkill(const SkillDefinition& skill) {
+    if (skill.id == kMonsterBasicAttack) {
+        return std::unexpected("skill id 0 is reserved for a monster's basic attack");
+    }
     if (skill.damage < 0 || skill.cost_mp < 0 || skill.range_m <= 0.0F) {
         return std::unexpected(std::format(
             "skill {} has a non-positive range or negative cost/damage", skill.id.value()));

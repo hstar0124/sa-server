@@ -130,6 +130,14 @@ attack_cooldown_ms = 1000
 respawn_ms = 1000
 )";
 
+TEST(GameDataLoader, SkillIdZeroIsReservedForTheMonsterAttack) {
+    const std::string skill_zero =
+        std::string{kSkills}.replace(std::string{kSkills}.find("id = 1"), 6, "id = 0");
+    const auto content = ParseContent({.version = kVersion, .skills = skill_zero});
+    ASSERT_FALSE(content.has_value());
+    EXPECT_NE(content.error().message.find("reserved"), std::string::npos);
+}
+
 TEST(GameDataLoader, ContentRejectsUnknownSkillReferencesAndBadProjectiles) {
     constexpr std::string_view kClassWithSkill99 =
         "[[classes]]\nid = 1\nname = \"w\"\nmax_hp = 10\nmax_mp = 0\nmp_regen_per_sec = "
