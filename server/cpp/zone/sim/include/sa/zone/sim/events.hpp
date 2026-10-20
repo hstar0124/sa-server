@@ -23,7 +23,7 @@ enum class RejectReason : std::uint8_t {
     kOnCooldown,
     kInvalidTarget,
     kOutOfRange,
-    // pickups (design document 8.2)
+    // pickups (see README "자산과 멱등성")
     kItemNotFound,
     kItemReserved,
     kInventoryFull,
@@ -80,7 +80,7 @@ struct DeliveredEvent {
 // ---- requests to the host ------------------------------------------------------------------
 // The zone adjudicates and rolls; durable effects (receipts, items, gold) are the Backend's.
 // The host carries these over gRPC and brings the answer back through Zone::SpawnGroundItems
-// and Zone::ResolvePickup (design document 8.2, 9.2).
+// and Zone::ResolvePickup (see README "자산과 멱등성").
 
 struct DropRoll {
     ItemTemplateId item;

@@ -48,7 +48,7 @@ struct CastCommand {
     SkillTarget target;
 };
 
-// Reach for an item lying in the zone (design document 6.3 PickupItem, 8.2).
+// Reach for an item lying in the zone (see README "자산과 멱등성").
 struct PickupCommand {
     common::EntityId player;
     common::RequestId request_id;

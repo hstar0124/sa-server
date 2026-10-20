@@ -52,7 +52,7 @@ struct WelcomeInfo {
 // ---- zone <-> backend (Economy) ---------------------------------------------------------------
 
 // What the zone claims when it acts for a character: its process identity and the ownership
-// generation the character was attached under (design document 14.3).
+// generation the character was attached under (see README "소유권과 lease").
 struct ZoneAuthority {
     common::InstanceId zone_instance;
     common::OwnerEpoch epoch;
@@ -70,8 +70,8 @@ struct ZoneAuthority {
     const sim::PickupReservation& pickup, common::WorldId world, const ZoneAuthority& authority);
 [[nodiscard]] sim::PickupOutcome ToPickupOutcome(backend::v1::PickupOutcome outcome);
 
-// The inventory and wallet of one character as the host mirrors them for its client
-// (design document 6.3 InventoryUpdate carries the full state every time).
+// The inventory and wallet of one character as the host mirrors them for its client. The
+// client gets the full state every time (see README "자산과 멱등성").
 struct InventoryEntry {
     common::ItemInstanceId instance;
     sim::ItemTemplateId item;

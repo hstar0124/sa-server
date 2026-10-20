@@ -1,4 +1,4 @@
-// Drop rolls, ground items and pickups (design document 8.2, 9.2). The zone rolls and reserves;
+// Drop rolls, ground items and pickups (see README "자산과 멱등성"). The zone rolls and reserves;
 // the Backend decides; the host brings the answer back through SpawnGroundItems/ResolvePickup.
 #include "sa/zone/sim/zone.hpp"
 

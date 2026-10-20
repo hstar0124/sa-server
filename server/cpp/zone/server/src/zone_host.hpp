@@ -26,7 +26,7 @@ struct ZoneHostStats {
     std::uint64_t snapshots_sent = 0;
     std::uint64_t events_sent = 0;
     std::uint64_t bad_inputs = 0;
-    // Economy round trips (design document 8.2).
+    // Economy round trips (see README "자산과 멱등성").
     std::uint64_t kills_recorded = 0;
     std::uint64_t kills_refused = 0;  // stale authority, content mismatch, unknown template
     std::uint64_t pickups_acquired = 0;
@@ -85,7 +85,7 @@ private:
         common::CharacterId character;
         common::OwnerEpoch epoch;
         // Mirror of the Backend's answer, kept current from kill and pickup responses so every
-        // InventoryUpdate carries the full state (6.3).
+        // InventoryUpdate carries the full state.
         std::optional<codec::CharacterAssets> assets;
     };
 

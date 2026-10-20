@@ -85,7 +85,7 @@ public:
     // ---- simulation -------------------------------------------------------------------------
     void Tick();
 
-    // ---- backend answers (design document 8.2) ----------------------------------------------
+    // ---- backend answers (see README "자산과 멱등성") ----------------------------
     // Items the Backend committed for a kill; each becomes a visible entity that despawns after
     // the economy rule's delay unless picked up. Items whose template the content does not know
     // are skipped, so the returned ids may be fewer than the inputs.

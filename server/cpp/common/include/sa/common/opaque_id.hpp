@@ -22,7 +22,7 @@ void FillRandomBytes(std::span<std::byte> out);
 [[nodiscard]] std::size_t HashBytes(std::span<const std::byte> bytes) noexcept;
 }  // namespace detail
 
-// 16 random bytes minted by a process rather than by the database (design document 14.1):
+// 16 random bytes minted by a process rather than by the database (see README "소유권과 lease"):
 // process generations, gateway sessions, item instances, kill and request ids. Each use gets its
 // own Tag so that a kill id can never be passed where an item id is expected.
 template <typename Tag>
