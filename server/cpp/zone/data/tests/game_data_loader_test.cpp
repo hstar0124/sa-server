@@ -19,8 +19,11 @@ TEST(GameDataLoader, ShippedMapAndRulesAreValid) {
     const auto rules = LoadMovementRules(kGameData / "rules" / "movement.toml");
     ASSERT_TRUE(rules.has_value()) << rules.error().message;
     EXPECT_GE(rules->aoi_leave_radius_m, rules->aoi_enter_radius_m);
-    EXPECT_TRUE(map->ValidateWalkable(rules->body_radius_m).has_value())
-        << map->ValidateWalkable(rules->body_radius_m).error();
+    const auto combat = LoadCombatRules(kGameData / "rules" / "movement.toml");
+    ASSERT_TRUE(combat.has_value()) << combat.error().message;
+    const auto walkable =
+        map->ValidateWalkable(rules->body_radius_m, combat->monster_pack_ring_radius_m);
+    EXPECT_TRUE(walkable.has_value()) << walkable.error();
 }
 
 TEST(GameDataLoader, ParsesMinimalMap) {

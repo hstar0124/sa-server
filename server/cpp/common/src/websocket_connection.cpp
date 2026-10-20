@@ -62,7 +62,8 @@ WebSocketConnection::HandshakeProgress WebSocketConnection::TryCompleteHandshake
     }
     WriteText(websocket::HandshakeResponse(websocket::AcceptKey(request->key)));
     state_ = State::kOpen;
-    const std::size_t header_end = handshake_buffer_.find("\r\n\r\n") + 4;
+    const std::size_t header_end =
+        handshake_buffer_.find(websocket::kHandshakeEnd) + websocket::kHandshakeEnd.size();
     handshake_buffer_.erase(0, header_end);
     return HandshakeProgress::kComplete;
 }

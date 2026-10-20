@@ -1,11 +1,12 @@
 #include "gateway_config.hpp"
 
 #include "sa/common/bytes.hpp"
+#include "sa/common/hmac.hpp"
 
+#include <format>
 #include <initializer_list>
 
 namespace sa::gateway {
-namespace {}  // namespace
 
 std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const common::ConfigSource& source) {
@@ -41,10 +42,11 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
         return std::unexpected(
             common::ConfigError{"ticket.signing_key_base64 is not valid base64"});
     }
-    constexpr std::size_t kMinKeyBytes = 32;
-    if (key->size() < kMinKeyBytes) {
-        return std::unexpected(
-            common::ConfigError{"ticket.signing_key_base64 must decode to at least 32 bytes"});
+    // RFC 2104: an HMAC key shorter than the hash output weakens it.
+    if (key->size() < common::kHmacSha256Bytes) {
+        return std::unexpected(common::ConfigError{
+            std::format("ticket.signing_key_base64 must decode to at least {} bytes",
+                        common::kHmacSha256Bytes)});
     }
     if (*max_msgs == 0 || *rpc_timeout == 0 || *renew == 0 || *client_linger == 0 ||
         *link_linger == 0 || *hello_timeout == 0 || *backoff == 0 || *max_connections == 0) {

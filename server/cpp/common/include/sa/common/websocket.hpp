@@ -16,6 +16,8 @@ namespace sa::common::websocket {
 
 // An HTTP request bigger than this is not a handshake attempt.
 inline constexpr std::size_t kMaxHandshakeBytes = std::size_t{8} * 1024;
+// Ends the HTTP request head; bytes after it already belong to the first frame.
+inline constexpr std::string_view kHandshakeEnd = "\r\n\r\n";
 
 struct HandshakeRequest {
     std::string path;

@@ -94,13 +94,20 @@ std::expected<sim::CombatRules, LoadError> CombatFromTable(const toml::table& ta
     const auto respawn = RequireMs(table, "combat.player_respawn_ms");
     const auto stall_timeout = RequireMs(table, "combat.monster_stall_timeout_ms");
     const auto stall_distance = RequireFloat(table, "combat.monster_stall_distance_m");
-    if (auto err = FirstError(think, respawn, stall_timeout, stall_distance)) {
+    const auto tolerance = RequireFloat(table, "combat.range_tolerance");
+    const auto arrive = RequireFloat(table, "combat.monster_home_arrive_m");
+    const auto ring = RequireFloat(table, "combat.monster_pack_ring_radius_m");
+    if (auto err =
+            FirstError(think, respawn, stall_timeout, stall_distance, tolerance, arrive, ring)) {
         return std::unexpected(*err);
     }
     const sim::CombatRules rules{.monster_think_hz = *think,
                                  .player_respawn = *respawn,
                                  .monster_stall_timeout = *stall_timeout,
-                                 .monster_stall_distance_m = *stall_distance};
+                                 .monster_stall_distance_m = *stall_distance,
+                                 .range_tolerance = *tolerance,
+                                 .monster_home_arrive_m = *arrive,
+                                 .monster_pack_ring_radius_m = *ring};
     if (auto valid = rules.Validate(); !valid) {
         return std::unexpected(LoadError{"invalid combat rules: " + valid.error()});
     }

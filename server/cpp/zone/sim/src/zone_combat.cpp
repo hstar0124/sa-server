@@ -5,13 +5,6 @@
 #include <cmath>
 
 namespace sa::zone::sim {
-namespace {
-
-// A monster slightly beyond nominal range still counts for a swing that started in range.
-constexpr float kRangeTolerance = 1.1F;
-
-}  // namespace
-
 // ---- casting ------------------------------------------------------------------------------------
 
 void Zone::ApplyCast(const CastCommand& command) {
@@ -133,7 +126,7 @@ void Zone::Activate(common::EntityId caster, Player& player, const SkillDefiniti
             const auto monster = monsters_.find(target_id);
             if (monster == monsters_.end() ||
                 !common::WithinDistance(player.position, monster->second.position,
-                                        skill.range_m * kRangeTolerance)) {
+                                        skill.range_m * rules_.combat.range_tolerance)) {
                 return;
             }
             ApplyDamage(caster, target_id, skill.id, skill.damage);

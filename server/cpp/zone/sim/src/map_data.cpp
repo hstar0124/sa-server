@@ -6,14 +6,7 @@
 #include <numbers>
 
 namespace sa::zone::sim {
-namespace {
-
-// Radius of the ring a pack stands on around its spawn position.
-constexpr float kPackRingRadiusM = 1.5F;
-
-}  // namespace
-
-std::vector<common::Vec2> MapData::HomesOf(const MonsterSpawn& spawn) {
+std::vector<common::Vec2> MapData::HomesOf(const MonsterSpawn& spawn, float ring_radius_m) {
     std::vector<common::Vec2> homes;
     homes.reserve(spawn.count);
     for (std::uint32_t i = 0; i < spawn.count; ++i) {
@@ -21,7 +14,7 @@ std::vector<common::Vec2> MapData::HomesOf(const MonsterSpawn& spawn) {
                             static_cast<float>(spawn.count);
         const common::Vec2 offset =
             spawn.count == 1 ? common::Vec2{}
-                             : common::Vec2{std::cos(angle), std::sin(angle)} * kPackRingRadiusM;
+                             : common::Vec2{std::cos(angle), std::sin(angle)} * ring_radius_m;
         homes.push_back(spawn.position + offset);
     }
     return homes;
@@ -77,7 +70,8 @@ std::expected<void, std::string> MapData::Validate() const {
     return {};
 }
 
-std::expected<void, std::string> MapData::ValidateWalkable(float body_radius_m) const {
+std::expected<void, std::string> MapData::ValidateWalkable(float body_radius_m,
+                                                           float pack_ring_radius_m) const {
     for (std::size_t i = 0; i < spawn_points.size(); ++i) {
         if (!IsWalkable(spawn_points[i], body_radius_m)) {
             return std::unexpected(std::format(
@@ -87,7 +81,7 @@ std::expected<void, std::string> MapData::ValidateWalkable(float body_radius_m) 
         }
     }
     for (std::size_t i = 0; i < monster_spawns.size(); ++i) {
-        for (const common::Vec2 home : HomesOf(monster_spawns[i])) {
+        for (const common::Vec2 home : HomesOf(monster_spawns[i], pack_ring_radius_m)) {
             if (!IsWalkable(home, body_radius_m)) {
                 return std::unexpected(
                     std::format("monster spawn {} puts a home at ({}, {}) that is not walkable", i,

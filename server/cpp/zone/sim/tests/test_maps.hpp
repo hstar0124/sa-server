@@ -125,7 +125,10 @@ inline CombatRules Combat() {
     return CombatRules{.monster_think_hz = 5,
                        .player_respawn = 1000ms,
                        .monster_stall_timeout = 1000ms,
-                       .monster_stall_distance_m = 1.0F};
+                       .monster_stall_distance_m = 1.0F,
+                       .range_tolerance = 1.1F,
+                       .monster_home_arrive_m = 0.5F,
+                       .monster_pack_ring_radius_m = 1.5F};
 }
 
 inline EconomyRules Economy() {
