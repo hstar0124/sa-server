@@ -1,5 +1,6 @@
 #include "sa/zone/sim/content.hpp"
 
+#include <cmath>
 #include <format>
 
 namespace sa::zone::sim {
@@ -115,6 +116,10 @@ std::expected<void, std::string> EconomyRules::Validate() const {
     }
     if (ground_item_despawn.count() <= 0) {
         return std::unexpected("pickup.despawn_ms must be positive");
+    }
+    if (std::isnan(drop_scatter_radius_m) || drop_scatter_radius_m < 0.0F ||
+        drop_scatter_radius_m >= pickup_range_m) {
+        return std::unexpected("drops.scatter_radius_m must be in [0, pickup.range_m)");
     }
     if (primary_currency.empty()) {
         return std::unexpected("currency.primary must be set");

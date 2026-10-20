@@ -250,13 +250,15 @@ std::expected<sim::EconomyRules, LoadError> EconomyFromTable(const toml::table& 
     const auto capacity = RequireU32(table, "inventory.capacity");
     const auto range = RequireFloat(table, "pickup.range_m");
     const auto despawn = RequireMs(table, "pickup.despawn_ms");
+    const auto scatter = RequireFloat(table, "drops.scatter_radius_m");
     const auto currency = RequireString(table, "currency.primary");
-    if (auto err = FirstError(capacity, range, despawn, currency)) {
+    if (auto err = FirstError(capacity, range, despawn, scatter, currency)) {
         return std::unexpected(*err);
     }
     sim::EconomyRules rules{.inventory_capacity = *capacity,
                             .pickup_range_m = *range,
                             .ground_item_despawn = *despawn,
+                            .drop_scatter_radius_m = *scatter,
                             .primary_currency = *currency};
     if (auto valid = rules.Validate(); !valid) {
         return std::unexpected(LoadError{"invalid economy rules: " + valid.error()});

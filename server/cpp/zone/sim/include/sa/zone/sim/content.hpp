@@ -100,6 +100,7 @@ struct EconomyRules {
     std::uint32_t inventory_capacity = 0;
     float pickup_range_m = 0.0F;
     std::chrono::milliseconds ground_item_despawn{};
+    float drop_scatter_radius_m = 0.0F;  // drops land on a ring of this radius around the corpse
     std::string primary_currency;
 
     [[nodiscard]] std::expected<void, std::string> Validate() const;
