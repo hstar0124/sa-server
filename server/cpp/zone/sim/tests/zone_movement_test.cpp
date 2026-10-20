@@ -4,7 +4,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <limits>
+#include <variant>
 
 namespace sa::zone::sim {
 namespace {
@@ -114,19 +116,74 @@ TEST(ZoneMovement, SameSeedAndInputsReproduceTheSameState) {
     EXPECT_EQ(run(), run());
 }
 
-TEST(ZoneMovement, CommandBudgetDefersExcessToTheNextTick) {
+TEST(ZoneMovement, OnlyTheNewestWaitingMoveOfAPlayerIsApplied) {
+    Zone zone = test::MakeZone();
+    const EntityId p = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    zone.Submit(MoveCommand{.player = p, .input_seq = 1, .direction = {1.0F, 0.0F}});
+    zone.Submit(MoveCommand{.player = p, .input_seq = 3, .direction = {0.0F, 1.0F}});
+    zone.Submit(MoveCommand{.player = p, .input_seq = 2, .direction = {-1.0F, 0.0F}});  // late
+    zone.Tick();
+
+    EXPECT_EQ(zone.stats().commands_applied, 1U);
+    EXPECT_EQ(zone.stats().moves_superseded, 1U);
+    EXPECT_EQ(zone.stats().stale_inputs_dropped, 1U);
+    EXPECT_EQ(zone.CollectView(p).last_processed_input_seq, 3U);
+    EXPECT_NEAR(test::PosOf(zone, p).y, 51.0F, kEps);
+}
+
+TEST(ZoneMovement, CommandBudgetDefersExcessRequestsAndCountsEachOnce) {
     MovementRules rules = test::Rules();
     rules.commands_per_tick_budget = 2;
     Zone zone = test::MakeZone(test::OpenField(), rules);
     const EntityId p = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
-    for (std::uint32_t seq = 1; seq <= 5; ++seq) {
-        zone.Submit(MoveCommand{.player = p, .input_seq = seq, .direction = {1.0F, 0.0F}});
+    for (std::uint64_t request = 1; request <= 5; ++request) {
+        zone.Submit(
+            CastCommand{.player = p,
+                        .request_id = common::RequestId{request},
+                        .skill = test::kStrike,
+                        .target = EntityId{999}});  // no such monster: rejected, but applied
     }
     zone.Tick();
     EXPECT_EQ(zone.stats().commands_applied, 2U);
     EXPECT_EQ(zone.stats().commands_deferred, 3U);
-    test::TickN(zone, 2);
+    zone.Tick();
+    EXPECT_EQ(zone.stats().commands_applied, 4U);
+    EXPECT_EQ(zone.stats().commands_deferred, 3U) << "a command waiting two ticks counts once";
+    zone.Tick();
     EXPECT_EQ(zone.stats().commands_applied, 5U);
+    EXPECT_EQ(zone.stats().commands_deferred, 3U);
+}
+
+TEST(ZoneMovement, AFullQueueAnswersUnknownWithoutProcessing) {
+    MovementRules rules = test::Rules();
+    rules.max_queued_per_player = 2;
+    Zone zone = test::MakeZone(test::OpenField(), rules);
+    const EntityId p = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    for (std::uint64_t request = 1; request <= 3; ++request) {
+        zone.Submit(CastCommand{.player = p,
+                                .request_id = common::RequestId{request},
+                                .skill = test::kStrike,
+                                .target = EntityId{999}});
+    }
+    zone.Tick();
+
+    EXPECT_EQ(zone.stats().commands_applied, 2U);
+    EXPECT_EQ(zone.stats().commands_dropped, 1U);
+    const auto events = zone.DrainEvents();
+    const auto unknown = std::ranges::find_if(events, [](const DeliveredEvent& e) {
+        const auto* result = std::get_if<CommandResultEvent>(&e.event);
+        return result != nullptr && result->status == CommandStatus::kUnknown;
+    });
+    ASSERT_NE(unknown, events.end());
+    EXPECT_EQ(std::get<CommandResultEvent>(unknown->event).request_id, common::RequestId{3});
+
+    // The queue drained: the retry is processed.
+    zone.Submit(CastCommand{.player = p,
+                            .request_id = common::RequestId{3},
+                            .skill = test::kStrike,
+                            .target = EntityId{999}});
+    zone.Tick();
+    EXPECT_EQ(zone.stats().commands_applied, 3U);
 }
 
 TEST(ZoneMovement, SpawnWithoutPositionUsesASpawnPoint) {

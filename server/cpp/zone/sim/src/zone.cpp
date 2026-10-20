@@ -101,28 +101,74 @@ void Zone::DespawnPlayer(common::EntityId player) {
 // --------------------------------------------------------------------------------------------
 
 void Zone::Submit(Command command) {
+    std::visit(
+        [this](const auto& c) {
+            using T = std::decay_t<decltype(c)>;
+            if constexpr (std::is_same_v<T, MoveCommand>) {
+                QueueMove(c);
+            } else {
+                QueueRequest(c.player, c.request_id, c);
+            }
+        },
+        command);
+}
+
+void Zone::QueueMove(const MoveCommand& move) {
+    const auto [it, inserted] = pending_moves_.try_emplace(move.player, move);
+    if (inserted) {
+        return;
+    }
+    if (move.input_seq > it->second.input_seq) {
+        it->second = move;
+        ++stats_.moves_superseded;
+    } else {
+        ++stats_.stale_inputs_dropped;  // reordered behind a newer move that is already waiting
+    }
+}
+
+void Zone::QueueRequest(common::EntityId player, common::RequestId request, QueuedCommand command) {
+    std::uint32_t& queued = queued_per_player_[player];
+    if (queued >= rules_.movement.max_queued_per_player) {
+        ++stats_.commands_dropped;
+        Deliver(player, CommandResultEvent::Unknown(request));
+        return;
+    }
+    ++queued;
     pending_.push_back(command);
 }
 
 void Zone::DrainCommands() {
-    std::uint32_t budget = rules_.movement.commands_per_tick_budget;
-    while (!pending_.empty() && budget > 0) {
-        std::visit(
+    // At most one move per player is waiting, so moves need no budget.
+    for (const auto& [player, move] : pending_moves_) {
+        ApplyMove(move);
+    }
+    pending_moves_.clear();
+
+    std::size_t applied = 0;
+    while (!pending_.empty() && applied < rules_.movement.commands_per_tick_budget) {
+        const common::EntityId player = std::visit(
             [this](const auto& c) {
                 using T = std::decay_t<decltype(c)>;
-                if constexpr (std::is_same_v<T, MoveCommand>) {
-                    ApplyMove(c);
-                } else if constexpr (std::is_same_v<T, CastCommand>) {
+                if constexpr (std::is_same_v<T, CastCommand>) {
                     ApplyCast(c);
                 } else {
                     ApplyPickup(c);
                 }
+                return c.player;
             },
             pending_.front());
         pending_.pop_front();
-        --budget;
+        ++applied;
+        if (const auto queued = queued_per_player_.find(player);
+            queued != queued_per_player_.end() && --queued->second == 0) {
+            queued_per_player_.erase(queued);
+        }
     }
-    stats_.commands_deferred += pending_.size();
+    // Each waiting command counts once. The queue is FIFO, so the ones counted on earlier ticks
+    // were at its front and were applied first.
+    const std::size_t counted = deferred_in_queue_ > applied ? deferred_in_queue_ - applied : 0;
+    stats_.commands_deferred += pending_.size() - counted;
+    deferred_in_queue_ = pending_.size();
 }
 
 void Zone::ApplyMove(const MoveCommand& command) {

@@ -9,8 +9,13 @@ enter_radius_m = 40.0
 leave_radius_m = 45.0
 
 [input]
-# How many queued commands one tick processes before deferring the rest (see README "Zone의 한 틱").
+# How many queued casts and pickups one tick processes before deferring the rest (see README
+# "Zone의 한 틱"). Moves do not queue: only each player's newest move waits for the next tick.
 commands_per_tick_budget = 4096
+# Casts and pickups one player may have waiting. More are answered "unknown" without being
+# processed, and the client retries them with the same request id. The gateway admits at most
+# 60 messages per second per client, about 3 per tick at 20 Hz.
+max_queued_per_player = 8
 
 [combat]
 # Monster decision rate. Each monster decides on its own offset, so they do not all think on the same tick.

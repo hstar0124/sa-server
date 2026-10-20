@@ -57,8 +57,10 @@ enter_radius_m = 40.0
 leave_radius_m = 30.0
 [input]
 commands_per_tick_budget = 10
+max_queued_per_player = 4
 )");
-    EXPECT_FALSE(rules.has_value());
+    ASSERT_FALSE(rules.has_value());
+    EXPECT_NE(rules.error().message.find("leave_radius_m"), std::string::npos);
 }
 
 TEST(GameDataLoader, ShippedContentBundleIsValidAndMatchesTheMap) {

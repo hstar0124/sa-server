@@ -116,7 +116,8 @@ inline MovementRules Rules() {
     return MovementRules{.max_speed_mps = 10.0F,
                          .aoi_enter_radius_m = 20.0F,
                          .aoi_leave_radius_m = 25.0F,
-                         .commands_per_tick_budget = 1024};
+                         .commands_per_tick_budget = 1024,
+                         .max_queued_per_player = 8};
 }
 
 inline CombatRules Combat() {

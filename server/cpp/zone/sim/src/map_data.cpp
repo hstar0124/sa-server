@@ -69,6 +69,9 @@ std::expected<void, std::string> MovementRules::Validate() const {
     if (commands_per_tick_budget == 0) {
         return std::unexpected("input.commands_per_tick_budget must be positive");
     }
+    if (max_queued_per_player == 0) {
+        return std::unexpected("input.max_queued_per_player must be positive");
+    }
     return {};
 }
 

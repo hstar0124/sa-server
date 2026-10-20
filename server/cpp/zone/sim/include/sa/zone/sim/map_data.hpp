@@ -40,8 +40,9 @@ struct MapData {
 struct MovementRules {
     float max_speed_mps = 0.0F;
     float aoi_enter_radius_m = 0.0F;
-    float aoi_leave_radius_m = 0.0F;  // >= enter radius; the gap is the hysteresis band
-    std::uint32_t commands_per_tick_budget = 0;
+    float aoi_leave_radius_m = 0.0F;             // >= enter radius; the gap is the hysteresis band
+    std::uint32_t commands_per_tick_budget = 0;  // casts and pickups applied per tick
+    std::uint32_t max_queued_per_player = 0;     // casts and pickups one player may have waiting
 
     [[nodiscard]] std::expected<void, std::string> Validate() const;
 };

@@ -42,7 +42,9 @@ struct ZoneRules {
 
 struct ZoneStats {
     std::uint64_t commands_applied = 0;
-    std::uint64_t commands_deferred = 0;  // left queued because the per-tick budget ran out
+    std::uint64_t commands_deferred = 0;  // casts and pickups that waited a tick for the budget
+    std::uint64_t commands_dropped = 0;   // casts and pickups refused: the player's queue was full
+    std::uint64_t moves_superseded = 0;  // moves replaced by a newer one before a tick applied them
     std::uint64_t stale_inputs_dropped = 0;
     std::uint64_t casts_accepted = 0;
     std::uint64_t casts_rejected = 0;
@@ -82,7 +84,10 @@ public:
     void DespawnPlayer(common::EntityId player);
 
     // ---- input ------------------------------------------------------------------------------
-    // Queues a command; applied by the next Tick() within the per-tick budget.
+    // A move replaces the player's waiting move (it carries intent, not displacement), so each
+    // tick applies at most one move per player. Casts and pickups queue in arrival order and are
+    // applied within the per-tick budget; beyond the per-player limit they are answered "unknown"
+    // without being processed, and the client retries them with the same request id.
     void Submit(Command command);
 
     // ---- simulation -------------------------------------------------------------------------
@@ -220,7 +225,11 @@ private:
     Zone(ZoneConfig config, MapData map, ZoneRules rules, ContentBundle content, Rng rng);
 
     // ---- zone.cpp ---------------------------------------------------------------------------
+    using QueuedCommand = std::variant<CastCommand, PickupCommand>;
+
     common::EntityId AllocateEntityId();
+    void QueueMove(const MoveCommand& move);
+    void QueueRequest(common::EntityId player, common::RequestId request, QueuedCommand command);
     void DrainCommands();
     void ApplyMove(const MoveCommand& command);
     void IntegratePlayers();
@@ -293,7 +302,10 @@ private:
     std::unordered_map<common::EntityId, DroppedItem> items_;
     std::unordered_map<common::EntityId, EntityKind> kinds_;
     std::vector<MonsterSlot> monster_slots_;
-    std::deque<Command> pending_;
+    std::unordered_map<common::EntityId, MoveCommand> pending_moves_;  // newest per player
+    std::deque<QueuedCommand> pending_;                                // casts and pickups
+    std::unordered_map<common::EntityId, std::uint32_t> queued_per_player_;
+    std::size_t deferred_in_queue_ = 0;  // queued commands already counted in commands_deferred
     std::vector<DeliveredEvent> outbox_;
     std::vector<HostRequest> host_requests_;
     std::vector<common::EntityId> scratch_;  // reused query buffer

@@ -61,10 +61,13 @@ void TickRunner::LogStatsIfDue(std::chrono::steady_clock::time_point now) {
     }
     const std::uint64_t dropped = scheduler_.dropped_ticks() - dropped_at_last_stats_;
     const sim::ZoneStats& zs = zone_.stats();
-    spdlog::info("tick={} ran={} dropped={} lag_us={} players={} cmds={} deferred={} stale={}",
-                 zone_.current_tick().value(), ticks_since_stats_, dropped,
-                 std::chrono::duration_cast<std::chrono::microseconds>(scheduler_.lag()).count(),
-                 zs.players, zs.commands_applied, zs.commands_deferred, zs.stale_inputs_dropped);
+    spdlog::info(
+        "tick={} ran={} dropped={} lag_us={} players={} cmds={} deferred={} refused={} "
+        "superseded={} stale={}",
+        zone_.current_tick().value(), ticks_since_stats_, dropped,
+        std::chrono::duration_cast<std::chrono::microseconds>(scheduler_.lag()).count(), zs.players,
+        zs.commands_applied, zs.commands_deferred, zs.commands_dropped, zs.moves_superseded,
+        zs.stale_inputs_dropped);
     ticks_since_stats_ = 0;
     dropped_at_last_stats_ = scheduler_.dropped_ticks();
     next_stats_ = now + stats_log_interval_;
