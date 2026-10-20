@@ -41,6 +41,19 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
         return std::unexpected(common::ConfigError{
             "at least one bot, client.tick_hz and run.duration_sec must be positive"});
     }
+    if (*ping == 0 || *connect == 0 || *attack_interval == 0 || *retarget == 0) {
+        return std::unexpected(common::ConfigError{
+            "client intervals, fighter.attack_interval_ms and wanderer.retarget_after_ticks must "
+            "be positive"});
+    }
+    // Written so that NaN fails too.
+    const auto positive = [](double value) { return value > 0.0; };
+    const auto non_negative = [](double value) { return value >= 0.0; };
+    if (!positive(*arrive) || !non_negative(*margin) || !positive(*engage) ||
+        !positive(*attack_range)) {
+        return std::unexpected(
+            common::ConfigError{"bot distances must be positive (wanderer.margin_m may be zero)"});
+    }
     if (*idle_min > *idle_max) {
         return std::unexpected(
             common::ConfigError{"wanderer.idle_ticks_min must not exceed idle_ticks_max"});

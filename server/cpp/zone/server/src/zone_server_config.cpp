@@ -34,16 +34,27 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
             retry_delay, shutdown_grace)) {
         return std::unexpected(*err);
     }
-    if (*hz == 0) {
-        return std::unexpected(common::ConfigError{"zone.simulation_hz must be positive"});
+    // Positive and slow enough that one tick lasts at least one clock unit (the period divides by
+    // the rate).
+    if (*hz == 0 || sim::TickRate{.hz = *hz}.Period() == sim::Duration::zero()) {
+        return std::unexpected(
+            common::ConfigError{"zone.simulation_hz must be positive and give a nonzero period"});
     }
     if (*snapshot_hz == 0 || *hz % *snapshot_hz != 0) {
         return std::unexpected(
             common::ConfigError{"zone.snapshot_hz must be positive and divide zone.simulation_hz"});
     }
-    if (*renew_interval == 0 || *rpc_timeout == 0 || *call_attempts == 0 || *link_linger == 0) {
-        return std::unexpected(
-            common::ConfigError{"backend intervals and economy_call_attempts must be positive"});
+    if (*renew_interval == 0 || *rpc_timeout == 0 || *call_attempts == 0 || *retry_delay == 0) {
+        return std::unexpected(common::ConfigError{
+            "backend intervals, retry_delay_ms and economy_call_attempts must be positive"});
+    }
+    // Zero would refuse every gateway or frame, skip every catch-up tick, or re-arm the stats
+    // timer without pause.
+    if (*catch_up == 0 || *stats_interval == 0 || *max_sessions == 0 || *link_max == 0 ||
+        *link_frame == 0 || *link_linger == 0) {
+        return std::unexpected(common::ConfigError{
+            "zone.max_catch_up_ticks, zone.stats_log_interval_sec, zone.max_sessions and the "
+            "gateway_link limits must be positive"});
     }
     auto logging = common::LoggingConfig::FromConfig(source);
     if (!logging) {

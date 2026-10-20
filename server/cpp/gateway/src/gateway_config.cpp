@@ -47,8 +47,10 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
             common::ConfigError{"ticket.signing_key_base64 must decode to at least 32 bytes"});
     }
     if (*max_msgs == 0 || *rpc_timeout == 0 || *renew == 0 || *client_linger == 0 ||
-        *link_linger == 0 || *hello_timeout == 0) {
-        return std::unexpected(common::ConfigError{"rates and intervals must be positive"});
+        *link_linger == 0 || *hello_timeout == 0 || *backoff == 0 || *max_connections == 0) {
+        return std::unexpected(common::ConfigError{
+            "rates, intervals, zone_link.reconnect_backoff_ms and listen.max_connections must be "
+            "positive"});
     }
     if (*shutdown_grace <= *rpc_timeout) {
         return std::unexpected(common::ConfigError{
@@ -82,6 +84,11 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
             "protocol.max_payload_bytes must be positive and within the contract maximum"});
     }
     out.frame_limits.max_payload_bytes = *max_payload;
+    // A SessionOutput on the zone link carries one whole client frame.
+    if (*link_frame < *max_payload) {
+        return std::unexpected(common::ConfigError{
+            "zone_link.max_frame_bytes must be at least protocol.max_payload_bytes"});
+    }
     out.max_messages_per_second = *max_msgs;
     out.client_close_linger = std::chrono::milliseconds{*client_linger};
     out.hello_timeout = std::chrono::milliseconds{*hello_timeout};
