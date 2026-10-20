@@ -2,6 +2,7 @@
 #include "sa/common/instance_id.hpp"
 #include "sa/common/lease_keeper.hpp"
 #include "sa/common/logging.hpp"
+#include "sa/common/protocol_limits.hpp"
 #include "sa/zone/data/game_data_loader.hpp"
 #include "sa/zone/sim/fixed_step_scheduler.hpp"
 #include "sa/zone/sim/rng.hpp"
@@ -156,9 +157,11 @@ int Run(int argc, char** argv) {
         world->map.monster_spawns.size(), world->content.version, seed);
 
     auto created = sa::zone::sim::Zone::Create(
-        sa::zone::sim::ZoneConfig{.world_id = config->world_id,
-                                  .zone_id = config->zone_id,
-                                  .simulation_rate = config->simulation_rate},
+        sa::zone::sim::ZoneConfig{
+            .world_id = config->world_id,
+            .zone_id = config->zone_id,
+            .simulation_rate = config->simulation_rate,
+            .command_retry_window = sa::common::protocol::kCommandRetryWindow},
         std::move(world->map), std::move(world->rules), std::move(world->content),
         sa::zone::sim::Rng{seed});
     if (!created) {
@@ -184,7 +187,7 @@ int Run(int argc, char** argv) {
     sa::zone::EconomyClient economy{
         io, backend_channel,
         sa::zone::EconomyClientConfig{.rpc_timeout = config->backend_rpc_timeout,
-                                      .kill_record_attempts = config->kill_record_attempts,
+                                      .call_attempts = config->economy_call_attempts,
                                       .retry_delay = config->backend_retry_delay}};
     sa::common::LeaseKeeper lease{
         io, "zone",

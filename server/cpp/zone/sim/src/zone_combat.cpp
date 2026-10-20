@@ -22,6 +22,14 @@ void Zone::ApplyCast(const CastCommand& command) {
     Player& player = it->second;
     ++stats_.commands_applied;
 
+    // A request without an id cannot be told apart from the next one; it is never remembered.
+    if (command.request_id == common::RequestId{}) {
+        ++stats_.casts_rejected;
+        Deliver(command.player,
+                CommandResultEvent::Decided(command.request_id, RejectReason::kInvalidRequest));
+        return;
+    }
+
     // Step 1: a retried request answers exactly as before and changes nothing.
     if (const auto previous = player.recent_requests.Find(command.request_id)) {
         Deliver(command.player, *previous);

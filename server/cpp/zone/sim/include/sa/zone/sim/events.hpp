@@ -23,11 +23,13 @@ enum class RejectReason : std::uint8_t {
     kOnCooldown,
     kInvalidTarget,
     kOutOfRange,
+    kInvalidRequest,  // no request id, or the Backend saw a different body under the same id
     // pickups (see README "자산과 멱등성")
     kItemNotFound,
     kItemReserved,
     kInventoryFull,
     kServiceUnavailable,  // the Backend did not answer; the same request_id may be retried
+    kNotOwner,            // the Backend says another zone owns the character; the session ends
 };
 
 // Mirrors CommandStatus in contracts/game: a result is final (accepted/rejected), still waiting

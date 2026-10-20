@@ -99,6 +99,7 @@ enum EvictReason {
   EVICT_REASON_ZONE_SHUTDOWN = 1;
   EVICT_REASON_LEASE_LOST = 2;
   EVICT_REASON_PROTOCOL_ERROR = 3;
+  EVICT_REASON_NOT_OWNER = 4;            // the Backend says this zone no longer owns the character
 }
 
 message SessionEvicted {

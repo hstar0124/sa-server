@@ -7,12 +7,6 @@
 #include <numbers>
 
 namespace sa::zone::sim {
-namespace {
-
-// Rolled items land on a small ring around the corpse so several drops do not overlap exactly.
-constexpr float kDropScatterRadiusM = 0.6F;
-
-}  // namespace
 
 // ---- drops --------------------------------------------------------------------------------------
 
@@ -32,8 +26,8 @@ void Zone::RollDrops(common::EntityId killer, const Player& killer_player, const
                                 static_cast<float>(entries.size());
             record.rolls.emplace_back(DropRoll{
                 .item = entries[i].item,
-                .position = monster.position +
-                            common::Vec2{std::cos(angle), std::sin(angle)} * kDropScatterRadiusM});
+                .position = monster.position + common::Vec2{std::cos(angle), std::sin(angle)} *
+                                                   rules_.economy.drop_scatter_radius_m});
         }
     }
     stats_.drop_rolls += record.rolls.size();
@@ -102,7 +96,23 @@ void Zone::ApplyPickup(const PickupCommand& command) {
     Player& player = it->second;
     ++stats_.commands_applied;
 
-    // A retried request answers exactly as before: pending stays pending, a verdict stays final.
+    // A request without an id cannot be told apart from the next one; it is never remembered.
+    if (command.request_id == common::RequestId{}) {
+        Deliver(command.player,
+                CommandResultEvent::Decided(command.request_id, RejectReason::kInvalidRequest));
+        return;
+    }
+    // A retry of a pickup still waiting for the Backend is answered from its reservation, so no
+    // number of other requests in between can make it run twice.
+    const bool still_pending = std::ranges::any_of(items_, [&](const auto& entry) {
+        const DroppedItem& item = entry.second;
+        return item.reserved_by == command.player && item.reservation == command.request_id;
+    });
+    if (still_pending) {
+        Deliver(command.player, CommandResultEvent::Pending(command.request_id));
+        return;
+    }
+    // A decided request answers exactly as before.
     if (const auto previous = player.recent_requests.Find(command.request_id)) {
         Deliver(command.player, *previous);
         return;
@@ -119,9 +129,7 @@ void Zone::ApplyPickup(const PickupCommand& command) {
     DroppedItem& item = items_.at(command.item);
     item.reserved_by = command.player;
     item.reservation = command.request_id;
-    const auto pending = CommandResultEvent::Pending(command.request_id);
-    player.recent_requests.Remember(pending);
-    Deliver(command.player, pending);
+    Deliver(command.player, CommandResultEvent::Pending(command.request_id));
     host_requests_.emplace_back(PickupReservation{.player = command.player,
                                                   .character = player.character,
                                                   .request_id = command.request_id,
@@ -147,14 +155,14 @@ RejectReason Zone::ValidatePickup(const Player& player, common::EntityId item_id
     return RejectReason::kNone;
 }
 
-void Zone::ResolvePickup(common::EntityId item_id, PickupOutcome outcome) {
-    const auto it = items_.find(item_id);
-    if (it == items_.end()) {
-        return;
+void Zone::ResolvePickup(const PickupReservation& reservation, PickupOutcome outcome) {
+    const common::RequestId request = reservation.request_id;
+    const auto it = items_.find(reservation.item);
+    // Only this reservation is released: a released item may since have been reserved again.
+    if (it != items_.end() && it->second.reserved_by == reservation.player &&
+        it->second.reservation == request) {
+        it->second.reserved_by.reset();
     }
-    const std::optional<common::EntityId> player_id = it->second.reserved_by;
-    const common::RequestId request = it->second.reservation;
-    it->second.reserved_by.reset();
 
     bool leaves_ground = false;
     CommandResultEvent result = CommandResultEvent::Unknown(request);
@@ -165,36 +173,47 @@ void Zone::ResolvePickup(common::EntityId item_id, PickupOutcome outcome) {
             ++stats_.pickups_acquired;
             break;
         case PickupOutcome::kAlreadyTaken:
-            leaves_ground = true;
-            result = CommandResultEvent::Decided(request, RejectReason::kItemReserved);
-            break;
         case PickupOutcome::kUnknownItem:
+            // Either way the Backend has no such item on this zone's ground any more.
             leaves_ground = true;
             result = CommandResultEvent::Decided(request, RejectReason::kItemNotFound);
             break;
         case PickupOutcome::kInventoryFull:
             result = CommandResultEvent::Decided(request, RejectReason::kInventoryFull);
             break;
+        case PickupOutcome::kNotOwner:
+            result = CommandResultEvent::Decided(request, RejectReason::kNotOwner);
+            break;
+        case PickupOutcome::kRequestMismatch:
+            result = CommandResultEvent::Decided(request, RejectReason::kInvalidRequest);
+            break;
         case PickupOutcome::kUnavailable:
             break;
     }
-    if (leaves_ground) {
-        RemoveGroundItem(item_id);
+    if (leaves_ground && it != items_.end()) {
+        RemoveGroundItem(reservation.item);
     }
 
-    const auto player = player_id ? players_.find(*player_id) : players_.end();
+    const auto player = players_.find(reservation.player);
     if (player == players_.end()) {
         return;  // the player left while the Backend was deciding
     }
-    const common::EntityId recipient = player->first;
-    if (result.status == CommandStatus::kUnknown) {
-        // A retry must reach the Backend again (its request log makes that safe), so nothing
-        // is remembered that would answer the retry locally.
-        player->second.recent_requests.Forget(request);
-    } else {
+    if (result.status != CommandStatus::kUnknown) {
         player->second.recent_requests.Remember(result);
     }
-    Deliver(recipient, result);
+    Deliver(reservation.player, result);
+}
+
+void Zone::RemoveSettledGroundItems(std::span<const common::ItemInstanceId> held) {
+    std::vector<common::EntityId> settled;
+    for (const auto& [id, item] : items_) {
+        if (!item.reserved_by && std::ranges::find(held, item.instance) != held.end()) {
+            settled.push_back(id);
+        }
+    }
+    for (const common::EntityId id : settled) {
+        RemoveGroundItem(id);
+    }
 }
 
 }  // namespace sa::zone::sim

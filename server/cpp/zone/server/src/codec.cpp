@@ -73,6 +73,8 @@ game::v1::RejectCode ToProto(sim::RejectReason reason) {
             return game::v1::REJECT_CODE_INVALID_TARGET;
         case sim::RejectReason::kOutOfRange:
             return game::v1::REJECT_CODE_OUT_OF_RANGE;
+        case sim::RejectReason::kInvalidRequest:
+            return game::v1::REJECT_CODE_INVALID_REQUEST;
         case sim::RejectReason::kItemNotFound:
             return game::v1::REJECT_CODE_ITEM_NOT_FOUND;
         case sim::RejectReason::kItemReserved:
@@ -81,6 +83,8 @@ game::v1::RejectCode ToProto(sim::RejectReason reason) {
             return game::v1::REJECT_CODE_INVENTORY_FULL;
         case sim::RejectReason::kServiceUnavailable:
             return game::v1::REJECT_CODE_SERVICE_UNAVAILABLE;
+        case sim::RejectReason::kNotOwner:
+            return game::v1::REJECT_CODE_NOT_OWNER;
     }
     return game::v1::REJECT_CODE_UNSPECIFIED;
 }
@@ -264,7 +268,19 @@ std::string PickupRequestKey(const sim::PickupReservation& pickup, common::Owner
     }
     static constexpr std::string_view kDomain = "pickup-request";
     const common::HmacSha256Digest digest = common::HmacSha256(common::AsBytes(kDomain), material);
-    return common::ToWireString(std::span{digest}.first(common::ItemInstanceId::kBytes));
+    return common::RequestKey::FromExact(std::span{digest}.first<common::RequestKey::kBytes>())
+        .ToWire();
+}
+
+common::KillId KillIdFor(common::InstanceId zone_instance, std::uint64_t sequence) {
+    // Unique without asking the OS for randomness on every kill: the instance id is random per
+    // process start and the sequence never repeats within it. No exception path in the tick.
+    std::array<std::byte, sizeof sequence> counter{};
+    for (std::size_t i = 0; i < sizeof sequence; ++i) {
+        counter.at(i) = static_cast<std::byte>((sequence >> (8 * i)) & 0xFFU);
+    }
+    const common::HmacSha256Digest digest = common::HmacSha256(zone_instance.bytes(), counter);
+    return common::KillId::FromExact(std::span{digest}.first<common::KillId::kBytes>());
 }
 
 sim::PickupOutcome ToPickupOutcome(backend::v1::PickupOutcome outcome) {
@@ -278,7 +294,10 @@ sim::PickupOutcome ToPickupOutcome(backend::v1::PickupOutcome outcome) {
         case backend::v1::PICKUP_OUTCOME_UNKNOWN_ITEM:
             return sim::PickupOutcome::kUnknownItem;
         case backend::v1::PICKUP_OUTCOME_STALE_AUTHORITY:
+            // Final: this zone no longer owns the character, so a retry here cannot succeed.
+            return sim::PickupOutcome::kNotOwner;
         case backend::v1::PICKUP_OUTCOME_REQUEST_MISMATCH:
+            return sim::PickupOutcome::kRequestMismatch;
         case backend::v1::PICKUP_OUTCOME_UNSPECIFIED:
         default:
             // Not a verdict on the item: the reservation is released and the client may retry.

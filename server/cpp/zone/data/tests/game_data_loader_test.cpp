@@ -157,6 +157,8 @@ TEST(GameDataLoader, ShippedItemsDropsAndEconomyRulesLoad) {
     ASSERT_TRUE(economy.has_value()) << economy.error().message;
     EXPECT_GT(economy->inventory_capacity, 0U);
     EXPECT_GT(economy->pickup_range_m, 0.0F);
+    EXPECT_LT(economy->drop_scatter_radius_m, economy->pickup_range_m)
+        << "a player at the corpse reaches every drop";
     EXPECT_FALSE(economy->primary_currency.empty());
 }
 

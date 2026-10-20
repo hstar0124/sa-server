@@ -28,6 +28,9 @@ struct ZoneConfig {
     common::WorldId world_id;
     common::ZoneId zone_id;
     TickRate simulation_rate{};
+    // Decided command results remembered per player for retries. The host passes the protocol's
+    // COMMAND_RETRY_WINDOW; the simulation does not include the contracts itself.
+    std::size_t command_retry_window = 0;
 };
 
 // Everything tunable that is not content: movement, combat and economy rules from game-data.
@@ -90,9 +93,12 @@ public:
     // the economy rule's delay unless picked up. Items whose template the content does not know
     // are skipped, so the returned ids may be fewer than the inputs.
     std::vector<common::EntityId> SpawnGroundItems(std::span<const GroundItem> items);
-    // Settles the reservation made for `item`: tells the reserving player and removes or
-    // releases the item according to the outcome.
-    void ResolvePickup(common::EntityId item, PickupOutcome outcome);
+    // Settles one reservation: tells the reserving player, even when the item is already gone,
+    // and removes or releases the item according to the outcome.
+    void ResolvePickup(const PickupReservation& reservation, PickupOutcome outcome);
+    // Removes unreserved ground items whose instances the Backend reports in an inventory: a
+    // pickup committed while its answer was lost. Reserved items wait for their own answer.
+    void RemoveSettledGroundItems(std::span<const common::ItemInstanceId> held);
 
     // ---- output -----------------------------------------------------------------------------
     // Interest-set delta for one player since its previous view. Call at snapshot cadence.
@@ -126,18 +132,19 @@ private:
         common::TickIndex resolve_at;
     };
 
-    // Last N request results, so a retried request answers the same way without re-applying
-    // (see README "전투"). A result may be revised (pending -> final) or forgotten (unknown: the
-    // retry must run again).
+    // The last decided results, so a retried request answers the same way without re-applying
+    // (see README "전투"). Only final verdicts live here: a pickup still waiting for the Backend
+    // is answered from its reservation, so a burst of other requests cannot push it out, and an
+    // unknown outcome is not remembered so that its retry runs again.
     class RecentRequests {
     public:
+        RecentRequests() = default;
+        explicit RecentRequests(std::size_t capacity) : ring_(capacity) {}
         [[nodiscard]] std::optional<CommandResultEvent> Find(common::RequestId id) const;
         void Remember(const CommandResultEvent& result);
-        void Forget(common::RequestId id);
 
     private:
-        static constexpr std::size_t kCapacity = 32;
-        std::array<CommandResultEvent, kCapacity> ring_{};
+        std::vector<CommandResultEvent> ring_;
         std::size_t next_ = 0;
         std::size_t size_ = 0;
     };

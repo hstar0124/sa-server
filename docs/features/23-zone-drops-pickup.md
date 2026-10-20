@@ -44,5 +44,6 @@
 | Backend 호출 실패 | 0 |
 
 ## 남긴 것
+- 병합 뒤 회고 리뷰에서 이 PR의 변경분에 지적 10건이 나왔다. [24](24-zone-economy-review-fixes.md)에서 고쳤다.
 - [013](../issues/013-redeem-assigns-a-dead-zone-instance-after-restart.md)의 Backend 배정 수정. 다음 PR이다.
 - 바닥 아이템을 집으러 다니는 봇(Looter)과 뷰어의 획득 키는 다음 PR이다. 그것으로 5단계가 끝난다.

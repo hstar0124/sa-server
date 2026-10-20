@@ -70,6 +70,8 @@ struct ZoneAuthority {
     const sim::PickupReservation& pickup, common::WorldId world, const ZoneAuthority& authority);
 // The 16-byte idempotency key the Backend stores for a pickup: a digest of the character, the
 // ownership epoch of its session and the client's request id.
+// Kill ids for one zone process: derived from its instance id and a per-process sequence.
+[[nodiscard]] common::KillId KillIdFor(common::InstanceId zone_instance, std::uint64_t sequence);
 [[nodiscard]] std::string PickupRequestKey(const sim::PickupReservation& pickup,
                                            common::OwnerEpoch epoch);
 [[nodiscard]] sim::PickupOutcome ToPickupOutcome(backend::v1::PickupOutcome outcome);

@@ -134,10 +134,14 @@ inline ZoneRules AllRules(MovementRules movement = Rules()) {
     return ZoneRules{.movement = movement, .combat = Combat(), .economy = Economy()};
 }
 
+// Small on purpose, so tests can push results out of the retry window with a handful of requests.
+inline constexpr std::size_t kTestRetryWindow = 4;
+
 inline ZoneConfig Config(std::uint32_t hz = 10) {
     return ZoneConfig{.world_id = common::WorldId{1},
                       .zone_id = common::ZoneId{1},
-                      .simulation_rate = TickRate{.hz = hz}};
+                      .simulation_rate = TickRate{.hz = hz},
+                      .command_retry_window = kTestRetryWindow};
 }
 
 inline Zone MakeZone(MapData map = OpenField(), MovementRules rules = Rules(),

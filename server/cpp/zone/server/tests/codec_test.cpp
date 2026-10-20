@@ -104,7 +104,7 @@ TEST(Codec, EventsWrapIntoTheServerEnvelope) {
 }
 
 TEST(Codec, EveryRejectReasonMaps) {
-    for (int i = 1; i <= static_cast<int>(sim::RejectReason::kServiceUnavailable); ++i) {
+    for (int i = 1; i <= static_cast<int>(sim::RejectReason::kNotOwner); ++i) {
         EXPECT_NE(ToProto(static_cast<sim::RejectReason>(i)), game::v1::REJECT_CODE_UNSPECIFIED)
             << i;
     }
@@ -193,6 +193,11 @@ TEST(Codec, BackendAnswersMapToSimulationTypes) {
     EXPECT_EQ(ToPickupOutcome(backend::v1::PICKUP_OUTCOME_UNKNOWN_ITEM),
               sim::PickupOutcome::kUnknownItem);
     EXPECT_EQ(ToPickupOutcome(backend::v1::PICKUP_OUTCOME_STALE_AUTHORITY),
+              sim::PickupOutcome::kNotOwner)
+        << "final: this zone cannot settle anything for the character any more";
+    EXPECT_EQ(ToPickupOutcome(backend::v1::PICKUP_OUTCOME_REQUEST_MISMATCH),
+              sim::PickupOutcome::kRequestMismatch);
+    EXPECT_EQ(ToPickupOutcome(backend::v1::PICKUP_OUTCOME_UNSPECIFIED),
               sim::PickupOutcome::kUnavailable);
 
     backend::v1::GetCharacterAssetsResponse assets;
@@ -218,6 +223,15 @@ TEST(Codec, BackendAnswersMapToSimulationTypes) {
     EXPECT_EQ(update.version(), 3U);
     ASSERT_EQ(update.items_size(), 1);
     EXPECT_EQ(update.items(0).item_template_id(), 2101U);
+}
+
+TEST(Codec, KillIdsAreUniquePerSequenceAndPerZoneInstance) {
+    const auto zone_a = common::InstanceId::Generate();
+    const auto zone_b = common::InstanceId::Generate();
+    EXPECT_EQ(KillIdFor(zone_a, 1), KillIdFor(zone_a, 1)) << "derived, not random";
+    EXPECT_NE(KillIdFor(zone_a, 1), KillIdFor(zone_a, 2));
+    EXPECT_NE(KillIdFor(zone_a, 1), KillIdFor(zone_b, 1)) << "a restarted zone is a new instance";
+    EXPECT_FALSE(KillIdFor(zone_a, 1).IsNil());
 }
 
 }  // namespace

@@ -12,6 +12,8 @@ inline constexpr std::size_t kFrameHeaderBytes =
     static_cast<std::size_t>(sa::game::v1::FRAMING_HEADER_BYTES);
 inline constexpr std::size_t kMaxPayloadBytes =
     static_cast<std::size_t>(sa::game::v1::FRAMING_MAX_PAYLOAD_BYTES);
+inline constexpr std::size_t kCommandRetryWindow =
+    static_cast<std::size_t>(sa::game::v1::COMMAND_RETRY_WINDOW);
 inline constexpr sa::game::v1::ProtocolVersion kCurrentVersion =
     sa::game::v1::PROTOCOL_VERSION_CURRENT;
 

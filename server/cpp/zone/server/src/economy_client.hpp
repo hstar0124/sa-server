@@ -32,9 +32,10 @@ public:
 
 struct EconomyClientConfig {
     std::chrono::milliseconds rpc_timeout{};
-    // RecordKill is retried this many times in total on transport failures: the kill id makes
-    // the retry idempotent, and a lost kill would lose the player's reward for good.
-    std::uint32_t kill_record_attempts = 1;
+    // Every call is tried this many times in total on transport failures. All three are safe to
+    // repeat: a kill carries its kill id, a pickup its request key, and an asset read changes
+    // nothing. Only after the last attempt does the caller see "no answer".
+    std::uint32_t call_attempts = 1;
     std::chrono::milliseconds retry_delay{};
 };
 
@@ -52,8 +53,13 @@ public:
                             Reply<backend::v1::GetCharacterAssetsResponse> reply) override;
 
 private:
-    void RecordKillAttempt(const std::shared_ptr<backend::v1::RecordKillRequest>& request,
-                           std::uint32_t attempt, Reply<backend::v1::RecordKillResponse> reply);
+    template <typename Request, typename Response>
+    using AsyncMethod = void (backend::v1::Economy::Stub::async_interface::*)(
+        grpc::ClientContext*, const Request*, Response*, std::function<void(grpc::Status)>);
+
+    template <typename Request, typename Response>
+    void Call(const std::shared_ptr<const Request>& request, AsyncMethod<Request, Response> method,
+              std::string_view name, std::uint32_t attempt, Reply<Response> reply);
 
     asio::io_context& io_;
     std::unique_ptr<backend::v1::Economy::Stub> stub_;

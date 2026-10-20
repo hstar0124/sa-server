@@ -14,6 +14,13 @@ enum Framing {
   FRAMING_MAX_PAYLOAD_BYTES = 65536;
 }
 
+// 명령 재시도. 같은 request_id를 다시 보내면, 플레이어마다 최근 이 개수 안의 확정 결과는 다시
+// 실행하지 않고 같은 답을 돌려준다. 처리 중인 획득은 개수와 상관없이 대기로 답한다.
+enum CommandRetry {
+  COMMAND_RETRY_UNSPECIFIED = 0;
+  COMMAND_RETRY_WINDOW = 32;
+}
+
 // 클라이언트가 Hello에 제시하는 프로토콜 버전. 서버는 지원하지 않는 버전을 Kick한다.
 enum ProtocolVersion {
   PROTOCOL_VERSION_UNSPECIFIED = 0;

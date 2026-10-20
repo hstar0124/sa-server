@@ -21,6 +21,6 @@ target_link_libraries(zone_server PRIVATE sa::zone_host sa::zone_data sa::bot)
 
 if(SA_BUILD_TESTS)
   sa_add_test(sa_zone_host_tests
-    SOURCES tests/codec_test.cpp tests/zone_host_test.cpp
+    SOURCES tests/codec_test.cpp tests/zone_host_test.cpp tests/zone_host_economy_test.cpp
     LIBS sa::zone_host)
 endif()
