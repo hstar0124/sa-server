@@ -1,9 +1,10 @@
 // Canvas rendering. Map metres -> canvas pixels with Y up.
 const COLORS = {
   grid: '#1a2027', obstacle: '#3a4452', self: '#ffd166', other: '#6ee7b7', extrap: '#f4a261', hold: '#8a94a3',
-  monster: '#ff6b6b', projectile: '#e6e9ee', hpBack: '#2a313a', hp: '#6ee7b7', hpLow: '#ff6b6b',
+  monster: '#ff6b6b', projectile: '#e6e9ee', item: '#c084fc', hpBack: '#2a313a', hp: '#6ee7b7',
+  hpLow: '#ff6b6b',
 };
-const KIND = { PLAYER: 1, MONSTER: 2, PROJECTILE: 4 };
+const ITEM_SIZE_PX = 6;
 const GRID_STEP_M = 25;
 const PLAYER_RADIUS_PX = 5;
 
@@ -11,6 +12,12 @@ export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
+    this.kinds = {};
+  }
+
+  // Entity kind numbers come from the contracts (EntityKind), never from literals here.
+  useKinds(entityKindValues) {
+    this.kinds = entityKindValues;
   }
 
   #hpBar(x, y, hp, maxHp) {
@@ -44,12 +51,17 @@ export class Renderer {
       const p = world.positionAt(entity, renderTime, allowExtrapolation);
       modes[p.mode] += 1;
       const [x, y] = toPx(p.x, p.y);
-      if (entity.kind === KIND.PROJECTILE) {
+      if (entity.kind === this.kinds.ENTITY_KIND_PROJECTILE) {
         ctx.fillStyle = COLORS.projectile;
         ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
         continue;
       }
-      const base = entity.kind === KIND.MONSTER ? COLORS.monster : COLORS.other;
+      if (entity.kind === this.kinds.ENTITY_KIND_DROPPED_ITEM) {
+        ctx.fillStyle = COLORS.item;
+        ctx.fillRect(x - ITEM_SIZE_PX / 2, y - ITEM_SIZE_PX / 2, ITEM_SIZE_PX, ITEM_SIZE_PX);
+        continue;
+      }
+      const base = entity.kind === this.kinds.ENTITY_KIND_MONSTER ? COLORS.monster : COLORS.other;
       ctx.fillStyle = p.mode === 'interp' ? base : COLORS[p.mode];
       ctx.beginPath(); ctx.arc(x, y, PLAYER_RADIUS_PX, 0, Math.PI * 2); ctx.fill();
       this.#hpBar(x, y, entity.hp, entity.maxHp);

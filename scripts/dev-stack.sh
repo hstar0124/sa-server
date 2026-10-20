@@ -23,7 +23,17 @@ load_env() {
   TICKET_KEY=$(cat "$DEV_DIR/ticket.key"); JWT_KEY=$(cat "$DEV_DIR/jwt.key")
 }
 
+running() { [ -f "$DEV_DIR/$1.pid" ] && kill -0 "$(cat "$DEV_DIR/$1.pid")" 2>/dev/null; }
+wait_log() {  # file pattern
+  for _ in $(seq 1 60); do grep -q "$2" "$1" && return 0; sleep 0.5; done
+  echo "timed out waiting for '$2' in $1"; tail -20 "$1"; return 1
+}
+
 up() {
+  # A second `up` would orphan the first set of processes and fail to bind anyway.
+  for name in backend zone-a gateway; do
+    if running "$name"; then echo "$name is already running; run '$0 down' first"; exit 1; fi
+  done
   load_env
   docker compose -f deploy/compose/docker-compose.yml up -d --wait >/dev/null
   dotnet run --project server/dotnet/Migrator --no-build -- --connection "$CONN" --scripts database/migrations >"$DEV_DIR/migrator.log" 2>&1
@@ -39,10 +49,11 @@ up() {
   curl -sf localhost:5100/health/ready >/dev/null || { echo "backend not ready"; tail -20 "$DEV_DIR/backend.log"; exit 1; }
   "$BUILD/server/cpp/zone/server/zone_server" --config deploy/compose/config/zone-a.toml >"$DEV_DIR/zone-a.log" 2>&1 &
   echo $! > "$DEV_DIR/zone-a.pid"
+  wait_log "$DEV_DIR/zone-a.log" "zone lease acquired"
   SA_GATEWAY__TICKET__SIGNING_KEY_BASE64="$TICKET_KEY" \
     "$BUILD/server/cpp/gateway/gateway" --config deploy/compose/config/gateway.toml >"$DEV_DIR/gateway.log" 2>&1 &
   echo $! > "$DEV_DIR/gateway.pid"
-  sleep 1.5
+  wait_log "$DEV_DIR/gateway.log" "link ready"
   echo "stack up. logs in $DEV_DIR. backend :5100/:5101, gateway tcp :7777 ws :7778, zone link :7801"
 }
 
@@ -53,6 +64,10 @@ down() {
       pid=$(cat "$DEV_DIR/$name.pid")
       kill -TERM "$pid" 2>/dev/null || true
       for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+      if kill -0 "$pid" 2>/dev/null; then
+        echo "$name did not stop within 3 s; killing it"
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
       rm -f "$DEV_DIR/$name.pid"
     fi
   done

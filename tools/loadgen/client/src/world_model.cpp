@@ -29,16 +29,26 @@ void WorldModel::OnWelcome(const game::v1::Welcome& welcome) {
     self_ = common::EntityId{welcome.entity_id()};
     map_size_ = ToVec(welcome.map_size());
     server_tick_ = welcome.server_tick();
+    simulation_hz_ = welcome.simulation_hz();
 }
 
 void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
     ++snapshots_;
+    if (!welcomed_) {
+        ++integrity_.snapshot_before_welcome;
+    }
+    if (snapshots_ > 1 && snapshot.server_tick() <= server_tick_) {
+        ++integrity_.server_tick_regressed;
+    }
     server_tick_ = snapshot.server_tick();
     if (snapshot.last_processed_input_seq() < last_acked_input_) {
         ++integrity_.input_seq_regressed;
     }
     last_acked_input_ = std::max(last_acked_input_, snapshot.last_processed_input_seq());
     if (snapshot.has_self()) {
+        if (welcomed_ && common::EntityId{snapshot.self().entity_id()} != self_) {
+            ++integrity_.self_mismatch;
+        }
         self_position_ = ToVec(snapshot.self().position());
     }
     if (snapshot.has_self_vitals()) {
@@ -74,14 +84,27 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
         }
     }
     max_visible_ = std::max(max_visible_, visible_.size());
+    const auto players = static_cast<std::size_t>(std::ranges::count_if(
+        visible_, [](const auto& entry) { return entry.second.kind == bot::SeenKind::kPlayer; }));
+    max_visible_players_ = std::max(max_visible_players_, players);
     cache_dirty_ = true;
 }
 
 void WorldModel::OnCommandResult(const game::v1::CommandResult& result) {
-    if (result.status() == game::v1::COMMAND_STATUS_ACCEPTED) {
-        ++combat_.casts_accepted;
-    } else {
-        ++combat_.casts_rejected;
+    switch (result.status()) {
+        case game::v1::COMMAND_STATUS_ACCEPTED:
+            ++combat_.casts_accepted;
+            return;
+        case game::v1::COMMAND_STATUS_REJECTED:
+            ++combat_.casts_rejected;
+            return;
+        case game::v1::COMMAND_STATUS_PENDING:
+            ++combat_.results_pending;
+            return;
+        case game::v1::COMMAND_STATUS_UNKNOWN:
+        default:
+            ++combat_.results_unknown;
+            return;
     }
 }
 

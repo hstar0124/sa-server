@@ -41,6 +41,8 @@ message RecordKillRequest {
   uint32 monster_template_id = 5;
   string content_version = 6;
   repeated DropRoll drops = 7;
+  reserved 8;  // gold: the Backend now takes it from the drop table
+  reserved "gold";
 }
 
 enum KillOutcome {

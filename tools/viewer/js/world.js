@@ -26,13 +26,14 @@ export class World {
     this.mapSize = { x: welcome.map_size.x, y: welcome.map_size.y };
   }
 
-  // `lossProbability` simulates packet loss on the receive side: the snapshot is discarded
-  // before it is applied, exactly as if the datagram never arrived.
+  // `lossProbability` simulates losing movement data to watch interpolation and extrapolation
+  // cope. The link is WebSocket over TCP, so nothing really goes missing, and each snapshot is a
+  // delta: discarding it whole would leave ghost or missing entities that the server never
+  // caused. So the entity set and health always apply; only this snapshot's position samples
+  // are dropped.
   applySnapshot(snapshot, now, lossProbability) {
-    if (Math.random() < lossProbability) {
-      this.dropped += 1;
-      return;
-    }
+    const lost = Math.random() < lossProbability;
+    if (lost) this.dropped += 1;
     this.snapshots += 1;
     this.serverTick = Number(snapshot.server_tick);
     this.lastAckedInput = snapshot.last_processed_input_seq;
@@ -53,6 +54,7 @@ export class World {
       const entity = this.entities.get(String(update.entity_id));
       if (!entity) { this.integrityErrors += 1; continue; }
       entity.hp = update.hp;
+      if (lost) continue;
       entity.samples.push({ t: now, x: update.position.x, y: update.position.y, vx: update.velocity?.x ?? 0, vy: update.velocity?.y ?? 0 });
       while (entity.samples.length > 2 && entity.samples[0].t < now - SAMPLE_WINDOW_MS) entity.samples.shift();
     }

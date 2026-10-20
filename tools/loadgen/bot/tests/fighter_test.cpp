@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <cstdint>
 #include <vector>
 
 namespace sa::bot {
@@ -11,7 +13,8 @@ constexpr common::Vec2 kMap{100.0F, 100.0F};
 constexpr FighterParams kParams{.engage_radius_m = 30.0F,
                                 .attack_skill_id = 1,
                                 .attack_range_m = 2.5F,
-                                .attack_interval_ticks = 10};
+                                .attack_interval = std::chrono::milliseconds{1000}};
+constexpr std::uint32_t kServerHz = 10;  // 1000 ms at 10 Hz: one swing every 10 ticks
 
 Observation See(common::Vec2 self, const std::vector<SeenEntity>& visible, std::uint64_t tick = 0) {
     return Observation{.self_position = self,
@@ -19,7 +22,8 @@ Observation See(common::Vec2 self, const std::vector<SeenEntity>& visible, std::
                        .self_hp = 100,
                        .self_max_hp = 100,
                        .visible = visible,
-                       .tick = tick};
+                       .tick = tick,
+                       .tick_hz = kServerHz};
 }
 
 TEST(Fighter, RoamsWhenNothingIsInSight) {
@@ -79,6 +83,27 @@ TEST(Fighter, IgnoresMonstersBeyondEngageRadiusAndWaitsWhileDead) {
     const Intent intent = f.Decide(dead);
     EXPECT_TRUE(intent.direction.IsZero());
     EXPECT_FALSE(intent.cast.has_value());
+}
+
+TEST(Fighter, TheIntervalFollowsTheServersTickRateNotTheClients) {
+    Fighter f{1, kParams};
+    const std::vector<SeenEntity> beside{SeenEntity{.id = common::EntityId{7},
+                                                    .kind = SeenKind::kMonster,
+                                                    .position = {51.0F, 50.0F},
+                                                    .hp = 10}};
+    Observation at_20hz = See({50.0F, 50.0F}, beside, 1);
+    at_20hz.tick_hz = 20;
+    EXPECT_TRUE(f.Decide(at_20hz).cast.has_value());
+    at_20hz.tick = 15;
+    EXPECT_FALSE(f.Decide(at_20hz).cast.has_value()) << "1000 ms is 20 ticks at 20 Hz";
+    at_20hz.tick = 21;
+    EXPECT_TRUE(f.Decide(at_20hz).cast.has_value());
+
+    Fighter waiting{2, kParams};
+    Observation unknown_rate = See({50.0F, 50.0F}, beside, 1);
+    unknown_rate.tick_hz = 0;
+    EXPECT_FALSE(waiting.Decide(unknown_rate).cast.has_value())
+        << "no swing before the server's rate is known";
 }
 
 }  // namespace

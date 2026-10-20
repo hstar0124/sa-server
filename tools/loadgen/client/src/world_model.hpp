@@ -20,21 +20,27 @@ public:
     struct Combat {
         std::uint64_t casts_accepted = 0;
         std::uint64_t casts_rejected = 0;
+        std::uint64_t results_pending = 0;  // waiting for the Backend; a final result follows
+        std::uint64_t results_unknown = 0;  // the zone could not learn the outcome
         std::uint64_t hits_dealt = 0;
         std::uint64_t kills = 0;
         std::uint64_t deaths = 0;
     };
 
     struct Integrity {
-        std::uint64_t despawn_of_unknown = 0;   // told to remove an entity never spawned
-        std::uint64_t spawn_of_known = 0;       // told to spawn an entity already visible
-        std::uint64_t update_of_unknown = 0;    // movement for an entity never spawned
-        std::uint64_t self_in_view = 0;         // own entity appeared in the interest set
-        std::uint64_t input_seq_regressed = 0;  // last_processed_input_seq went backwards
+        std::uint64_t despawn_of_unknown = 0;       // told to remove an entity never spawned
+        std::uint64_t spawn_of_known = 0;           // told to spawn an entity already visible
+        std::uint64_t update_of_unknown = 0;        // movement for an entity never spawned
+        std::uint64_t self_in_view = 0;             // own entity appeared in the interest set
+        std::uint64_t input_seq_regressed = 0;      // last_processed_input_seq went backwards
+        std::uint64_t snapshot_before_welcome = 0;  // world state before the session was set up
+        std::uint64_t server_tick_regressed = 0;    // a snapshot older than the previous one
+        std::uint64_t self_mismatch = 0;  // the snapshot's own entity is not the welcomed one
 
         [[nodiscard]] std::uint64_t Total() const noexcept {
             return despawn_of_unknown + spawn_of_known + update_of_unknown + self_in_view +
-                   input_seq_regressed;
+                   input_seq_regressed + snapshot_before_welcome + server_tick_regressed +
+                   self_mismatch;
         }
     };
 
@@ -51,6 +57,9 @@ public:
     [[nodiscard]] std::uint64_t server_tick() const noexcept { return server_tick_; }
     [[nodiscard]] std::size_t visible_count() const noexcept { return visible_.size(); }
     [[nodiscard]] std::size_t max_visible() const noexcept { return max_visible_; }
+    // Other players only: monsters, items and projectiles do not prove two clients met.
+    [[nodiscard]] std::size_t max_visible_players() const noexcept { return max_visible_players_; }
+    [[nodiscard]] std::uint32_t simulation_hz() const noexcept { return simulation_hz_; }
     [[nodiscard]] std::uint64_t snapshots() const noexcept { return snapshots_; }
     [[nodiscard]] const Integrity& integrity() const noexcept { return integrity_; }
     [[nodiscard]] const Combat& combat() const noexcept { return combat_; }
@@ -69,6 +78,8 @@ private:
     std::uint64_t server_tick_ = 0;
     std::uint64_t snapshots_ = 0;
     std::size_t max_visible_ = 0;
+    std::size_t max_visible_players_ = 0;
+    std::uint32_t simulation_hz_ = 0;
     struct Known {
         bot::SeenKind kind = bot::SeenKind::kOther;
         common::Vec2 position;

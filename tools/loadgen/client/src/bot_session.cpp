@@ -117,6 +117,7 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
             world_.OnSnapshot(message.world_snapshot());
             report_.snapshots = world_.snapshots();
             report_.max_visible = world_.max_visible();
+            report_.max_visible_players = world_.max_visible_players();
             report_.last_acked_input = world_.last_acked_input();
             report_.integrity = world_.integrity();
             return;
@@ -176,7 +177,8 @@ void BotSession::Tick() {
                                        .self_hp = world_.self_hp(),
                                        .self_max_hp = world_.self_max_hp(),
                                        .visible = world_.Visible(),
-                                       .tick = world_.server_tick()};
+                                       .tick = world_.server_tick(),
+                                       .tick_hz = world_.simulation_hz()};
     const bot::Intent intent = brain_->Decide(observation);
     game::v1::ClientMessage move;
     auto* input = move.mutable_move_input();

@@ -56,6 +56,14 @@ async function refreshCharacters() {
 async function enter(characterId) {
   try {
     const grant = await api.enter(WORLD_ID, characterId);
+    if (link) {
+      // Entering again: silence the old link first, or its close would stop the new one's loops.
+      const previous = link;
+      link = null;
+      previous.handlers = {};
+      previous.close();
+      stopLoops();
+    }
     world.reset();
     link = new GatewayLink(contracts, {
       onWelcome: (welcome) => { world.applyWelcome(welcome); status(`in zone ${welcome.zone_id}`, 'ok'); startLoops(); },
@@ -64,7 +72,8 @@ async function enter(characterId) {
       onCommandResult: (result, rejectCode) => {
         const name = pendingCasts.get(result.request_id) ?? `request ${result.request_id}`;
         pendingCasts.delete(result.request_id);
-        world.note(result.status === 1 ? `${name}: accepted` : `${name}: ${rejectCode}`);
+        const accepted = result.status === contracts.CommandStatus.values.COMMAND_STATUS_ACCEPTED;
+        world.note(accepted ? `${name}: accepted` : `${name}: ${rejectCode}`);
       },
       onCombatEvent: (e) => {
         const who = String(e.attacker_id) === world.selfId ? 'you' : `#${e.attacker_id}`;
@@ -127,6 +136,7 @@ function frame() {
 
 async function main() {
   contracts = await loadContracts();
+  renderer.useKinds(contracts.EntityKind.values);
   obstacles = await loadMapObstacles();
   $('btn-register').onclick = async () => {
     api = new BackendApi($('backend-url').value);

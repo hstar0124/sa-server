@@ -27,6 +27,7 @@ struct BotReport {
     std::uint64_t casts_sent = 0;
     std::uint32_t last_acked_input = 0;
     std::size_t max_visible = 0;
+    std::size_t max_visible_players = 0;
     std::vector<std::chrono::milliseconds> ping_rtts;
     WorldModel::Integrity integrity;
     WorldModel::Combat combat;
@@ -39,6 +40,7 @@ struct RunReport {
     std::uint32_t connected = 0;
     std::uint32_t welcomed = 0;
     std::uint32_t saw_another_player = 0;
+    std::uint32_t inputs_acked = 0;  // bots whose movement the zone processed at least once
     std::uint32_t failed = 0;
     std::map<std::string, std::uint32_t> kicks;  // by KickReason name
     std::uint64_t snapshots = 0;
@@ -52,6 +54,7 @@ struct RunReport {
     std::uint32_t min_kills = 0;
     std::uint64_t casts_accepted = 0;
     std::uint64_t casts_rejected = 0;
+    std::uint64_t results_unknown = 0;
     std::uint64_t hits_dealt = 0;
     std::uint64_t kills = 0;
     std::uint64_t deaths = 0;

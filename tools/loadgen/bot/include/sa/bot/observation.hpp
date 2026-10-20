@@ -29,6 +29,7 @@ struct Observation {
     std::int32_t self_max_hp = 0;
     std::span<const SeenEntity> visible;
     std::uint64_t tick = 0;
+    std::uint32_t tick_hz = 0;  // rate of `tick`, i.e. the server's simulation rate; 0 until known
 };
 
 // A skill use: targeted at an entity, or aimed along a direction.

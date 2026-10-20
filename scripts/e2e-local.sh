@@ -19,8 +19,32 @@ CONN="Host=localhost;Port=5432;Database=$POSTGRES_DB;Username=$POSTGRES_USER;Pas
 TICKET_KEY="${SA_TICKET_KEY:-$(openssl rand -base64 32)}"
 JWT_KEY="${SA_JWT_KEY:-$(openssl rand -base64 32)}"
 
+# Fixed so a run is reproducible end to end (ADR-0006): the bots already use the profile's seed.
+ZONE_SEED="${SA_E2E_ZONE_SEED:-1}"
+STACK_PORTS=(5100 5101 7777 7778 7801)
+
+# Reads a scalar from the profile; enough for the two keys the post-checks need.
+profile_value() { sed -nE "s/^$1[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*/\1/p" "$PROFILE" | head -1 | tr -d ' '; }
+ACCOUNT_PREFIX="$(profile_value account_prefix)"
+MIN_KILLS="$(profile_value min_kills)"; MIN_KILLS="${MIN_KILLS:-0}"
+
+psql_value() { docker exec sa-postgres psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"; }
+port_open() { ss -ltn "sport = :$1" | grep -q LISTEN; }
+wait_for() {  # description, command...
+  local what="$1"; shift
+  for _ in $(seq 1 60); do "$@" && return 0; sleep 0.5; done
+  echo "timed out waiting for $what"; return 1
+}
+
+# Another stack (scripts/dev-stack.sh, an earlier run) on these ports would answer instead of
+# ours and silently be what the bots test.
+for port in "${STACK_PORTS[@]}"; do
+  if port_open "$port"; then echo "port $port is in use; stop the other stack first (scripts/dev-stack.sh down)"; exit 1; fi
+done
+
 pids=()
-# Orderly shutdown: gateway first (it ends sessions at the Backend), then zone, then backend.
+# Orderly shutdown in reverse start order: gateway first (it ends sessions at the Backend), then
+# zone, then backend. Each pid is recorded as soon as it starts, so a failed start still cleans up.
 cleanup() {
   for pid in "${pids[@]:-}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
 }
@@ -36,29 +60,40 @@ dotnet run --project server/dotnet/Migrator --no-build -- --connection "$CONN" -
     Auth__CredentialAttemptsPerMinutePerAddress=6000 \
     exec bin/Debug/net10.0/GameBackend
 ) >"$RUN_DIR/backend.log" 2>&1 &
-backend_pid=$!
-for _ in $(seq 1 60); do curl -sf localhost:5100/health/ready >/dev/null 2>&1 && break; sleep 0.5; done
-curl -sf localhost:5100/health/ready >/dev/null || { echo "backend not ready"; cat "$RUN_DIR/backend.log"; exit 1; }
+pids=("$!" "${pids[@]}")
+wait_for "the backend" curl -sf localhost:5100/health/ready >/dev/null 2>&1 \
+  || { cat "$RUN_DIR/backend.log"; exit 1; }
 
-"$BUILD/server/cpp/zone/server/zone_server" --config deploy/compose/config/zone-a.toml >"$RUN_DIR/zone-a.log" 2>&1 &
-zone_pid=$!
+SA_ZONE__ZONE__RNG_SEED="$ZONE_SEED" \
+  "$BUILD/server/cpp/zone/server/zone_server" --config deploy/compose/config/zone-a.toml >"$RUN_DIR/zone-a.log" 2>&1 &
+pids=("$!" "${pids[@]}")
+wait_for "the zone lease" grep -q "zone lease acquired" "$RUN_DIR/zone-a.log" || { cat "$RUN_DIR/zone-a.log"; exit 1; }
+
 SA_GATEWAY__TICKET__SIGNING_KEY_BASE64="$TICKET_KEY" \
   "$BUILD/server/cpp/gateway/gateway" --config deploy/compose/config/gateway.toml >"$RUN_DIR/gateway.log" 2>&1 &
-gateway_pid=$!
-pids=("$gateway_pid" "$zone_pid" "$backend_pid")
-sleep 1.5  # leases acquired, zone link ready
+pids=("$!" "${pids[@]}")
+wait_for "the gateway's zone link" grep -q "link ready" "$RUN_DIR/gateway.log" || { cat "$RUN_DIR/gateway.log"; exit 1; }
 
+run_started="$(psql_value "SELECT now()")"
 set +e
 "$BUILD/tools/loadgen/client/loadgen" --profile "$PROFILE"
 verdict=$?
 set -e
 
 # Bots have closed their sockets; give the gateway a moment to detach and end their sessions,
-# then check the directory agrees that nothing is left alive.
+# then check the directory agrees. Only this run's sessions count: a crashed viewer or dev
+# session from before would otherwise fail every later run.
 sleep 1
-live=$(docker exec sa-postgres psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -c "SELECT count(*) FROM game.character_sessions WHERE ended_at IS NULL")
+live=$(psql_value "SELECT count(*) FROM game.character_sessions s JOIN game.accounts a USING (account_id)
+                   WHERE s.ended_at IS NULL AND s.started_at >= '$run_started'
+                     AND a.username LIKE '${ACCOUNT_PREFIX}\_%'")
 echo "live sessions after run: $live"
 if [ "$live" != "0" ]; then echo "FAIL: sessions left open in the directory"; verdict=1; fi
+
+# What the bots saw is not the whole truth: kills must also have been recorded by the Backend
+# (issue 013 passed every bot-side check while no kill reached the database).
+recorded=$(psql_value "SELECT count(*) FROM game.kill_receipts WHERE created_at >= '$run_started'")
+echo "kills recorded by the backend: $recorded (required $MIN_KILLS)"
+if [ "$recorded" -lt "$MIN_KILLS" ]; then echo "FAIL: kills were not recorded by the backend"; verdict=1; fi
 echo "logs: $RUN_DIR"
 exit $verdict
