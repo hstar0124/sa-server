@@ -105,12 +105,10 @@ void ClientSession::Perform(SessionProtocol::RedeemTicket effect) {
     request.set_character_id(effect.ticket.character.value());
     request.set_world_id(effect.ticket.world.value());
     request.set_gateway_session_id(id_.ToWire());
+    // The answer is applied even after the client left: a late grant must still be ended.
     deps_.directory.Redeem(
         std::move(request), [self = shared_from_this()](
                                 std::optional<backend::v1::RedeemEntryTicketResponse> response) {
-            if (self->finished_) {
-                return;
-            }
             if (!response) {
                 self->Apply(self->protocol_.OnRedeemFailed());
                 return;

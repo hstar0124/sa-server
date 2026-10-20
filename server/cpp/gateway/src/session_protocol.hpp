@@ -64,8 +64,10 @@ public:
     // ---- inputs ----
     [[nodiscard]] Reaction OnClientMessage(const game::v1::ClientMessage& message,
                                            std::uint64_t now_ms);
+    // Redeem answers are delivered even after the session closed: a grant that arrives late
+    // created a Backend session that only this gateway can end.
     [[nodiscard]] Reaction OnRedeemResult(const backend::v1::RedeemEntryTicketResponse& response);
-    [[nodiscard]] Reaction OnRedeemFailed();  // RPC error or deadline
+    [[nodiscard]] Reaction OnRedeemFailed();  // RPC error or deadline: the outcome is unknown
     [[nodiscard]] Reaction OnZoneAttached(common::EntityId entity);
     [[nodiscard]] Reaction OnZoneRejected(internal::v1::RejectReason reason);
     [[nodiscard]] Reaction OnZoneEvicted(internal::v1::EvictReason reason);
@@ -92,7 +94,8 @@ private:
     State state_ = State::kAwaitingHello;
     std::optional<VerifiedTicket> ticket_;  // identity the Backend confirmed, used for the attach
     std::optional<common::ZoneId> zone_;
-    bool session_granted_ = false;  // the Backend holds a live session row for us
+    bool session_granted_ = false;   // the Backend holds a live session row for us
+    bool redeem_in_flight_ = false;  // asked the Backend; its answer has not arrived
     // Token bucket: refilled once per second window.
     std::uint64_t window_start_ms_ = 0;
     std::uint32_t messages_in_window_ = 0;

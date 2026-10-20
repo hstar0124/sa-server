@@ -175,12 +175,6 @@ TEST_F(SessionProtocolTest, RedeemOutcomesMapToKicksAndNeverLeaveASessionDanglin
     }
 }
 
-TEST_F(SessionProtocolTest, RpcFailureDuringRedeemIsServiceUnavailable) {
-    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
-    const auto reaction = protocol.OnRedeemFailed();
-    EXPECT_EQ(OnlyReply(reaction).kick().reason(), game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
-}
-
 TEST_F(SessionProtocolTest, ZoneRejectionAfterGrantEndsTheBackendSession) {
     (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
     (void)protocol.OnRedeemResult(Granted());
@@ -207,12 +201,38 @@ TEST_F(SessionProtocolTest, EvictionAndLinkLossKickWithoutDetaching) {
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(down));
 }
 
-TEST_F(SessionProtocolTest, LateResultsForAClosedSessionAreIgnored) {
+TEST_F(SessionProtocolTest, AGrantArrivingAfterTheClientLeftEndsTheBackendSession) {
     (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
-    (void)protocol.OnClientDisconnected();
-    EXPECT_TRUE(protocol.OnRedeemResult(Granted()).effects.empty());
+    const auto left = protocol.OnClientDisconnected();
+    EXPECT_FALSE(HasEffect<SessionProtocol::EndSession>(left)) << "nothing granted yet";
+
+    const auto late = protocol.OnRedeemResult(Granted());
+    EXPECT_TRUE(late.replies.empty());
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(late));
+    EXPECT_FALSE(HasEffect<SessionProtocol::AttachToZone>(late));
+    EXPECT_TRUE(protocol.OnRedeemResult(Granted()).effects.empty()) << "one answer per redeem";
     EXPECT_TRUE(protocol.OnZoneAttached(common::EntityId{1}).effects.empty());
     EXPECT_TRUE(protocol.OnZoneOutput(ServerMessage{}).replies.empty());
+}
+
+TEST_F(SessionProtocolTest, ARefusalArrivingAfterTheClientLeftOwesNothing) {
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)protocol.OnClientDisconnected();
+    backend::v1::RedeemEntryTicketResponse refused;
+    refused.set_outcome(backend::v1::REDEEM_OUTCOME_ACTIVE_SESSION_EXISTS);
+    EXPECT_TRUE(protocol.OnRedeemResult(refused).effects.empty());
+}
+
+TEST_F(SessionProtocolTest, ARedeemWithAnUnknownOutcomeEndsTheSessionInCaseItWasGranted) {
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    const auto failed = protocol.OnRedeemFailed();
+    EXPECT_EQ(OnlyReply(failed).kick().reason(), game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(failed));
+
+    SessionProtocol left{verifier, kConfig, common::InstanceId::Generate()};
+    (void)left.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)left.OnClientDisconnected();
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(left.OnRedeemFailed()));
 }
 
 TEST_F(SessionProtocolTest, FloodingIsRateLimited) {

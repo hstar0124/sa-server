@@ -84,6 +84,7 @@ SessionProtocol::Reaction SessionProtocol::OnHello(const game::v1::Hello& hello,
     }
     ticket_ = *ticket;
     state_ = State::kRedeeming;
+    redeem_in_flight_ = true;
     return Reaction{.effects = {RedeemTicket{.ticket = *ticket}}};
 }
 
@@ -99,10 +100,17 @@ bool SessionProtocol::WithinRateLimit(std::uint64_t now_ms) {
 
 SessionProtocol::Reaction SessionProtocol::OnRedeemResult(
     const backend::v1::RedeemEntryTicketResponse& response) {
-    if (state_ != State::kRedeeming || !ticket_) {
+    if (!std::exchange(redeem_in_flight_, false)) {
         return {};
     }
-    if (response.outcome() != backend::v1::REDEEM_OUTCOME_GRANTED) {
+    const bool granted = response.outcome() == backend::v1::REDEEM_OUTCOME_GRANTED;
+    if (state_ != State::kRedeeming || !ticket_) {
+        // The client left while the Backend decided. A granted session would otherwise stay live
+        // and refuse this character everywhere until this gateway's lease ends.
+        return granted ? Reaction{.effects = {EndSession{.reason = "closed_during_redeem"}}}
+                       : Reaction{};
+    }
+    if (!granted) {
         return Kick(KickFor(response.outcome()));
     }
     session_granted_ = true;
@@ -120,10 +128,15 @@ SessionProtocol::Reaction SessionProtocol::OnRedeemResult(
 }
 
 SessionProtocol::Reaction SessionProtocol::OnRedeemFailed() {
-    if (state_ != State::kRedeeming) {
+    if (!std::exchange(redeem_in_flight_, false)) {
         return {};
     }
-    return Kick(game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
+    // The Backend may have committed before the deadline passed. Ending a session that was never
+    // created is harmless, so end it either way.
+    Reaction reaction =
+        state_ == State::kRedeeming ? Kick(game::v1::KICK_REASON_SERVICE_UNAVAILABLE) : Reaction{};
+    reaction.effects.emplace_back(EndSession{.reason = "redeem_outcome_unknown"});
+    return reaction;
 }
 
 // ---- zone -------------------------------------------------------------------------------------
