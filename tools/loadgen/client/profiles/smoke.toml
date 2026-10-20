@@ -4,9 +4,9 @@
 base_url = "http://localhost:5100"
 
 # Optional override of the gateway address the Backend hands out (e.g. port-forwarded).
-[gateway]
-host = ""
-port = 0
+# [gateway]
+# host = "127.0.0.1"
+# port = 7777
 
 [world]
 id = 1

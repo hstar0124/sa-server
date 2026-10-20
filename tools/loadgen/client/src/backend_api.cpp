@@ -136,14 +136,17 @@ std::expected<EntryGrant, ApiError> BackendApi::Enter(const BotAccount& account,
         return std::unexpected(
             ApiError{std::format("enter: HTTP {} {}", entered.status_code, entered.text)});
     }
-    EntryGrant grant;
-    grant.signed_ticket =
-        common::DecodeBase64(parsed->value("entryTicket", "")).value_or(std::vector<std::byte>{});
-    grant.gateway.host = (*parsed)["gateway"].value("host", "");
-    grant.gateway.port = static_cast<std::uint16_t>((*parsed)["gateway"].value("port", 0));
-    if (grant.signed_ticket.empty() || grant.gateway.host.empty()) {
-        return std::unexpected(ApiError{"enter: response lacks ticket or gateway"});
+    auto ticket = common::DecodeBase64(parsed->value("entryTicket", ""));
+    const std::string host = (*parsed)["gateway"].value("host", "");
+    const auto port = (*parsed)["gateway"].value("port", std::int64_t{0});
+    if (!ticket || ticket->empty() || host.empty() || !std::in_range<std::uint16_t>(port) ||
+        port == 0) {
+        return std::unexpected(ApiError{"enter: response lacks a valid ticket or gateway address"});
     }
+    EntryGrant grant;
+    grant.signed_ticket = std::move(*ticket);
+    grant.gateway.host = host;
+    grant.gateway.port = static_cast<std::uint16_t>(port);
     return grant;
 }
 

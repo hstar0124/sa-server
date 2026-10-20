@@ -177,9 +177,13 @@ void ZoneLink::OnFrame(std::span<const std::byte> payload) {
 // ---- outbound -----------------------------------------------------------------------------------
 
 void ZoneLink::Send(const GatewayToZone& message) {
-    if (!connection_ || !connection_->Send(message)) {
-        spdlog::warn("zone {}: message dropped (link not open or frame too large)",
-                     config_.zone.value());
+    if (!connection_) {
+        spdlog::warn("zone {}: message dropped: link not connected", config_.zone.value());
+        return;
+    }
+    if (const auto sent = connection_->Send(message); !sent) {
+        spdlog::warn("zone {}: message dropped: {}", config_.zone.value(),
+                     common::Describe(sent.error()));
     }
 }
 

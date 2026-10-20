@@ -42,16 +42,20 @@ void FramedConnection::OnBytes(std::span<const std::byte> bytes) {
     }
 }
 
-bool FramedConnection::Send(const google::protobuf::MessageLite& message) {
-    if (!stream_->is_open() || !message.SerializeToString(&serialize_scratch_)) {
-        return false;
+std::expected<void, SendError> FramedConnection::Send(
+    const google::protobuf::MessageLite& message) {
+    if (!stream_->is_open()) {
+        return std::unexpected(SendError::kClosed);
+    }
+    if (!message.SerializeToString(&serialize_scratch_)) {
+        return std::unexpected(SendError::kSerializeFailed);
     }
     std::vector<std::byte> frame;
     if (!EncodeFrame(std::as_bytes(std::span{serialize_scratch_}), limits_, frame)) {
-        return false;
+        return std::unexpected(SendError::kTooLarge);
     }
     stream_->Write(std::move(frame));
-    return true;
+    return {};
 }
 
 }  // namespace sa::common

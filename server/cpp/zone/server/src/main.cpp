@@ -36,9 +36,9 @@ namespace {
 
 constexpr std::string_view kUsage = "usage: zone_server --config <path/to/zone.toml>";
 
-std::uint64_t ResolveSeed(std::uint64_t configured) {
-    if (configured != 0) {
-        return configured;
+std::uint64_t ResolveSeed(std::optional<std::uint64_t> configured) {
+    if (configured) {
+        return *configured;
     }
     std::random_device device;
     return (static_cast<std::uint64_t>(device()) << 32U) | device();
@@ -209,7 +209,8 @@ int Run(int argc, char** argv) {
         sa::zone::GatewayLinkServerConfig{.listen_address = config->link_listen_address,
                                           .listen_port = config->link_listen_port,
                                           .max_gateways = config->link_max_gateways,
-                                          .frame_limits = config->link_frame_limits},
+                                          .frame_limits = config->link_frame_limits,
+                                          .close_linger = config->link_close_linger},
         host};
     host.set_on_link_closed(
         [&link_server](sa::zone::GatewayLink& link) { link_server.Forget(link); });
@@ -232,8 +233,12 @@ int Run(int argc, char** argv) {
             host.OnTick(tick);
         }};
 
-    // Shutdown: evict sessions (gateways kick their clients), stop the simulation, then let the
-    // eviction frames drain for the grace period before the io_context is stopped.
+    // Shutdown: evict sessions (gateways kick their clients), stop the simulation, wait the grace
+    // period for the eviction frames, then close the gateway links. The io_context is not
+    // stopped: io.run() returns once the links have closed (each bounded by a linger) and every
+    // economy call has answered, retries included (each bounded by its deadline and attempt
+    // count). A kill or pickup in flight still settles, and no late result is posted into a
+    // destroyed io_context.
     asio::steady_timer drain_deadline{io};
     asio::signal_set signals{io, SIGINT, SIGTERM};
     signals.async_wait([&](const std::error_code&, int signal) {
@@ -246,10 +251,7 @@ int Run(int argc, char** argv) {
             bot_stats->Stop();
         }
         drain_deadline.expires_after(config->shutdown_grace);
-        drain_deadline.async_wait([&](const std::error_code&) {
-            link_server.Stop();
-            io.stop();
-        });
+        drain_deadline.async_wait([&](const std::error_code&) { link_server.Stop(); });
     });
 
     lease.Start();

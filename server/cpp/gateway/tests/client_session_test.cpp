@@ -35,16 +35,17 @@ public:
     explicit FakeConnection(asio::io_context& io) : io_(io) {}
 
     void Start(Callbacks callbacks) override { callbacks_ = std::move(callbacks); }
-    bool Send(const google::protobuf::MessageLite& message) override {
+    std::expected<void, common::SendError> Send(
+        const google::protobuf::MessageLite& message) override {
         if (closed_) {
-            return false;
+            return std::unexpected(common::SendError::kClosed);
         }
         game::v1::ServerMessage sent;
         if (!sent.ParseFromString(message.SerializeAsString())) {
             throw std::logic_error{"the session sent something that is not a ServerMessage"};
         }
         sent_.push_back(std::move(sent));
-        return true;
+        return {};
     }
     void Close() override { Finish(); }
     void Abort() override { Finish(); }

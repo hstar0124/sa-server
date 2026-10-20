@@ -23,7 +23,8 @@ public:
                      std::optional<std::chrono::milliseconds> close_linger);
 
     void Start(Callbacks callbacks) override;
-    bool Send(const google::protobuf::MessageLite& message) override;
+    [[nodiscard]] std::expected<void, SendError> Send(
+        const google::protobuf::MessageLite& message) override;
     void Close() override { stream_->Close(); }
     void Abort() override { stream_->Abort(); }
     [[nodiscard]] bool is_open() const override { return stream_->is_open(); }

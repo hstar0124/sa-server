@@ -72,8 +72,8 @@ void Enter(const sa::loadgen::LoadProfile& profile, const sa::loadgen::BackendAp
         }
         reports[i].provisioned = true;
         targets[i] = sa::loadgen::BotSession::Target{
-            .host = profile.gateway_host.empty() ? grant->gateway.host : profile.gateway_host,
-            .port = profile.gateway_port == 0 ? grant->gateway.port : profile.gateway_port,
+            .host = profile.gateway_host.value_or(grant->gateway.host),
+            .port = profile.gateway_port.value_or(grant->gateway.port),
             .signed_ticket = std::move(grant->signed_ticket)};
     }
 }
@@ -109,8 +109,12 @@ int Run(int argc, char** argv) {
         std::cerr << "profile error: " << profile.error().message << '\n';
         return EXIT_FAILURE;
     }
-    sa::common::InitLogging("loadgen", sa::common::LoggingConfig::FromConfig(*source).value_or(
-                                           sa::common::LoggingConfig{}));
+    const auto logging = sa::common::LoggingConfig::FromConfig(*source);
+    if (!logging) {
+        std::cerr << "profile error: " << logging.error().message << '\n';
+        return EXIT_FAILURE;
+    }
+    sa::common::InitLogging("loadgen", *logging);
     spdlog::info("seed={} wanderers={} fighters={} duration={}s backend={}", profile->seed,
                  profile->wanderers, profile->fighters, profile->duration.count(),
                  profile->backend_base_url);

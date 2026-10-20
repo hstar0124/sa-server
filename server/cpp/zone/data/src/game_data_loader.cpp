@@ -247,9 +247,14 @@ std::expected<void, LoadError> ParseItemTable(const toml::table& t, sim::Content
     if (auto err = FirstError(id, name)) {
         return std::unexpected(LoadError{"items: " + err->message});
     }
-    const sim::ItemDefinition item{.id = sim::ItemTemplateId{*id},
-                                   .name = *name,
-                                   .stackable = t.at_path("stackable").value_or(false)};
+    // Optional, but a value that is not a boolean is a mistake, not "not stackable".
+    const toml::node_view stackable = t.at_path("stackable");
+    if (stackable && !stackable.is_boolean()) {
+        return std::unexpected(
+            LoadError{std::format("item {}: 'stackable' must be true or false", *id)});
+    }
+    const sim::ItemDefinition item{
+        .id = sim::ItemTemplateId{*id}, .name = *name, .stackable = stackable.value_or(false)};
     if (!bundle.items.emplace(item.id, item).second) {
         return std::unexpected(LoadError{std::format("duplicate item id {}", *id)});
     }

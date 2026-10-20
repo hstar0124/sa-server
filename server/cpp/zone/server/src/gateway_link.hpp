@@ -7,6 +7,7 @@
 
 #include <asio/ip/tcp.hpp>
 
+#include <chrono>
 #include <memory>
 #include <optional>
 
@@ -26,7 +27,10 @@ public:
         virtual void OnLinkClosed(GatewayLink& link) = 0;
     };
 
-    GatewayLink(asio::ip::tcp::socket socket, common::FrameLimits limits, Handler& handler);
+    // `close_linger` bounds how long closing waits for the gateway to close its side, so a
+    // stalled gateway cannot hold up the zone's shutdown.
+    GatewayLink(asio::ip::tcp::socket socket, common::FrameLimits limits,
+                std::chrono::milliseconds close_linger, Handler& handler);
 
     void Start();
     void Send(const internal::v1::ZoneToGateway& message) override;

@@ -46,7 +46,9 @@ TEST(ConfigSource, MissingAndMistypedKeysAreErrors) {
     ASSERT_TRUE(config.has_value());
     EXPECT_FALSE(config->Require<int>("zone.absent").has_value());
     EXPECT_FALSE(config->Require<int>("zone.name").has_value());
-    EXPECT_EQ(config->GetOr<int>("zone.absent", 42), 42);
+    EXPECT_EQ(config->GetOr<int>("zone.absent", 42).value(), 42);
+    EXPECT_FALSE(config->GetOr<int>("zone.name", 42).has_value()) << "present but not a number";
+    EXPECT_FALSE(config->Optional<int>("zone.absent").value().has_value());
 }
 
 TEST(ConfigSource, RejectsOutOfRangeIntegers) {
