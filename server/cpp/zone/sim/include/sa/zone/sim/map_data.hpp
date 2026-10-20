@@ -29,8 +29,20 @@ struct MapData {
         return common::Aabb{.min = {}, .max = size};
     }
 
-    // Structural sanity: positive extents, at least one spawn point, obstacles inside the map.
+    // Where the monsters of one spawn live: a pack stands on a ring around the spawn position so
+    // its members do not stack.
+    [[nodiscard]] static std::vector<common::Vec2> HomesOf(const MonsterSpawn& spawn);
+
+    // True when a body of radius `body_radius_m` centred at `point` stays inside the map and clear
+    // of every obstacle: the collision model the zone moves bodies by. A NaN point is not walkable.
+    [[nodiscard]] bool IsWalkable(common::Vec2 point, float body_radius_m) const noexcept;
+
+    // Structural sanity: positive extents, at least one spawn point, obstacles and spawns inside
+    // the map.
     [[nodiscard]] std::expected<void, std::string> Validate() const;
+    // Every player spawn point and monster home is walkable for a body of this radius, so nothing
+    // starts inside a wall or pressed against the map edge.
+    [[nodiscard]] std::expected<void, std::string> ValidateWalkable(float body_radius_m) const;
     // Cross-check against content: every monster spawn names a known template.
     [[nodiscard]] std::expected<void, std::string> ValidateAgainst(
         const ContentBundle& content) const;
@@ -39,9 +51,11 @@ struct MapData {
 // Tunables read from game-data/rules/movement.toml.
 struct MovementRules {
     float max_speed_mps = 0.0F;
+    float body_radius_m = 0.0F;  // half-width of a player's or monster's footprint against terrain
     float aoi_enter_radius_m = 0.0F;
-    float aoi_leave_radius_m = 0.0F;  // >= enter radius; the gap is the hysteresis band
-    std::uint32_t commands_per_tick_budget = 0;
+    float aoi_leave_radius_m = 0.0F;             // >= enter radius; the gap is the hysteresis band
+    std::uint32_t commands_per_tick_budget = 0;  // casts and pickups applied per tick
+    std::uint32_t max_queued_per_player = 0;     // casts and pickups one player may have waiting
 
     [[nodiscard]] std::expected<void, std::string> Validate() const;
 };

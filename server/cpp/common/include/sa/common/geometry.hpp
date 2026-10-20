@@ -27,11 +27,13 @@ struct Vec2 {
     [[nodiscard]] constexpr float LengthSq() const noexcept { return (x * x) + (y * y); }
     [[nodiscard]] float Length() const noexcept { return std::sqrt(LengthSq()); }
     [[nodiscard]] constexpr bool IsZero() const noexcept { return x == 0.0F && y == 0.0F; }
+    [[nodiscard]] bool IsFinite() const noexcept { return std::isfinite(x) && std::isfinite(y); }
 
-    // Unit vector in the same direction; the zero vector stays zero (no NaN).
+    // Unit vector in the same direction. A vector without a usable direction (zero, NaN, infinite,
+    // or so large its length overflows) yields zero, so normalising never produces NaN.
     [[nodiscard]] Vec2 Normalized() const noexcept {
         const float len = Length();
-        return len > 0.0F ? Vec2{x / len, y / len} : Vec2{};
+        return len > 0.0F && std::isfinite(len) ? Vec2{x / len, y / len} : Vec2{};
     }
 };
 
@@ -40,6 +42,10 @@ struct Vec2 {
 }
 [[nodiscard]] inline float Distance(Vec2 a, Vec2 b) noexcept {
     return (a - b).Length();
+}
+// Range checks go through this: a NaN coordinate compares false, so it is never within range.
+[[nodiscard]] constexpr bool WithinDistance(Vec2 a, Vec2 b, float range) noexcept {
+    return DistanceSq(a, b) <= range * range;
 }
 
 // Axis-aligned box, min inclusive / max exclusive.

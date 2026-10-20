@@ -114,13 +114,18 @@ inline MapData FieldWithSlime(common::Vec2 at = {70.0F, 70.0F}) {
 
 inline MovementRules Rules() {
     return MovementRules{.max_speed_mps = 10.0F,
+                         .body_radius_m = 0.4F,
                          .aoi_enter_radius_m = 20.0F,
                          .aoi_leave_radius_m = 25.0F,
-                         .commands_per_tick_budget = 1024};
+                         .commands_per_tick_budget = 1024,
+                         .max_queued_per_player = 8};
 }
 
 inline CombatRules Combat() {
-    return CombatRules{.monster_think_hz = 5, .player_respawn = 1000ms};
+    return CombatRules{.monster_think_hz = 5,
+                       .player_respawn = 1000ms,
+                       .monster_stall_timeout = 1000ms,
+                       .monster_stall_distance_m = 1.0F};
 }
 
 inline EconomyRules Economy() {

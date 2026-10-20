@@ -12,6 +12,7 @@
 #include <game/server_messages.pb.h>
 
 #include <cstdint>
+#include <expected>
 #include <string_view>
 #include <vector>
 
@@ -21,10 +22,15 @@ namespace sa::zone::codec {
 
 // ---- client <-> zone --------------------------------------------------------------------------
 
-[[nodiscard]] sim::MoveCommand ToMoveCommand(common::EntityId player,
-                                             const game::v1::MoveInput& input);
-[[nodiscard]] sim::CastCommand ToCastCommand(common::EntityId player,
-                                             const game::v1::CastSkill& cast);
+// A client input refused before it reaches the simulation.
+enum class InputError : std::uint8_t {
+    kNonFiniteVector,  // a NaN or infinite coordinate; no honest client sends one
+};
+
+[[nodiscard]] std::expected<sim::MoveCommand, InputError> ToMoveCommand(
+    common::EntityId player, const game::v1::MoveInput& input);
+[[nodiscard]] std::expected<sim::CastCommand, InputError> ToCastCommand(
+    common::EntityId player, const game::v1::CastSkill& cast);
 [[nodiscard]] sim::PickupCommand ToPickupCommand(common::EntityId player,
                                                  const game::v1::PickupItem& pickup);
 

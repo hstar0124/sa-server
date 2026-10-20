@@ -1,168 +1,21 @@
 #include "sa/zone/data/game_data_loader.hpp"
 
+#include "toml_fields.hpp"
+
 #include <toml++/toml.hpp>
 
-#include <chrono>
 #include <format>
-#include <fstream>
 #include <optional>
-#include <sstream>
+#include <string_view>
 #include <utility>
 
 namespace sa::zone::data {
 namespace {
 
-template <typename ParseFn>
-std::expected<toml::table, LoadError> TryParse(ParseFn&& parse, const std::string& what) {
-    try {
-        return std::forward<ParseFn>(parse)();
-    } catch (const toml::parse_error& error) {
-        return std::unexpected(
-            LoadError{std::format("cannot parse {}: {}", what, error.description())});
-    }
-}
+using namespace toml_fields;  // NOLINT(google-build-using-namespace): the loader's own field
+                              // readers
 
-std::expected<toml::table, LoadError> ParseFile(const std::filesystem::path& file) {
-    return TryParse([&] { return toml::parse_file(file.string()); }, "'" + file.string() + "'");
-}
-
-std::expected<toml::table, LoadError> ParseText(std::string_view text, const char* what) {
-    return TryParse([&] { return toml::parse(text); }, what);
-}
-
-// ---- typed field access -------------------------------------------------------------------------
-
-std::expected<float, LoadError> RequireFloat(const toml::table& table, std::string_view key) {
-    if (const auto value = table.at_path(key).value<double>()) {
-        return static_cast<float>(*value);
-    }
-    return std::unexpected(LoadError{std::format("missing or non-numeric '{}'", key)});
-}
-
-std::expected<std::int64_t, LoadError> RequireInt(const toml::table& table, std::string_view key) {
-    if (const auto value = table.at_path(key).value<std::int64_t>()) {
-        return *value;
-    }
-    return std::unexpected(LoadError{std::format("missing or non-integer '{}'", key)});
-}
-
-std::expected<std::uint32_t, LoadError> RequireU32(const toml::table& table, std::string_view key) {
-    const auto value = RequireInt(table, key);
-    if (!value) {
-        return std::unexpected(value.error());
-    }
-    if (*value < 0 || !std::in_range<std::uint32_t>(*value)) {
-        return std::unexpected(LoadError{std::format("'{}' is out of range", key)});
-    }
-    return static_cast<std::uint32_t>(*value);
-}
-
-std::expected<std::int32_t, LoadError> RequireI32(const toml::table& table, std::string_view key) {
-    const auto value = RequireInt(table, key);
-    if (!value) {
-        return std::unexpected(value.error());
-    }
-    if (!std::in_range<std::int32_t>(*value)) {
-        return std::unexpected(LoadError{std::format("'{}' is out of range", key)});
-    }
-    return static_cast<std::int32_t>(*value);
-}
-
-std::expected<std::chrono::milliseconds, LoadError> RequireMs(const toml::table& table,
-                                                              std::string_view key) {
-    const auto value = RequireInt(table, key);
-    if (!value) {
-        return std::unexpected(value.error());
-    }
-    return std::chrono::milliseconds{*value};
-}
-
-std::expected<std::string, LoadError> RequireString(const toml::table& table,
-                                                    std::string_view key) {
-    if (const auto value = table.at_path(key).value<std::string>()) {
-        return *value;
-    }
-    return std::unexpected(LoadError{std::format("missing or non-string '{}'", key)});
-}
-
-// Reads an array of fixed-size numeric arrays, e.g. [[x, y], [x, y]].
-std::expected<std::vector<std::vector<float>>, LoadError> RequireTuples(const toml::table& table,
-                                                                        std::string_view key,
-                                                                        std::size_t arity) {
-    const toml::array* outer = table.at_path(key).as_array();
-    if (outer == nullptr) {
-        return std::unexpected(LoadError{std::format("missing array '{}'", key)});
-    }
-    std::vector<std::vector<float>> out;
-    for (const toml::node& item : *outer) {
-        const toml::array* inner = item.as_array();
-        if (inner == nullptr || inner->size() != arity) {
-            return std::unexpected(
-                LoadError{std::format("'{}' entries must be arrays of {} numbers", key, arity)});
-        }
-        std::vector<float> tuple;
-        for (const toml::node& n : *inner) {
-            const auto v = n.value<double>();
-            if (!v) {
-                return std::unexpected(LoadError{std::format("'{}' contains a non-number", key)});
-            }
-            tuple.push_back(static_cast<float>(*v));
-        }
-        out.push_back(std::move(tuple));
-    }
-    return out;
-}
-
-std::expected<std::vector<float>, LoadError> RequirePair(const toml::table& table,
-                                                         std::string_view key) {
-    const toml::array* array = table.at_path(key).as_array();
-    if (array == nullptr || array->size() != 2) {
-        return std::unexpected(LoadError{std::format("'{}' must be [x, y]", key)});
-    }
-    std::vector<float> out;
-    for (const toml::node& n : *array) {
-        const auto v = n.value<double>();
-        if (!v) {
-            return std::unexpected(LoadError{std::format("'{}' contains a non-number", key)});
-        }
-        out.push_back(static_cast<float>(*v));
-    }
-    return out;
-}
-
-// Iterates [[name]] tables; the callback returns an error to stop.
-template <typename Fn>
-std::expected<void, LoadError> ForEachTable(const toml::table& table, std::string_view key,
-                                            const Fn& fn) {
-    const toml::array* array = table.at_path(key).as_array();
-    if (array == nullptr) {
-        return {};  // absent is "none"
-    }
-    if (!array->is_array_of_tables()) {
-        return std::unexpected(LoadError{std::format("'{}' must be an array of tables", key)});
-    }
-    for (const toml::node& item : *array) {
-        if (auto result = fn(*item.as_table()); !result) {
-            return std::unexpected(result.error());
-        }
-    }
-    return {};
-}
-
-template <typename... Expected>
-std::optional<LoadError> FirstError(const Expected&... results) {
-    std::optional<LoadError> first;
-    auto check = [&](const auto& r) {
-        if (!first && !r) {
-            first = r.error();
-        }
-    };
-    (check(results), ...);
-    return first;
-}
-
-// ---- map
-// ------------------------------------------------------------------------------------------
+// ---- map ----------------------------------------------------------------------------------------
 
 std::expected<sim::MapData, LoadError> MapFromTable(const toml::table& table) {
     sim::MapData map;
@@ -212,21 +65,24 @@ std::expected<sim::MapData, LoadError> MapFromTable(const toml::table& table) {
     return map;
 }
 
-// ---- rules
-// ----------------------------------------------------------------------------------------
+// ---- rules --------------------------------------------------------------------------------------
 
 std::expected<sim::MovementRules, LoadError> RulesFromTable(const toml::table& table) {
     const auto speed = RequireFloat(table, "movement.max_speed_mps");
+    const auto body = RequireFloat(table, "movement.body_radius_m");
     const auto enter = RequireFloat(table, "aoi.enter_radius_m");
     const auto leave = RequireFloat(table, "aoi.leave_radius_m");
     const auto budget = RequireU32(table, "input.commands_per_tick_budget");
-    if (auto err = FirstError(speed, enter, leave, budget)) {
+    const auto queued = RequireU32(table, "input.max_queued_per_player");
+    if (auto err = FirstError(speed, body, enter, leave, budget, queued)) {
         return std::unexpected(*err);
     }
     const sim::MovementRules rules{.max_speed_mps = *speed,
+                                   .body_radius_m = *body,
                                    .aoi_enter_radius_m = *enter,
                                    .aoi_leave_radius_m = *leave,
-                                   .commands_per_tick_budget = *budget};
+                                   .commands_per_tick_budget = *budget,
+                                   .max_queued_per_player = *queued};
     if (auto valid = rules.Validate(); !valid) {
         return std::unexpected(LoadError{"invalid movement rules: " + valid.error()});
     }
@@ -236,10 +92,15 @@ std::expected<sim::MovementRules, LoadError> RulesFromTable(const toml::table& t
 std::expected<sim::CombatRules, LoadError> CombatFromTable(const toml::table& table) {
     const auto think = RequireU32(table, "combat.monster_think_hz");
     const auto respawn = RequireMs(table, "combat.player_respawn_ms");
-    if (auto err = FirstError(think, respawn)) {
+    const auto stall_timeout = RequireMs(table, "combat.monster_stall_timeout_ms");
+    const auto stall_distance = RequireFloat(table, "combat.monster_stall_distance_m");
+    if (auto err = FirstError(think, respawn, stall_timeout, stall_distance)) {
         return std::unexpected(*err);
     }
-    const sim::CombatRules rules{.monster_think_hz = *think, .player_respawn = *respawn};
+    const sim::CombatRules rules{.monster_think_hz = *think,
+                                 .player_respawn = *respawn,
+                                 .monster_stall_timeout = *stall_timeout,
+                                 .monster_stall_distance_m = *stall_distance};
     if (auto valid = rules.Validate(); !valid) {
         return std::unexpected(LoadError{"invalid combat rules: " + valid.error()});
     }
@@ -266,8 +127,7 @@ std::expected<sim::EconomyRules, LoadError> EconomyFromTable(const toml::table& 
     return rules;
 }
 
-// ---- content
-// ----------------------------------------------------------------------------------------
+// ---- content ------------------------------------------------------------------------------------
 
 std::expected<sim::SkillKind, LoadError> ParseSkillKind(std::string_view text) {
     if (text == "targeted") {
@@ -469,8 +329,7 @@ std::expected<sim::ContentBundle, LoadError> ContentFromTables(const ContentTabl
 
 }  // namespace
 
-// ---- public API
-// --------------------------------------------------------------------------------------
+// ---- public API ---------------------------------------------------------------------------------
 
 std::expected<sim::MapData, LoadError> LoadMap(const std::filesystem::path& file) {
     auto table = ParseFile(file);

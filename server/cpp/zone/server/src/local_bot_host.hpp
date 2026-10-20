@@ -10,7 +10,7 @@
 namespace sa::zone {
 
 // Development aid: runs bot brains inside the zone process, bypassing the network, so movement
-// and interest management can be exercised and measured before the gateway path exists.
+// and interest management can be exercised and measured without a gateway or a Backend.
 // Mirrors what a client does: decide once per tick, consume a view at snapshot cadence.
 class LocalBotHost {
 public:

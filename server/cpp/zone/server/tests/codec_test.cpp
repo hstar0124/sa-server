@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <variant>
 #include <vector>
 
@@ -14,10 +15,23 @@ TEST(Codec, MoveInputBecomesMoveCommand) {
     input.mutable_direction()->set_x(0.0F);
     input.mutable_direction()->set_y(-2.0F);
 
-    const sim::MoveCommand cmd = ToMoveCommand(common::EntityId{3}, input);
-    EXPECT_EQ(cmd.player, common::EntityId{3});
-    EXPECT_EQ(cmd.input_seq, 7U);
-    EXPECT_EQ(cmd.direction, (common::Vec2{0.0F, -2.0F})) << "normalisation is the zone's job";
+    const auto cmd = ToMoveCommand(common::EntityId{3}, input);
+    ASSERT_TRUE(cmd.has_value());
+    EXPECT_EQ(cmd->player, common::EntityId{3});
+    EXPECT_EQ(cmd->input_seq, 7U);
+    EXPECT_EQ(cmd->direction, (common::Vec2{0.0F, -2.0F})) << "normalisation is the zone's job";
+}
+
+TEST(Codec, NonFiniteDirectionsNeverReachTheSimulation) {
+    game::v1::MoveInput move;
+    move.mutable_direction()->set_x(std::numeric_limits<float>::infinity());
+    EXPECT_EQ(ToMoveCommand(common::EntityId{3}, move).error(), InputError::kNonFiniteVector);
+
+    game::v1::CastSkill aimed;
+    aimed.set_request_id(1);
+    aimed.set_skill_id(3);
+    aimed.mutable_direction()->set_y(std::numeric_limits<float>::quiet_NaN());
+    EXPECT_EQ(ToCastCommand(common::EntityId{3}, aimed).error(), InputError::kNonFiniteVector);
 }
 
 TEST(Codec, WorldSnapshotCarriesDeltasAndSelf) {
@@ -57,18 +71,20 @@ TEST(Codec, CastSkillBecomesACastCommandWithEitherTargetKind) {
     targeted.set_request_id(9);
     targeted.set_skill_id(1);
     targeted.set_target_entity_id(77);
-    const sim::CastCommand a = ToCastCommand(common::EntityId{3}, targeted);
-    EXPECT_EQ(a.request_id, common::RequestId{9});
-    EXPECT_EQ(a.skill, sim::SkillId{1});
-    EXPECT_EQ(std::get<common::EntityId>(a.target), common::EntityId{77});
+    const auto a = ToCastCommand(common::EntityId{3}, targeted);
+    ASSERT_TRUE(a.has_value());
+    EXPECT_EQ(a->request_id, common::RequestId{9});
+    EXPECT_EQ(a->skill, sim::SkillId{1});
+    EXPECT_EQ(std::get<common::EntityId>(a->target), common::EntityId{77});
 
     game::v1::CastSkill aimed;
     aimed.set_request_id(10);
     aimed.set_skill_id(3);
     aimed.mutable_direction()->set_x(0.0F);
     aimed.mutable_direction()->set_y(1.0F);
-    const sim::CastCommand b = ToCastCommand(common::EntityId{3}, aimed);
-    EXPECT_EQ(std::get<common::Vec2>(b.target), (common::Vec2{0.0F, 1.0F}));
+    const auto b = ToCastCommand(common::EntityId{3}, aimed);
+    ASSERT_TRUE(b.has_value());
+    EXPECT_EQ(std::get<common::Vec2>(b->target), (common::Vec2{0.0F, 1.0F}));
 }
 
 TEST(Codec, EventsWrapIntoTheServerEnvelope) {

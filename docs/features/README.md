@@ -30,6 +30,7 @@
 | [24](24-zone-economy-review-fixes.md) | 23의 리뷰 수정: 획득과 처치 정산 보강 | 5 | |
 | [25](25-verification-harness.md) | 검증 장치 수정: 통과가 실제로 무언가를 증명하게 | – | |
 | [26](26-backend-review-fixes.md) | Backend 리뷰 수정: Zone 인스턴스 하나, 재시도 순서, 빠진 정합성 테스트 | – | |
+| [27](27-zone-review-fixes.md) | Zone 리뷰 수정: 유한한 입력, 빠짐없는 델타, 상한 있는 큐, 막히지 않는 몬스터 | – | |
 
 ## 형식
 

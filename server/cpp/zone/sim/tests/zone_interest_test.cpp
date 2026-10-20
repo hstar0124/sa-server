@@ -51,6 +51,66 @@ TEST(ZoneInterest, SecondViewReportsOnlyMovementAsUpdates) {
     EXPECT_NEAR(view.updated.front().position.y, 51.0F, 1e-3F);
 }
 
+// Views at snapshot cadence (every second tick here): a change on the tick between two views must
+// still reach the next view.
+TEST(ZoneInterest, AStepOnATickWithoutAViewReachesTheNextView) {
+    Zone zone = test::MakeZone();  // 1 m per tick
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});
+    zone.Tick();
+    (void)zone.CollectView(a);
+
+    zone.Submit(MoveCommand{.player = b, .input_seq = 1, .direction = {0.0F, 1.0F}});
+    zone.Tick();  // b steps; no view this tick
+    zone.Submit(MoveCommand{.player = b, .input_seq = 2, .direction = {}});
+    zone.Tick();  // b stands still
+
+    const PlayerView view = zone.CollectView(a);
+    ASSERT_TRUE(HasId(view.updated, b));
+    EXPECT_NEAR(view.updated.front().position.y, 51.0F, 1e-3F);
+}
+
+TEST(ZoneInterest, AStopIsReportedSoObserversStopExtrapolating) {
+    Zone zone = test::MakeZone();
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});
+    zone.Submit(MoveCommand{.player = b, .input_seq = 1, .direction = {0.0F, 1.0F}});
+    test::TickN(zone, 2);
+    (void)zone.CollectView(a);
+
+    zone.Submit(MoveCommand{.player = b, .input_seq = 2, .direction = {}});
+    test::TickN(zone, 2);  // the stop happens on the first of these ticks
+
+    const PlayerView view = zone.CollectView(a);
+    ASSERT_TRUE(HasId(view.updated, b));
+    EXPECT_EQ(view.updated.front().velocity, Vec2{});
+    test::TickN(zone, 2);
+    EXPECT_TRUE(zone.CollectView(a).IsEmpty()) << "a body at rest is reported once";
+}
+
+TEST(ZoneInterest, DamageOnATickWithoutAViewReachesTheNextView) {
+    Zone zone = test::MakeZone(test::FieldWithSlime());
+    // The striker stands inside the slime's attack range, so the slime never moves: only the
+    // damage can make it an update.
+    const EntityId observer = test::Spawn(zone, 1, Vec2{60.0F, 70.0F});
+    const EntityId striker = test::Spawn(zone, 2, Vec2{69.0F, 70.0F});
+    const EntityId slime = test::OnlyMonster(zone);
+    zone.Tick();
+    (void)zone.CollectView(observer);
+
+    zone.Submit(CastCommand{.player = striker,
+                            .request_id = common::RequestId{1},
+                            .skill = test::kStrike,
+                            .target = slime});
+    zone.Tick();  // the hit lands; no view this tick
+    zone.Tick();
+
+    const PlayerView view = zone.CollectView(observer);
+    const auto it = std::ranges::find(view.updated, slime, &EntitySnapshot::id);
+    ASSERT_NE(it, view.updated.end());
+    EXPECT_LT(it->hp, it->max_hp);
+}
+
 TEST(ZoneInterest, EnterAndLeaveWithHysteresis) {
     Zone zone = test::MakeZone();  // enter 20, leave 25, 1 m per tick
     const EntityId a = test::Spawn(zone, 1, Vec2{10.0F, 50.0F});

@@ -11,6 +11,7 @@
 #include "sa/zone/sim/rng.hpp"
 #include "sa/zone/sim/spatial_grid.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -33,6 +34,11 @@ struct ZoneConfig {
     std::size_t command_retry_window = 0;
 };
 
+// Why a player could not enter the zone.
+enum class SpawnError : std::uint8_t {
+    kUnknownClass,  // the character's class is not in this zone's content (a content skew)
+};
+
 // Everything tunable that is not content: movement, combat and economy rules from game-data.
 struct ZoneRules {
     MovementRules movement;
@@ -42,7 +48,9 @@ struct ZoneRules {
 
 struct ZoneStats {
     std::uint64_t commands_applied = 0;
-    std::uint64_t commands_deferred = 0;  // left queued because the per-tick budget ran out
+    std::uint64_t commands_deferred = 0;  // casts and pickups that waited a tick for the budget
+    std::uint64_t commands_dropped = 0;   // casts and pickups refused: the player's queue was full
+    std::uint64_t moves_superseded = 0;  // moves replaced by a newer one before a tick applied them
     std::uint64_t stale_inputs_dropped = 0;
     std::uint64_t casts_accepted = 0;
     std::uint64_t casts_rejected = 0;
@@ -75,14 +83,17 @@ public:
 
     // ---- membership -------------------------------------------------------------------------
     // Places the player at `position`, or at a spawn point chosen by the zone's RNG. The class
-    // must exist in the content bundle; an unknown class is a caller bug and yields nullopt.
-    [[nodiscard]] std::optional<common::EntityId> SpawnPlayer(
+    // comes from the Backend's character record and may be missing from this zone's content.
+    [[nodiscard]] std::expected<common::EntityId, SpawnError> SpawnPlayer(
         common::CharacterId character, ClassId class_id,
         std::optional<common::Vec2> position = std::nullopt);
     void DespawnPlayer(common::EntityId player);
 
     // ---- input ------------------------------------------------------------------------------
-    // Queues a command; applied by the next Tick() within the per-tick budget.
+    // A move replaces the player's waiting move (it carries intent, not displacement), so each
+    // tick applies at most one move per player. Casts and pickups queue in arrival order and are
+    // applied within the per-tick budget; beyond the per-player limit they are answered "unknown"
+    // without being processed, and the client retries them with the same request id.
     void Submit(Command command);
 
     // ---- simulation -------------------------------------------------------------------------
@@ -156,8 +167,11 @@ private:
         common::Vec2 velocity;
         common::Vec2 desired_direction;  // unit or zero
         std::uint32_t last_input_seq = 0;
-        bool moved_this_tick = false;
-        bool vitals_changed_this_tick = false;
+        // Last tick this player's snapshot (position, velocity, vitals) changed, and the tick of
+        // this player's previous view: a view reports what changed since then, however many
+        // ticks passed in between.
+        common::TickIndex changed_at;
+        common::TickIndex viewed_at;
         Vitals vitals;
         float mp_regen_carry = 0.0F;  // fractional MP accumulated between whole points
         std::unordered_map<SkillId, common::TickIndex> cooldown_ready_at;
@@ -179,13 +193,16 @@ private:
         common::Vec2 position;
         common::Vec2 velocity;
         Vitals vitals;
-        bool moved_this_tick = false;
-        bool vitals_changed_this_tick = false;
+        common::TickIndex changed_at;  // last tick this monster's snapshot changed
         AiState state = AiState::kIdle;
         common::EntityId target;
         std::optional<common::Vec2> goal;
         common::TickIndex next_think;
         common::TickIndex attack_ready_at;
+        // Where the monster stood when it last made headway, and the tick by which it must move
+        // on from there; checked while chasing or returning (CombatRules: stall).
+        common::Vec2 headway_from;
+        common::TickIndex stall_deadline;
     };
 
     // A home position that keeps one monster alive or waits to respawn it.
@@ -217,8 +234,25 @@ private:
 
     Zone(ZoneConfig config, MapData map, ZoneRules rules, ContentBundle content, Rng rng);
 
+    // The keys of an entity map in ascending order, into `out`. Ids are allocated in increasing
+    // order, so this is oldest first. Loops whose entities affect each other or draw from the RNG
+    // run in this order: who lands the killing blow in a tick, or which spawn point a respawning
+    // player draws, follows ids rather than hash-table order.
+    template <typename EntityMap>
+    static void IdsInOrder(const EntityMap& entities, std::vector<common::EntityId>& out) {
+        out.clear();
+        for (const auto& entry : entities) {
+            out.push_back(entry.first);
+        }
+        std::ranges::sort(out);
+    }
+
     // ---- zone.cpp ---------------------------------------------------------------------------
+    using QueuedCommand = std::variant<CastCommand, PickupCommand>;
+
     common::EntityId AllocateEntityId();
+    void QueueMove(const MoveCommand& move);
+    void QueueRequest(common::EntityId player, common::RequestId request, QueuedCommand command);
     void DrainCommands();
     void ApplyMove(const MoveCommand& command);
     void IntegratePlayers();
@@ -228,9 +262,12 @@ private:
                                            float speed_mps) const;
     void UpdateInterestSets();
     void RecomputeInterest(common::EntityId self, Player& player);
-    [[nodiscard]] bool ChangedThisTick(common::EntityId entity) const;
+    [[nodiscard]] bool ChangedSince(common::EntityId entity, common::TickIndex tick) const;
+    // Sets a body's velocity and stamps the change when there is one: a stop is news to observers
+    // just like a step, or they keep extrapolating the old velocity.
+    void SetVelocity(common::Vec2& velocity, common::TickIndex& changed_at,
+                     common::Vec2 next) const;
     [[nodiscard]] static bool SortedContainsInterest(const Player& player, common::EntityId entity);
-    void ResetTickFlags();
     [[nodiscard]] common::TickIndex TicksFromNow(std::chrono::milliseconds duration) const;
     void Deliver(common::EntityId recipient, ZoneEvent event);
     // Everyone who currently sees `subject`, plus `subject` itself when it is a player.
@@ -261,6 +298,10 @@ private:
     void SpawnMonster(std::size_t slot_index);
     void UpdateMonsters();
     void Think(common::EntityId id, Monster& monster);
+    void ReturnHome(Monster& monster);
+    void SettleAtHome(Monster& monster);
+    void StartHeadway(Monster& monster);
+    [[nodiscard]] bool Stalled(Monster& monster);
     void MoveMonster(common::EntityId id, Monster& monster);
     void RespawnMonsters();
     [[nodiscard]] std::optional<common::EntityId> NearestLivePlayerWithin(common::Vec2 center,
@@ -288,10 +329,14 @@ private:
     std::unordered_map<common::EntityId, DroppedItem> items_;
     std::unordered_map<common::EntityId, EntityKind> kinds_;
     std::vector<MonsterSlot> monster_slots_;
-    std::deque<Command> pending_;
+    std::unordered_map<common::EntityId, MoveCommand> pending_moves_;  // newest per player
+    std::deque<QueuedCommand> pending_;                                // casts and pickups
+    std::unordered_map<common::EntityId, std::uint32_t> queued_per_player_;
+    std::size_t deferred_in_queue_ = 0;  // queued commands already counted in commands_deferred
     std::vector<DeliveredEvent> outbox_;
     std::vector<HostRequest> host_requests_;
     std::vector<common::EntityId> scratch_;  // reused query buffer
+    std::vector<common::EntityId> order_;    // reused IdsInOrder buffer for the tick's phases
     ZoneStats stats_;
 };
 

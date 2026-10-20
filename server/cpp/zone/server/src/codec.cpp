@@ -103,18 +103,27 @@ game::v1::CommandStatus ToProto(sim::CommandStatus status) {
     return game::v1::COMMAND_STATUS_UNSPECIFIED;
 }
 
-sim::MoveCommand ToMoveCommand(common::EntityId player, const game::v1::MoveInput& input) {
-    return sim::MoveCommand{.player = player,
-                            .input_seq = input.input_seq(),
-                            .direction = {input.direction().x(), input.direction().y()}};
+std::expected<sim::MoveCommand, InputError> ToMoveCommand(common::EntityId player,
+                                                          const game::v1::MoveInput& input) {
+    const common::Vec2 direction{input.direction().x(), input.direction().y()};
+    if (!direction.IsFinite()) {
+        return std::unexpected(InputError::kNonFiniteVector);
+    }
+    return sim::MoveCommand{
+        .player = player, .input_seq = input.input_seq(), .direction = direction};
 }
 
-sim::CastCommand ToCastCommand(common::EntityId player, const game::v1::CastSkill& cast) {
+std::expected<sim::CastCommand, InputError> ToCastCommand(common::EntityId player,
+                                                          const game::v1::CastSkill& cast) {
     sim::SkillTarget target = common::EntityId{};  // an absent target is rejected by the zone
     if (cast.has_target_entity_id()) {
         target = common::EntityId{cast.target_entity_id()};
     } else if (cast.has_direction()) {
-        target = common::Vec2{cast.direction().x(), cast.direction().y()};
+        const common::Vec2 direction{cast.direction().x(), cast.direction().y()};
+        if (!direction.IsFinite()) {
+            return std::unexpected(InputError::kNonFiniteVector);
+        }
+        target = direction;
     }
     return sim::CastCommand{.player = player,
                             .request_id = common::RequestId{cast.request_id()},

@@ -1,8 +1,44 @@
 #include "sa/zone/sim/map_data.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <format>
+#include <numbers>
 
 namespace sa::zone::sim {
+namespace {
+
+// Radius of the ring a pack stands on around its spawn position.
+constexpr float kPackRingRadiusM = 1.5F;
+
+}  // namespace
+
+std::vector<common::Vec2> MapData::HomesOf(const MonsterSpawn& spawn) {
+    std::vector<common::Vec2> homes;
+    homes.reserve(spawn.count);
+    for (std::uint32_t i = 0; i < spawn.count; ++i) {
+        const float angle = 2.0F * std::numbers::pi_v<float> * static_cast<float>(i) /
+                            static_cast<float>(spawn.count);
+        const common::Vec2 offset =
+            spawn.count == 1 ? common::Vec2{}
+                             : common::Vec2{std::cos(angle), std::sin(angle)} * kPackRingRadiusM;
+        homes.push_back(spawn.position + offset);
+    }
+    return homes;
+}
+
+bool MapData::IsWalkable(common::Vec2 point, float body_radius_m) const noexcept {
+    // Written so that NaN fails: every comparison with it is false.
+    const bool inside = point.x >= body_radius_m && point.y >= body_radius_m &&
+                        point.x <= size.x - body_radius_m && point.y <= size.y - body_radius_m;
+    if (!inside) {
+        return false;
+    }
+    const common::Vec2 footprint{body_radius_m, body_radius_m};
+    return std::ranges::none_of(obstacles, [&](const common::Aabb& box) {
+        return common::Aabb{.min = box.min - footprint, .max = box.max + footprint}.Contains(point);
+    });
+}
 
 std::expected<void, std::string> MapData::Validate() const {
     if (size.x <= 0.0F || size.y <= 0.0F) {
@@ -37,9 +73,25 @@ std::expected<void, std::string> MapData::Validate() const {
         if (!bounds.Contains(spawn_points[i])) {
             return std::unexpected(std::format("spawn point {} lies outside the map", i));
         }
-        for (const common::Aabb& box : obstacles) {
-            if (box.Contains(spawn_points[i])) {
-                return std::unexpected(std::format("spawn point {} lies inside an obstacle", i));
+    }
+    return {};
+}
+
+std::expected<void, std::string> MapData::ValidateWalkable(float body_radius_m) const {
+    for (std::size_t i = 0; i < spawn_points.size(); ++i) {
+        if (!IsWalkable(spawn_points[i], body_radius_m)) {
+            return std::unexpected(std::format(
+                "spawn point {} is not walkable: inside an obstacle or too close to one or to "
+                "the map edge",
+                i));
+        }
+    }
+    for (std::size_t i = 0; i < monster_spawns.size(); ++i) {
+        for (const common::Vec2 home : HomesOf(monster_spawns[i])) {
+            if (!IsWalkable(home, body_radius_m)) {
+                return std::unexpected(
+                    std::format("monster spawn {} puts a home at ({}, {}) that is not walkable", i,
+                                home.x, home.y));
             }
         }
     }
@@ -60,6 +112,9 @@ std::expected<void, std::string> MovementRules::Validate() const {
     if (max_speed_mps <= 0.0F) {
         return std::unexpected("movement.max_speed_mps must be positive");
     }
+    if (body_radius_m <= 0.0F) {
+        return std::unexpected("movement.body_radius_m must be positive");
+    }
     if (aoi_enter_radius_m <= 0.0F) {
         return std::unexpected("aoi.enter_radius_m must be positive");
     }
@@ -68,6 +123,9 @@ std::expected<void, std::string> MovementRules::Validate() const {
     }
     if (commands_per_tick_budget == 0) {
         return std::unexpected("input.commands_per_tick_budget must be positive");
+    }
+    if (max_queued_per_player == 0) {
+        return std::unexpected("input.max_queued_per_player must be positive");
     }
     return {};
 }
