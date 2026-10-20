@@ -56,14 +56,19 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     out.simulation_rate = sim::TickRate{.hz = *hz};
     out.snapshot_rate = sim::TickRate{.hz = *snapshot_hz};
     out.max_catch_up_ticks = *catch_up;
-    out.rng_seed = source.GetOr<std::uint64_t>("zone.rng_seed", 0);
+    const auto rng_seed = source.Optional<std::uint64_t>("zone.rng_seed");
+    const auto local_bots = source.GetOr<std::uint32_t>("dev.local_bots", 0);
+    if (auto err = common::FirstConfigError(rng_seed, local_bots)) {
+        return std::unexpected(*err);
+    }
+    out.rng_seed = *rng_seed;
     out.stats_log_interval = std::chrono::seconds{*stats_interval};
     out.max_sessions = *max_sessions;
     out.map_file = *map_file;
     out.movement_rules_file = *rules_file;
     out.economy_rules_file = *economy_file;
     out.content_dir = *content_dir;
-    out.local_bots = source.GetOr<std::uint32_t>("dev.local_bots", 0);
+    out.local_bots = *local_bots;
     out.link_listen_address = *link_address;
     out.link_listen_port = *link_port;
     out.link_max_gateways = *link_max;

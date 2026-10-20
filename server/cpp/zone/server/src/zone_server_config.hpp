@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <string>
 
 namespace sa::zone {
@@ -22,7 +23,7 @@ struct ZoneServerConfig {
     sim::TickRate simulation_rate{};
     sim::TickRate snapshot_rate{};  // must divide simulation_rate
     std::uint32_t max_catch_up_ticks = 0;
-    std::uint64_t rng_seed = 0;  // 0 selects a seed from the OS and logs it
+    std::optional<std::uint64_t> rng_seed;  // absent: a seed from the OS, logged
     std::chrono::seconds stats_log_interval{};
     common::LoggingConfig logging;
 

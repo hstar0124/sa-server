@@ -52,7 +52,7 @@ TEST(LoadProfile, ParsesAndDefaultsGatewayOverrideToEmpty) {
     EXPECT_EQ(profile->fighter.attack_interval, std::chrono::milliseconds{900})
         << "kept as wall time; the fighter converts it with the server's tick rate";
     EXPECT_EQ(profile->seed, 7U);
-    EXPECT_TRUE(profile->gateway_host.empty());
+    EXPECT_FALSE(profile->gateway_host.has_value());
     EXPECT_EQ(profile->duration.count(), 5);
     EXPECT_EQ(profile->wanderer.idle_ticks_max, 10U);
 }
@@ -67,6 +67,26 @@ TEST(LoadProfile, RejectsZeroBotsAndInvertedIdleRange) {
     inverted.replace(inverted.find("idle_ticks_min = 0"), 18, "idle_ticks_min = 50");
     EXPECT_FALSE(
         LoadProfile::FromConfig(*common::ConfigSource::FromText(inverted, "")).has_value());
+}
+
+TEST(LoadProfile, AGatewayOverrideMustBeARealAddressWhenGiven) {
+    const std::string overridden = std::string{kProfile} + "[gateway]\nhost = \"\"\nport = 0\n";
+    EXPECT_FALSE(
+        LoadProfile::FromConfig(*common::ConfigSource::FromText(overridden, "")).has_value())
+        << "empty and 0 once meant \"no override\"; absence means that now";
+}
+
+// The shipped profiles are what scripts/e2e-local.sh runs; a profile that no longer loads, or
+// loads into a different meaning, would only show up there.
+TEST(LoadProfile, TheShippedProfilesLoadWithoutAGatewayOverride) {
+    for (const char* file : {SA_PROFILE_DIR "/smoke.toml", SA_PROFILE_DIR "/fighters.toml"}) {
+        auto source = common::ConfigSource::Load(file, LoadProfile::kEnvPrefix);
+        ASSERT_TRUE(source.has_value()) << file;
+        const auto profile = LoadProfile::FromConfig(*source);
+        ASSERT_TRUE(profile.has_value()) << file << ": " << profile.error().message;
+        EXPECT_FALSE(profile->gateway_host.has_value()) << file;
+        EXPECT_FALSE(profile->gateway_port.has_value()) << file;
+    }
 }
 
 TEST(LoadProfile, BotIdentitiesAreStablePerSeedAndValidNames) {

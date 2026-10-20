@@ -36,9 +36,9 @@ namespace {
 
 constexpr std::string_view kUsage = "usage: zone_server --config <path/to/zone.toml>";
 
-std::uint64_t ResolveSeed(std::uint64_t configured) {
-    if (configured != 0) {
-        return configured;
+std::uint64_t ResolveSeed(std::optional<std::uint64_t> configured) {
+    if (configured) {
+        return *configured;
     }
     std::random_device device;
     return (static_cast<std::uint64_t>(device()) << 32U) | device();

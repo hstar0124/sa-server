@@ -228,6 +228,17 @@ TEST(GameDataLoader, DropTablesMustReferenceKnownItemsWithChancesInRange) {
     EXPECT_EQ(ok->drops.at(sim::MonsterTemplateId{7}).entries.size(), 1U);
 }
 
+TEST(GameDataLoader, AnItemsStackableFlagMustBeABooleanWhenGiven) {
+    const auto plain =
+        ParseContent({.version = kVersion, .items = "[[items]]\nid = 5\nname = \"gel\"\n"});
+    ASSERT_TRUE(plain.has_value()) << plain.error().message;
+    EXPECT_FALSE(plain->items.at(sim::ItemTemplateId{5}).stackable) << "absent means not stackable";
+
+    const auto mistyped = ParseContent(
+        {.version = kVersion, .items = "[[items]]\nid = 5\nname = \"gel\"\nstackable = \"yes\"\n"});
+    EXPECT_FALSE(mistyped.has_value());
+}
+
 TEST(GameDataLoader, MapRejectsSpawnOfUnknownMonsterTemplate) {
     const auto map = ParseMap(R"(
 [map]

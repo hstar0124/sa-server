@@ -49,5 +49,14 @@ TEST(GatewayConfig, AShutdownGraceNoLongerThanTheRpcTimeoutIsRefused) {
     EXPECT_NE(config.error().message.find("shutdown.grace_ms"), std::string::npos);
 }
 
+TEST(GatewayConfig, AValueOfTheWrongTypeIsAnErrorNotTheDefault) {
+    std::string text = ShippedConfigWithKey();
+    const std::string enabled = "enabled = true";
+    text.replace(text.find(enabled), enabled.size(), "enabled = \"yes\"");
+    const auto config = Parse(text);
+    ASSERT_FALSE(config.has_value()) << "a mistyped websocket.enabled used to mean false";
+    EXPECT_NE(config.error().message.find("websocket.enabled"), std::string::npos);
+}
+
 }  // namespace
 }  // namespace sa::gateway

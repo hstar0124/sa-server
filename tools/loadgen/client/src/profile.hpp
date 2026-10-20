@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <string>
 
 namespace sa::loadgen {
@@ -20,8 +21,9 @@ struct BotIdentity {
 
 struct LoadProfile {
     std::string backend_base_url;  // e.g. http://localhost:5100
-    std::string gateway_host;      // empty = use the address the Backend hands out
-    std::uint16_t gateway_port = 0;
+    // Override the gateway address the Backend hands out (absent: use the Backend's).
+    std::optional<std::string> gateway_host;
+    std::optional<std::uint16_t> gateway_port;
     std::uint64_t world_id = 0;
     std::uint32_t class_id = 0;
 

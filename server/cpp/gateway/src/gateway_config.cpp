@@ -60,7 +60,14 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     out.listen_address = *address;
     out.listen_port = *port;
     out.max_connections = *max_connections;
-    out.websocket_enabled = source.GetOr<bool>("websocket.enabled", false);
+    const auto websocket_enabled = source.GetOr<bool>("websocket.enabled", false);
+    // The protocol maximum is the contract's; a deployment may only tighten it.
+    const auto max_payload =
+        source.GetOr<std::size_t>("protocol.max_payload_bytes", common::protocol::kMaxPayloadBytes);
+    if (auto err = common::FirstConfigError(websocket_enabled, max_payload)) {
+        return std::unexpected(*err);
+    }
+    out.websocket_enabled = *websocket_enabled;
     if (out.websocket_enabled) {
         const auto ws_address = source.Require<std::string>("websocket.address");
         const auto ws_port = source.Require<std::uint16_t>("websocket.port");
@@ -70,13 +77,11 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
         out.websocket_address = *ws_address;
         out.websocket_port = *ws_port;
     }
-    // The protocol maximum is the contract's; a deployment may only tighten it.
-    out.frame_limits.max_payload_bytes =
-        source.GetOr<std::size_t>("protocol.max_payload_bytes", common::protocol::kMaxPayloadBytes);
-    if (out.frame_limits.max_payload_bytes > common::protocol::kMaxPayloadBytes) {
-        return std::unexpected(
-            common::ConfigError{"protocol.max_payload_bytes exceeds the contract maximum"});
+    if (*max_payload == 0 || *max_payload > common::protocol::kMaxPayloadBytes) {
+        return std::unexpected(common::ConfigError{
+            "protocol.max_payload_bytes must be positive and within the contract maximum"});
     }
+    out.frame_limits.max_payload_bytes = *max_payload;
     out.max_messages_per_second = *max_msgs;
     out.client_close_linger = std::chrono::milliseconds{*client_linger};
     out.hello_timeout = std::chrono::milliseconds{*hello_timeout};

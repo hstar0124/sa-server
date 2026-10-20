@@ -46,10 +46,21 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
             common::ConfigError{"wanderer.idle_ticks_min must not exceed idle_ticks_max"});
     }
 
+    const auto gateway_host = source.Optional<std::string>("gateway.host");
+    const auto gateway_port = source.Optional<std::uint16_t>("gateway.port");
+    if (auto err = common::FirstConfigError(gateway_host, gateway_port)) {
+        return std::unexpected(*err);
+    }
+    if ((*gateway_host && (*gateway_host)->empty()) || (*gateway_port && **gateway_port == 0)) {
+        return std::unexpected(common::ConfigError{
+            "gateway.host and gateway.port override the Backend's address; leave them out "
+            "rather than empty or 0"});
+    }
+
     LoadProfile out;
     out.backend_base_url = *backend;
-    out.gateway_host = source.GetOr<std::string>("gateway.host", "");
-    out.gateway_port = source.GetOr<std::uint16_t>("gateway.port", 0);
+    out.gateway_host = *gateway_host;
+    out.gateway_port = *gateway_port;
     out.world_id = *world;
     out.class_id = *class_id;
     out.wanderers = *wanderers;

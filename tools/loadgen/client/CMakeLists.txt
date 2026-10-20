@@ -20,4 +20,6 @@ if(SA_BUILD_TESTS)
   sa_add_test(sa_loadgen_tests
     SOURCES tests/world_model_test.cpp tests/profile_test.cpp tests/report_test.cpp
     LIBS sa::loadgen_core)
+  target_compile_definitions(sa_loadgen_tests
+    PRIVATE SA_PROFILE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/profiles")
 endif()
