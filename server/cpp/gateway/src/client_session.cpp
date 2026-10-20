@@ -13,7 +13,8 @@ ClientSession::ClientSession(std::shared_ptr<common::MessageConnection> connecti
     : id_(common::InstanceId::Generate()),
       connection_(std::move(connection)),
       deps_(deps),
-      protocol_(deps_.verifier, deps_.protocol, id_) {}
+      protocol_(deps_.verifier, deps_.protocol, id_),
+      hello_deadline_(deps.io) {}
 
 void ClientSession::Start() {
     deps_.registry.Add(id_, weak_from_this());
@@ -23,14 +24,16 @@ void ClientSession::Start() {
                            shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
         .on_closed = [self = shared_from_this()](const std::error_code& ec) { self->OnClosed(ec); },
     });
+    hello_deadline_.expires_after(deps_.protocol.hello_timeout);
+    hello_deadline_.async_wait([self = shared_from_this()](const std::error_code& ec) {
+        if (!ec) {
+            self->Apply(self->protocol_.OnHelloDeadline());
+        }
+    });
 }
 
-void ClientSession::Shutdown() {
-    game::v1::ServerMessage kick;
-    kick.mutable_kick()->set_reason(game::v1::KICK_REASON_SERVER_SHUTDOWN);
-    connection_->Send(kick);
-    Apply(protocol_.OnClientDisconnected());
-    connection_->Close();
+void ClientSession::Shutdown(game::v1::KickReason reason) {
+    Apply(protocol_.OnServerClose(reason));
 }
 
 // ---- inbound ------------------------------------------------------------------------------------
@@ -51,6 +54,7 @@ void ClientSession::OnClosed(const std::error_code& reason) {
         return;
     }
     finished_ = true;
+    hello_deadline_.cancel();
     spdlog::debug("session {} closed ({})", id_.ToHex(), reason ? reason.message() : "orderly");
     Apply(protocol_.OnClientDisconnected());
     deps_.registry.Remove(id_);
@@ -105,12 +109,10 @@ void ClientSession::Perform(SessionProtocol::RedeemTicket effect) {
     request.set_character_id(effect.ticket.character.value());
     request.set_world_id(effect.ticket.world.value());
     request.set_gateway_session_id(id_.ToWire());
+    // The answer is applied even after the client left: a late grant must still be ended.
     deps_.directory.Redeem(
         std::move(request), [self = shared_from_this()](
                                 std::optional<backend::v1::RedeemEntryTicketResponse> response) {
-            if (self->finished_) {
-                return;
-            }
             if (!response) {
                 self->Apply(self->protocol_.OnRedeemFailed());
                 return;

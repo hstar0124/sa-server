@@ -26,7 +26,9 @@ public:
                     std::chrono::milliseconds rpc_timeout, common::InstanceId gateway_instance);
 
     void Redeem(backend::v1::RedeemEntryTicketRequest request, RedeemHandler on_done);
-    // Fire and forget with logging: the Backend reaps sessions of dead gateways anyway.
+    // Fire and forget with logging. While this gateway lives, this call is the only thing that
+    // ends its sessions: the Backend reaps a gateway's sessions only once its lease has lapsed.
+    // Ending a session that does not exist or already ended is harmless.
     void EndSession(const common::InstanceId& session_id, std::string reason);
     // Adapter for the generic LeaseKeeper.
     void RenewGatewayLease(common::LeaseKeeper::Done done);

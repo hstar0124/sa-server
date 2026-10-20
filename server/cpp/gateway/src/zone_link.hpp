@@ -24,6 +24,7 @@ struct ZoneLinkConfig {
     std::uint16_t port = 0;
     common::FrameLimits frame_limits;
     std::chrono::milliseconds reconnect_backoff{};
+    std::chrono::milliseconds close_linger{};
 };
 
 // Persistent connection from this gateway to one zone, carrying all sessions routed there.
@@ -71,6 +72,9 @@ private:
     common::InstanceId gateway_instance_;
     Handler& handler_;
     asio::ip::tcp::resolver resolver_;
+    // The socket of a connect in progress, so Stop can cancel it: a connect to a host that does
+    // not answer can take minutes, and shutdown waits for outstanding work.
+    std::shared_ptr<asio::ip::tcp::socket> connecting_;
     asio::steady_timer backoff_timer_;
     std::shared_ptr<common::FramedConnection> connection_;
     State state_ = State::kStopped;

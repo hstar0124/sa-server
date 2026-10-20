@@ -7,16 +7,21 @@
 #include "session_protocol.hpp"
 #include "session_registry.hpp"
 
+#include <asio/io_context.hpp>
+#include <asio/steady_timer.hpp>
+
 #include <functional>
 #include <memory>
 
 namespace sa::gateway {
 
-// One client connection. Owns the socket (via FramedConnection) and the protocol state machine;
-// everything it does to the outside world is an effect the protocol asked for.
+// One client connection. Owns the connection (a MessageConnection: length-prefixed TCP or
+// WebSocket) and the protocol state machine; everything it does to the outside world is an
+// effect the protocol asked for.
 class ClientSession : public std::enable_shared_from_this<ClientSession> {
 public:
     struct Dependencies {
+        asio::io_context& io;  // runs the hello deadline; the connection runs on the same thread
         const EntryTicketVerifier& verifier;
         SessionProtocolConfig protocol;
         DirectoryClient& directory;
@@ -27,8 +32,8 @@ public:
     ClientSession(std::shared_ptr<common::MessageConnection> connection, Dependencies deps);
 
     void Start();
-    // Server-initiated close (shutdown): kick, detach, end session.
-    void Shutdown();
+    // Server-initiated close (shutdown, lost lease): kick with `reason`, detach, end session.
+    void Shutdown(game::v1::KickReason reason);
     // Invoked once when the socket has closed and all cleanup effects were issued.
     void set_on_finished(std::function<void()> fn) { on_finished_ = std::move(fn); }
 
@@ -56,6 +61,7 @@ private:
     Dependencies deps_;
     SessionProtocol protocol_;
     std::function<void()> on_finished_;
+    asio::steady_timer hello_deadline_;
     bool finished_ = false;
 };
 

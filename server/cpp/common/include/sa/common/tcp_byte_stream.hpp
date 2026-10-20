@@ -1,13 +1,16 @@
 #pragma once
 
 #include <asio/ip/tcp.hpp>
+#include <asio/steady_timer.hpp>
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <system_error>
@@ -27,13 +30,18 @@ public:
         std::function<void(const std::error_code&)> on_closed;  // error_code{} = orderly close
     };
 
-    explicit TcpByteStream(asio::ip::tcp::socket socket);
+    // `close_linger` bounds how long Close() may take: past it the stream is aborted. Without one
+    // Close() waits as long as the peer takes, which suits trusted peers on internal links.
+    TcpByteStream(asio::ip::tcp::socket socket,
+                  std::optional<std::chrono::milliseconds> close_linger);
 
     void Start(Callbacks callbacks);
 
     // Queues bytes; writes are issued in order. Ignored once closing.
     void Write(std::vector<std::byte> bytes);
-    // Flushes queued writes, then shuts the socket down. Idempotent.
+    // Flushes queued writes, shuts down our sending side, then reads and discards until the peer
+    // closes too. Closing a socket that still has unread inbound bytes makes the kernel send a
+    // reset, which can destroy the last message (a kick) before the peer reads it. Idempotent.
     void Close();
     // Drops queued writes and shuts down now.
     void Abort();
@@ -43,14 +51,18 @@ public:
     [[nodiscard]] asio::any_io_executor executor() { return socket_.get_executor(); }
 
 private:
+    // kClosing: flushing queued writes, then waiting for the peer to close its side.
     enum class State : std::uint8_t { kIdle, kOpen, kClosing, kClosed };
     static constexpr std::size_t kReadChunkBytes = std::size_t{16} * 1024;
 
     void ReadMore();
     void WriteNext();
+    void ShutdownSending();
     void Finish(const std::error_code& reason);
 
     asio::ip::tcp::socket socket_;
+    std::optional<std::chrono::milliseconds> close_linger_;
+    asio::steady_timer linger_timer_;
     Callbacks callbacks_;
     std::array<std::byte, kReadChunkBytes> read_chunk_{};
     std::deque<std::vector<std::byte>> write_queue_;

@@ -213,9 +213,10 @@ Gateway의 세션 하나가 거치는 상태는 아래와 같다.
 stateDiagram-v2
     [*] --> AwaitingHello : TCP/WebSocket 연결
     AwaitingHello --> Redeeming : Hello (서명·만료 검증 통과)
-    AwaitingHello --> Closed : 잘못된 티켓·버전·순서 → Kick
+    AwaitingHello --> Closed : 잘못된 티켓·버전·순서, 시간 안에 Hello 없음 → Kick
     Redeeming --> Attaching : Backend 승인 (세션·소유권 확정)
     Redeeming --> Closed : 거절 (중복 세션, 소비된 티켓, Zone 없음) → Kick
+    Redeeming --> Closed : 응답 모름(RPC 실패) → Kick + EndSession
     Attaching --> InZone : Zone SessionAttached
     Attaching --> Closed : Zone 거절·링크 단절 → Kick + EndSession
     InZone --> Closed : 연결 종료·퇴출·링크 단절 → Detach + EndSession
@@ -223,6 +224,11 @@ stateDiagram-v2
 ```
 
 Gateway의 세션 로직은 I/O 없는 상태 기계라서 모든 전이를 소켓 없이 테스트한다. 세션 로직은 전송을 모른다. TCP와 WebSocket은 같은 `MessageConnection` 인터페이스 뒤에 있고, 둘 다 한 가지 TCP 바이트 스트림 구현(읽기 루프, 순서 있는 쓰기 큐, 종료 통지)을 쓴다(ADR-0004).
+
+- **입장 중에 떠난 클라이언트**: Backend의 답은 세션이 닫힌 뒤에도 상태 기계로 간다. 늦게 온 승인은 바로 세션 종료(EndSession)로 끝낸다. 그대로 두면 그 캐릭터는 이 Gateway가 사는 동안 어디로도 다시 들어오지 못한다. RPC가 실패해 결과를 모르면 Backend가 이미 커밋했을 수 있으니 세션 종료를 보낸다. 없는 세션을 끝내는 것은 아무 일도 하지 않는다.
+- **시간 제한**: 연결을 받은 때부터 정해진 시간(`protocol.hello_timeout_ms`, WebSocket 핸드셰이크 포함) 안에 올바른 Hello가 없으면 내보낸다. 아무것도 보내지 않는 소켓이 연결 상한을 채우지 못하게 하기 위해서다.
+- **닫기**: 닫는 쪽은 남은 데이터를 보내고 송신만 먼저 끊은 뒤, 상대가 닫을 때까지 들어오는 바이트를 읽어 버린다. 읽지 않은 데이터를 둔 채 소켓을 닫으면 커널이 리셋을 보내 마지막 메시지(킥)가 사라질 수 있기 때문이다. 클라이언트 연결은 그 기다림에 상한(`protocol.close_linger_ms`)이 있어, 읽지 않는 클라이언트도 결국 연결과 자리를 내놓는다.
+- **종료**: SIGTERM을 받으면 새 연결을 받지 않고 모든 세션을 내보낸 뒤, 정해진 시간(RPC 마감보다 길게) 뒤에 Zone 링크를 닫는다. 이벤트 루프를 강제로 멈추지 않고 모든 연결이 닫히고 진행 중인 RPC가 답할 때까지 기다린다. 각각 상한이 있어 끝은 정해져 있고, 늦게 끝난 RPC가 사라진 이벤트 루프에 결과를 넘기는 일이 없다.
 
 ## Zone의 한 틱
 
@@ -378,6 +384,7 @@ Backend도 `Economy:ContentDir`의 같은 game-data를 읽는다. Zone과 다른
 - Zone과 Gateway는 Backend lease를 주기적으로 갱신한다. lease가 끊긴 Zone에는 배정하지 않고, 그 Zone의 처치·획득도 받지 않는다.
 - Zone ID 하나에는 살아 있는 인스턴스가 하나뿐이다. 재시작한 Zone이 옛 lease가 끝나기 전에 등록하면 옛 인스턴스의 lease를 그 자리에서 끝내고, 옛 인스턴스는 다시 갱신하지 못한다. 대신하는 인스턴스 없이 lease만 놓친 Zone은 다시 갱신할 수 있다([이슈 013](docs/issues/013-redeem-assigns-a-dead-zone-instance-after-restart.md)).
 - Zone은 lease를 잃으면 모든 세션을 내보내고 플레이어를 지운다. 권한 없는 프로세스가 상태를 바꾸지 않는다.
+- Gateway도 lease를 잃으면 모든 세션을 내보낸다. Backend는 lease가 끝난 Gateway의 세션을 정리하고 같은 캐릭터를 다른 Gateway로 들일 수 있기 때문이다. Gateway가 보는 lease는 Backend보다 안전 여유만큼 먼저 끝나서, 내보내기가 정리보다 먼저 일어난다.
 - Gateway의 Zone 링크가 끊기면 그 Zone의 세션을 끝내고 Backend에 세션 종료를 알린다.
 
 ## 검증

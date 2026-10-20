@@ -26,6 +26,19 @@ std::shared_ptr<ClientSession> SessionRegistry::Find(const std::string& wire_id)
     return it == sessions_.end() ? nullptr : it->second.lock();
 }
 
+void SessionRegistry::CloseAll(game::v1::KickReason reason) {
+    // Collect first: closing a session removes it from the registry.
+    std::vector<std::shared_ptr<ClientSession>> live;
+    for (const auto& [_, weak] : sessions_) {
+        if (auto session = weak.lock()) {
+            live.push_back(std::move(session));
+        }
+    }
+    for (const auto& session : live) {
+        session->Shutdown(reason);
+    }
+}
+
 void SessionRegistry::OnZoneReady(common::ZoneId zone, const internal::v1::LinkWelcome& welcome) {
     spdlog::info("zone {} ready: world={} hz={}", zone.value(), welcome.world_id(),
                  welcome.simulation_hz());

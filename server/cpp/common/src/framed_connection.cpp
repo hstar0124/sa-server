@@ -4,8 +4,9 @@
 
 namespace sa::common {
 
-FramedConnection::FramedConnection(asio::ip::tcp::socket socket, FrameLimits limits)
-    : stream_(std::make_shared<TcpByteStream>(std::move(socket))),
+FramedConnection::FramedConnection(asio::ip::tcp::socket socket, FrameLimits limits,
+                                   std::optional<std::chrono::milliseconds> close_linger)
+    : stream_(std::make_shared<TcpByteStream>(std::move(socket), close_linger)),
       limits_(limits),
       decoder_(limits) {}
 
@@ -35,7 +36,9 @@ void FramedConnection::OnBytes(std::span<const std::byte> bytes) {
         if (!*popped) {
             return;
         }
-        callbacks_.on_message(**popped);
+        // A copy: the handler may close this connection, which clears callbacks_ while it runs.
+        const auto on_message = callbacks_.on_message;
+        on_message(**popped);
     }
 }
 

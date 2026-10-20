@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <variant>
 
 namespace sa::gateway {
 namespace {
@@ -175,12 +176,6 @@ TEST_F(SessionProtocolTest, RedeemOutcomesMapToKicksAndNeverLeaveASessionDanglin
     }
 }
 
-TEST_F(SessionProtocolTest, RpcFailureDuringRedeemIsServiceUnavailable) {
-    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
-    const auto reaction = protocol.OnRedeemFailed();
-    EXPECT_EQ(OnlyReply(reaction).kick().reason(), game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
-}
-
 TEST_F(SessionProtocolTest, ZoneRejectionAfterGrantEndsTheBackendSession) {
     (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
     (void)protocol.OnRedeemResult(Granted());
@@ -207,24 +202,76 @@ TEST_F(SessionProtocolTest, EvictionAndLinkLossKickWithoutDetaching) {
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(down));
 }
 
-TEST_F(SessionProtocolTest, LateResultsForAClosedSessionAreIgnored) {
+TEST_F(SessionProtocolTest, AGrantArrivingAfterTheClientLeftEndsTheBackendSession) {
     (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
-    (void)protocol.OnClientDisconnected();
-    EXPECT_TRUE(protocol.OnRedeemResult(Granted()).effects.empty());
+    const auto left = protocol.OnClientDisconnected();
+    EXPECT_FALSE(HasEffect<SessionProtocol::EndSession>(left)) << "nothing granted yet";
+
+    const auto late = protocol.OnRedeemResult(Granted());
+    EXPECT_TRUE(late.replies.empty());
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(late));
+    EXPECT_FALSE(HasEffect<SessionProtocol::AttachToZone>(late));
+    EXPECT_TRUE(protocol.OnRedeemResult(Granted()).effects.empty()) << "one answer per redeem";
     EXPECT_TRUE(protocol.OnZoneAttached(common::EntityId{1}).effects.empty());
     EXPECT_TRUE(protocol.OnZoneOutput(ServerMessage{}).replies.empty());
 }
 
+TEST_F(SessionProtocolTest, ARefusalArrivingAfterTheClientLeftOwesNothing) {
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)protocol.OnClientDisconnected();
+    backend::v1::RedeemEntryTicketResponse refused;
+    refused.set_outcome(backend::v1::REDEEM_OUTCOME_ACTIVE_SESSION_EXISTS);
+    EXPECT_TRUE(protocol.OnRedeemResult(refused).effects.empty());
+}
+
+TEST_F(SessionProtocolTest, ARedeemWithAnUnknownOutcomeEndsTheSessionInCaseItWasGranted) {
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    const auto failed = protocol.OnRedeemFailed();
+    EXPECT_EQ(OnlyReply(failed).kick().reason(), game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(failed));
+
+    SessionProtocol left{verifier, kConfig, common::InstanceId::Generate()};
+    (void)left.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    (void)left.OnClientDisconnected();
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(left.OnRedeemFailed()));
+}
+
+TEST_F(SessionProtocolTest, NoHelloByTheDeadlineIsKickedAndAHelloInTimeIsNot) {
+    const auto silent = protocol.OnHelloDeadline();
+    EXPECT_EQ(OnlyReply(silent).kick().reason(), game::v1::KICK_REASON_PROTOCOL_ERROR);
+    EXPECT_TRUE(silent.close);
+
+    SessionProtocol greeted{verifier, kConfig, common::InstanceId::Generate()};
+    (void)greeted.OnClientMessage(HelloMessage(test::SignedTicket({})), test::kNow);
+    EXPECT_FALSE(greeted.OnHelloDeadline().close);
+}
+
+TEST_F(SessionProtocolTest, AServerCloseKicksWithItsReasonDetachesAndEndsTheSession) {
+    EnterZone();
+    const auto closed = protocol.OnServerClose(game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
+    EXPECT_EQ(OnlyReply(closed).kick().reason(), game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
+    EXPECT_TRUE(closed.close);
+    const auto detach = std::ranges::find_if(closed.effects, [](const auto& effect) {
+        return std::holds_alternative<SessionProtocol::DetachFromZone>(effect);
+    });
+    ASSERT_NE(detach, closed.effects.end());
+    EXPECT_EQ(std::get<SessionProtocol::DetachFromZone>(*detach).reason,
+              internal::v1::DETACH_REASON_GATEWAY_SHUTDOWN);
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(closed));
+    EXPECT_FALSE(protocol.OnServerClose(game::v1::KICK_REASON_SERVER_SHUTDOWN).close)
+        << "closing twice does nothing";
+}
+
 TEST_F(SessionProtocolTest, FloodingIsRateLimited) {
     EnterZone();
-    for (std::uint32_t i = 0; i < kConfig.max_messages_per_second - 2;
-         ++i) {  // Hello + 1 already counted? no: new window
-        EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(i + 1), test::kNow + 1'000).close) << i;
+    // One second after the Hello a new window starts: max_messages_per_second messages pass and
+    // the next one is a flood.
+    const std::uint64_t window = test::kNow + 1'000;
+    for (std::uint32_t seq = 1; seq <= kConfig.max_messages_per_second; ++seq) {
+        EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(seq), window).close) << seq;
     }
-    // The 11th message within the same second is one too many.
-    EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(50), test::kNow + 1'000).close);
-    EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(51), test::kNow + 1'000).close);
-    const auto reaction = protocol.OnClientMessage(MoveMessage(52), test::kNow + 1'000);
+    const auto reaction =
+        protocol.OnClientMessage(MoveMessage(kConfig.max_messages_per_second + 1), window);
     EXPECT_EQ(OnlyReply(reaction).kick().reason(), game::v1::KICK_REASON_RATE_LIMITED);
 }
 

@@ -10,8 +10,9 @@ namespace sa::common {
 
 using websocket::Opcode;
 
-WebSocketConnection::WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits)
-    : stream_(std::make_shared<TcpByteStream>(std::move(socket))),
+WebSocketConnection::WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits,
+                                         std::optional<std::chrono::milliseconds> close_linger)
+    : stream_(std::make_shared<TcpByteStream>(std::move(socket), close_linger)),
       limits_(limits),
       decoder_(limits.max_payload_bytes) {}
 
@@ -94,7 +95,11 @@ void WebSocketConnection::OnFrame(websocket::Frame frame) {
                     websocket::CloseStatus::kUnsupportedData);  // fragmentation is not used
                 return;
             }
-            callbacks_.on_message(frame.payload);
+            {
+                // A copy: the handler may close this connection, which clears callbacks_.
+                const auto on_message = callbacks_.on_message;
+                on_message(frame.payload);
+            }
             return;
         case Opcode::kPing:
             WriteFrame(Opcode::kPong, frame.payload);

@@ -84,6 +84,7 @@ SessionProtocol::Reaction SessionProtocol::OnHello(const game::v1::Hello& hello,
     }
     ticket_ = *ticket;
     state_ = State::kRedeeming;
+    redeem_in_flight_ = true;
     return Reaction{.effects = {RedeemTicket{.ticket = *ticket}}};
 }
 
@@ -99,10 +100,17 @@ bool SessionProtocol::WithinRateLimit(std::uint64_t now_ms) {
 
 SessionProtocol::Reaction SessionProtocol::OnRedeemResult(
     const backend::v1::RedeemEntryTicketResponse& response) {
-    if (state_ != State::kRedeeming || !ticket_) {
+    if (!std::exchange(redeem_in_flight_, false)) {
         return {};
     }
-    if (response.outcome() != backend::v1::REDEEM_OUTCOME_GRANTED) {
+    const bool granted = response.outcome() == backend::v1::REDEEM_OUTCOME_GRANTED;
+    if (state_ != State::kRedeeming || !ticket_) {
+        // The client left while the Backend decided. A granted session would otherwise stay live
+        // and refuse this character everywhere until this gateway's lease ends.
+        return granted ? Reaction{.effects = {EndSession{.reason = "closed_during_redeem"}}}
+                       : Reaction{};
+    }
+    if (!granted) {
         return Kick(KickFor(response.outcome()));
     }
     session_granted_ = true;
@@ -120,10 +128,15 @@ SessionProtocol::Reaction SessionProtocol::OnRedeemResult(
 }
 
 SessionProtocol::Reaction SessionProtocol::OnRedeemFailed() {
-    if (state_ != State::kRedeeming) {
+    if (!std::exchange(redeem_in_flight_, false)) {
         return {};
     }
-    return Kick(game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
+    // The Backend may have committed before the deadline passed. Ending a session that was never
+    // created is harmless, so end it either way.
+    Reaction reaction =
+        state_ == State::kRedeeming ? Kick(game::v1::KICK_REASON_SERVICE_UNAVAILABLE) : Reaction{};
+    reaction.effects.emplace_back(EndSession{.reason = "redeem_outcome_unknown"});
+    return reaction;
 }
 
 // ---- zone -------------------------------------------------------------------------------------
@@ -179,14 +192,28 @@ SessionProtocol::Reaction SessionProtocol::OnClientDisconnected() {
     return reaction;
 }
 
-SessionProtocol::Reaction SessionProtocol::Kick(game::v1::KickReason reason) {
+SessionProtocol::Reaction SessionProtocol::OnHelloDeadline() {
+    if (state_ != State::kAwaitingHello) {
+        return {};
+    }
+    return Kick(game::v1::KICK_REASON_PROTOCOL_ERROR);
+}
+
+SessionProtocol::Reaction SessionProtocol::OnServerClose(game::v1::KickReason reason) {
+    if (state_ == State::kClosed) {
+        return {};
+    }
+    return Kick(reason, internal::v1::DETACH_REASON_GATEWAY_SHUTDOWN);
+}
+
+SessionProtocol::Reaction SessionProtocol::Kick(game::v1::KickReason reason,
+                                                internal::v1::DetachReason detach_reason) {
     Reaction reaction;
     ServerMessage reply;
     reply.mutable_kick()->set_reason(reason);
     reaction.replies.push_back(std::move(reply));
     reaction.close = true;
-    Teardown(reaction, internal::v1::DETACH_REASON_PROTOCOL_ERROR,
-             "kick:" + game::v1::KickReason_Name(reason));
+    Teardown(reaction, detach_reason, "kick:" + game::v1::KickReason_Name(reason));
     return reaction;
 }
 

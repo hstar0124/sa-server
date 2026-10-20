@@ -23,7 +23,7 @@ void Listener::Stop() {
     // Copy: a session's shutdown removes it from sessions_ through Forget().
     const auto live = sessions_;
     for (const auto& session : live) {
-        session->Shutdown();
+        session->Shutdown(game::v1::KICK_REASON_SERVER_SHUTDOWN);
     }
 }
 

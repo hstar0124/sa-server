@@ -7,7 +7,9 @@
 
 #include <asio/ip/tcp.hpp>
 
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -19,7 +21,9 @@ namespace sa::common {
 class WebSocketConnection final : public MessageConnection,
                                   public std::enable_shared_from_this<WebSocketConnection> {
 public:
-    WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits);
+    // `close_linger`: see TcpByteStream.
+    WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits,
+                        std::optional<std::chrono::milliseconds> close_linger);
 
     void Start(Callbacks callbacks) override;
     bool Send(const google::protobuf::MessageLite& message) override;

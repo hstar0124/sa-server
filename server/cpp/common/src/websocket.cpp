@@ -160,8 +160,7 @@ std::string RejectionResponse() {
            "Content-Length: 0\r\n\r\n";
 }
 
-// ---- frames
-// ---------------------------------------------------------------------------------------
+// ---- frames -------------------------------------------------------------------------------------
 
 void FrameDecoder::Feed(std::span<const std::byte> bytes) {
     CompactIfWorthwhile();
@@ -219,6 +218,9 @@ std::expected<std::optional<Frame>, FrameError> FrameDecoder::TryPop() {
     const bool control = opcode_raw >= static_cast<std::uint8_t>(Opcode::kClose);
     if (control && length > kMaxControlPayload) {
         return std::unexpected(FrameError::kControlFrameTooLong);
+    }
+    if (control && (b0 & kFinBit) == 0) {
+        return std::unexpected(FrameError::kFragmentedControlFrame);
     }
     if (length > max_payload_bytes_) {
         return std::unexpected(FrameError::kPayloadTooLarge);
