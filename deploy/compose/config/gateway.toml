@@ -14,6 +14,9 @@ port = 7778
 max_payload_bytes = 65536
 # Per connection. Movement at 20 Hz plus pings leaves headroom; a flood is kicked.
 max_messages_per_second = 60
+# Closing a client waits this long for it to read our last message and close its side, then
+# resets the connection and frees its slot. Bounds clients that stop reading.
+close_linger_ms = 2000
 
 [ticket]
 # Shared with the Backend (WorldDirectory:TicketSigningKey). Inject via SA_GATEWAY__TICKET__SIGNING_KEY_BASE64.
@@ -30,6 +33,8 @@ lease_safety_margin_ms = 2000
 [zone_link]
 max_frame_bytes = 262144
 reconnect_backoff_ms = 1000
+# Bounds closing a zone link at shutdown when the zone does not close its side.
+close_linger_ms = 1000
 
 # Topology: which zone process serves which zone id. The Backend assigns characters to zone ids.
 [[zones]]

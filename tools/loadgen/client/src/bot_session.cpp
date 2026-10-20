@@ -54,8 +54,9 @@ void BotSession::Start() {
                         self->Fail("connect: " + cec.message());
                         return;
                     }
+                    // No close linger: the gateway closes its side as soon as it sees ours.
                     self->connection_ = std::make_shared<common::FramedConnection>(
-                        std::move(*socket), common::FrameLimits{});
+                        std::move(*socket), common::FrameLimits{}, std::nullopt);
                     self->OnConnected();
                 });
         });

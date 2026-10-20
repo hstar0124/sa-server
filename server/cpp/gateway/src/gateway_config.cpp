@@ -13,6 +13,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const auto port = source.Require<std::uint16_t>("listen.port");
     const auto max_connections = source.Require<std::uint32_t>("listen.max_connections");
     const auto max_msgs = source.Require<std::uint32_t>("protocol.max_messages_per_second");
+    const auto client_linger = source.Require<std::uint32_t>("protocol.close_linger_ms");
     const auto key_b64 = source.Require<std::string>("ticket.signing_key_base64");
     const auto key_id = source.Require<std::uint32_t>("ticket.key_id");
     const auto skew = source.Require<std::uint64_t>("ticket.max_clock_skew_ms");
@@ -22,10 +23,12 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const auto margin = source.Require<std::uint32_t>("backend.lease_safety_margin_ms");
     const auto link_frame = source.Require<std::size_t>("zone_link.max_frame_bytes");
     const auto backoff = source.Require<std::uint32_t>("zone_link.reconnect_backoff_ms");
+    const auto link_linger = source.Require<std::uint32_t>("zone_link.close_linger_ms");
     const auto shutdown_grace = source.Require<std::uint32_t>("shutdown.grace_ms");
-    if (auto err = common::FirstConfigError(address, port, max_connections, max_msgs, key_b64,
-                                            key_id, skew, backend_address, rpc_timeout, renew,
-                                            margin, link_frame, backoff, shutdown_grace)) {
+    if (auto err =
+            common::FirstConfigError(address, port, max_connections, max_msgs, client_linger,
+                                     key_b64, key_id, skew, backend_address, rpc_timeout, renew,
+                                     margin, link_frame, backoff, link_linger, shutdown_grace)) {
         return std::unexpected(*err);
     }
     auto logging = common::LoggingConfig::FromConfig(source);
@@ -42,7 +45,8 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
         return std::unexpected(
             common::ConfigError{"ticket.signing_key_base64 must decode to at least 32 bytes"});
     }
-    if (*max_msgs == 0 || *rpc_timeout == 0 || *renew == 0) {
+    if (*max_msgs == 0 || *rpc_timeout == 0 || *renew == 0 || *client_linger == 0 ||
+        *link_linger == 0) {
         return std::unexpected(common::ConfigError{"rates and intervals must be positive"});
     }
 
@@ -68,6 +72,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
             common::ConfigError{"protocol.max_payload_bytes exceeds the contract maximum"});
     }
     out.max_messages_per_second = *max_msgs;
+    out.client_close_linger = std::chrono::milliseconds{*client_linger};
     out.ticket_key = std::move(*key);
     out.ticket_key_id = *key_id;
     out.ticket_max_clock_skew_ms = *skew;
@@ -77,6 +82,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     out.lease_safety_margin = std::chrono::milliseconds{*margin};
     out.zone_link_frame_limits.max_payload_bytes = *link_frame;
     out.zone_link_reconnect_backoff = std::chrono::milliseconds{*backoff};
+    out.zone_link_close_linger = std::chrono::milliseconds{*link_linger};
     out.shutdown_grace = std::chrono::milliseconds{*shutdown_grace};
     out.logging = *logging;
 

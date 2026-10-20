@@ -220,6 +220,9 @@ std::expected<std::optional<Frame>, FrameError> FrameDecoder::TryPop() {
     if (control && length > kMaxControlPayload) {
         return std::unexpected(FrameError::kControlFrameTooLong);
     }
+    if (control && (b0 & kFinBit) == 0) {
+        return std::unexpected(FrameError::kFragmentedControlFrame);
+    }
     if (length > max_payload_bytes_) {
         return std::unexpected(FrameError::kPayloadTooLarge);
     }

@@ -60,7 +60,8 @@ enum class FrameError : std::uint8_t {
     kUnknownOpcode,
     kUnmaskedClientFrame,  // clients must mask (RFC 6455 §5.1)
     kPayloadTooLarge,
-    kControlFrameTooLong,  // control payloads are at most 125 bytes
+    kControlFrameTooLong,     // control payloads are at most 125 bytes
+    kFragmentedControlFrame,  // control frames must not be fragmented (RFC 6455 §5.5)
 };
 
 // Incremental decoder for frames arriving from a client (masked).

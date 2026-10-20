@@ -19,6 +19,7 @@
 #include <grpcpp/create_channel.h>
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <exception>
@@ -95,7 +96,8 @@ int Run(int argc, char** argv) {
                                         .address = endpoint.address,
                                         .port = endpoint.port,
                                         .frame_limits = config->zone_link_frame_limits,
-                                        .reconnect_backoff = config->zone_link_reconnect_backoff},
+                                        .reconnect_backoff = config->zone_link_reconnect_backoff,
+                                        .close_linger = config->zone_link_close_linger},
             gateway_instance, registry));
     }
 
@@ -118,6 +120,7 @@ int Run(int argc, char** argv) {
         return std::make_shared<sa::gateway::ClientSession>(std::move(connection), deps);
     };
     const sa::common::FrameLimits limits = config->frame_limits;
+    const std::chrono::milliseconds linger = config->client_close_linger;
 
     sa::gateway::Listener tcp_listener{
         io,
@@ -125,9 +128,9 @@ int Run(int argc, char** argv) {
                                     .address = config->listen_address,
                                     .port = config->listen_port,
                                     .max_connections = config->max_connections},
-        [&, limits](asio::ip::tcp::socket socket) {
+        [&, limits, linger](asio::ip::tcp::socket socket) {
             return make_session(
-                std::make_shared<sa::common::FramedConnection>(std::move(socket), limits));
+                std::make_shared<sa::common::FramedConnection>(std::move(socket), limits, linger));
         }};
     std::optional<sa::gateway::Listener> websocket_listener;
     if (config->websocket_enabled) {
@@ -137,9 +140,9 @@ int Run(int argc, char** argv) {
                                         .address = config->websocket_address,
                                         .port = config->websocket_port,
                                         .max_connections = config->max_connections},
-            [&, limits](asio::ip::tcp::socket socket) {
-                return make_session(
-                    std::make_shared<sa::common::WebSocketConnection>(std::move(socket), limits));
+            [&, limits, linger](asio::ip::tcp::socket socket) {
+                return make_session(std::make_shared<sa::common::WebSocketConnection>(
+                    std::move(socket), limits, linger));
             });
     }
 

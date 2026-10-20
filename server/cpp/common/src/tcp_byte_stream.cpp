@@ -7,7 +7,11 @@
 
 namespace sa::common {
 
-TcpByteStream::TcpByteStream(asio::ip::tcp::socket socket) : socket_(std::move(socket)) {}
+TcpByteStream::TcpByteStream(asio::ip::tcp::socket socket,
+                             std::optional<std::chrono::milliseconds> close_linger)
+    : socket_(std::move(socket)),
+      close_linger_(close_linger),
+      linger_timer_(socket_.get_executor()) {}
 
 void TcpByteStream::Start(Callbacks callbacks) {
     callbacks_ = std::move(callbacks);
@@ -24,19 +28,25 @@ std::string TcpByteStream::PeerAddress() const {
 void TcpByteStream::ReadMore() {
     socket_.async_read_some(asio::buffer(read_chunk_),
                             [self = shared_from_this()](const std::error_code& ec, std::size_t n) {
-                                if (self->state_ != State::kOpen) {
+                                if (self->state_ == State::kClosed) {
                                     return;
                                 }
                                 if (ec) {
-                                    self->Finish(ec);
+                                    // While closing, the end of the stream is the peer completing
+                                    // the close.
+                                    const bool completed =
+                                        self->state_ == State::kClosing && ec == asio::error::eof;
+                                    self->Finish(completed ? std::error_code{} : ec);
                                     return;
                                 }
-                                // A copy: the callback may close the stream, which drops
-                                // callbacks_ and with them the last reference to the connection
-                                // above, while the callback is still running.
-                                const auto on_bytes = self->callbacks_.on_bytes;
-                                on_bytes(std::span{self->read_chunk_.data(), n});
                                 if (self->state_ == State::kOpen) {
+                                    // A copy: the callback may close the stream, which drops
+                                    // callbacks_ and with them the last reference to the connection
+                                    // above, while the callback is still running.
+                                    const auto on_bytes = self->callbacks_.on_bytes;
+                                    on_bytes(std::span{self->read_chunk_.data(), n});
+                                }  // while closing, inbound bytes are read only to be discarded
+                                if (self->state_ != State::kClosed) {
                                     self->ReadMore();
                                 }
                             });
@@ -68,7 +78,7 @@ void TcpByteStream::WriteNext() {
                           if (!self->write_queue_.empty()) {
                               self->WriteNext();
                           } else if (self->state_ == State::kClosing) {
-                              self->Finish({});
+                              self->ShutdownSending();
                           }
                       });
 }
@@ -79,9 +89,22 @@ void TcpByteStream::Close() {
         return;
     }
     state_ = State::kClosing;
-    if (write_queue_.empty()) {
-        Finish({});
+    if (close_linger_) {
+        linger_timer_.expires_after(*close_linger_);
+        linger_timer_.async_wait([self = shared_from_this()](const std::error_code& ec) {
+            if (!ec) {
+                self->Abort();  // the peer neither took our bytes nor closed in time
+            }
+        });
     }
+    if (write_queue_.empty()) {
+        ShutdownSending();
+    }
+}
+
+void TcpByteStream::ShutdownSending() {
+    std::error_code ignored;
+    std::ignore = socket_.shutdown(asio::ip::tcp::socket::shutdown_send, ignored);
 }
 
 void TcpByteStream::Abort() {
@@ -97,6 +120,7 @@ void TcpByteStream::Finish(const std::error_code& reason) {
         return;
     }
     state_ = State::kClosed;
+    linger_timer_.cancel();
     std::error_code ignored;
     std::ignore = socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ignored);
     std::ignore = socket_.close(ignored);

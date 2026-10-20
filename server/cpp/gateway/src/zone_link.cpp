@@ -60,7 +60,7 @@ void ZoneLink::Connect() {
                         return;
                     }
                     self->connection_ = std::make_shared<common::FramedConnection>(
-                        std::move(*socket), self->config_.frame_limits);
+                        std::move(*socket), self->config_.frame_limits, self->config_.close_linger);
                     self->OnConnected();
                 });
         });

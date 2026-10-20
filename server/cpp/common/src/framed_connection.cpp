@@ -4,8 +4,9 @@
 
 namespace sa::common {
 
-FramedConnection::FramedConnection(asio::ip::tcp::socket socket, FrameLimits limits)
-    : stream_(std::make_shared<TcpByteStream>(std::move(socket))),
+FramedConnection::FramedConnection(asio::ip::tcp::socket socket, FrameLimits limits,
+                                   std::optional<std::chrono::milliseconds> close_linger)
+    : stream_(std::make_shared<TcpByteStream>(std::move(socket), close_linger)),
       limits_(limits),
       decoder_(limits) {}
 

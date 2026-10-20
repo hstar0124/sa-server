@@ -24,6 +24,7 @@ struct ZoneLinkConfig {
     std::uint16_t port = 0;
     common::FrameLimits frame_limits;
     std::chrono::milliseconds reconnect_backoff{};
+    std::chrono::milliseconds close_linger{};
 };
 
 // Persistent connection from this gateway to one zone, carrying all sessions routed there.

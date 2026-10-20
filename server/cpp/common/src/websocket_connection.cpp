@@ -10,8 +10,9 @@ namespace sa::common {
 
 using websocket::Opcode;
 
-WebSocketConnection::WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits)
-    : stream_(std::make_shared<TcpByteStream>(std::move(socket))),
+WebSocketConnection::WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits,
+                                         std::optional<std::chrono::milliseconds> close_linger)
+    : stream_(std::make_shared<TcpByteStream>(std::move(socket), close_linger)),
       limits_(limits),
       decoder_(limits.max_payload_bytes) {}
 

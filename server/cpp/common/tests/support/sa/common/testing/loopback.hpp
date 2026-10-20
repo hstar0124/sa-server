@@ -2,13 +2,16 @@
 
 #include <asio/io_context.hpp>
 #include <asio/ip/tcp.hpp>
+#include <asio/read.hpp>
 #include <asio/write.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <functional>
 #include <span>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -20,6 +23,7 @@ namespace sa::common::testing {
 // Generous: the loopback round trips take microseconds, this only stops a broken test hanging.
 inline constexpr std::chrono::seconds kRunLimit{5};
 inline constexpr std::chrono::milliseconds kRunSlice{5};
+inline constexpr std::size_t kPeerReadChunk = 1024;
 
 class Loopback {
 public:
@@ -38,6 +42,47 @@ public:
     }
     void WriteFromPeer(std::string_view text) { asio::write(peer_, asio::buffer(text)); }
 
+    // Peer reads keep the io_context running, so the side under test makes progress while the
+    // peer waits: a completion handler may be what sends the bytes the peer is waiting for.
+    [[nodiscard]] std::vector<std::byte> ReadExactlyAtPeer(std::size_t n) {
+        std::vector<std::byte> out(n);
+        std::size_t filled = 0;
+        while (filled < n) {
+            std::error_code ec;
+            filled += ReadSomeAtPeer(std::span{out}.subspan(filled), ec);
+            if (ec) {
+                throw std::runtime_error{"peer read failed: " + ec.message()};
+            }
+        }
+        return out;
+    }
+
+    struct PeerRead {
+        std::vector<std::byte> bytes;
+        std::error_code end;  // asio::error::eof for an orderly close, a reset otherwise
+    };
+
+    // Everything the peer receives until the other side closes or resets.
+    [[nodiscard]] PeerRead ReadToEndAtPeer() {
+        PeerRead read;
+        std::array<std::byte, kPeerReadChunk> chunk{};
+        while (!read.end) {
+            const auto got = std::span{chunk}.first(ReadSomeAtPeer(chunk, read.end));
+            read.bytes.insert(read.bytes.end(), got.begin(), got.end());
+        }
+        return read;
+    }
+
+    // An HTTP response head at the peer, up to and including the blank line. Reads byte by byte
+    // so nothing after the head is consumed.
+    [[nodiscard]] std::string ReadHttpHeadAtPeer() {
+        std::string head;
+        while (!head.ends_with("\r\n\r\n")) {
+            head.push_back(static_cast<char>(ReadExactlyAtPeer(1).front()));
+        }
+        return head;
+    }
+
     // Runs the io_context until `done()` holds; a test that never gets there fails loudly.
     void RunUntil(const std::function<bool()>& done) {
         const auto deadline = std::chrono::steady_clock::now() + kRunLimit;
@@ -51,6 +96,24 @@ public:
     }
 
 private:
+    // One read at the peer of at most `into.size()` bytes, running the io_context in slices
+    // while nothing has arrived.
+    std::size_t ReadSomeAtPeer(std::span<std::byte> into, std::error_code& ec) {
+        peer_.non_blocking(true);
+        const auto deadline = std::chrono::steady_clock::now() + kRunLimit;
+        while (true) {
+            const std::size_t n = peer_.read_some(asio::buffer(into.data(), into.size()), ec);
+            if (ec != asio::error::would_block) {
+                return n;
+            }
+            if (std::chrono::steady_clock::now() > deadline) {
+                throw std::runtime_error{"loopback peer did not receive what it waited for"};
+            }
+            io_.restart();
+            io_.run_for(kRunSlice);
+        }
+    }
+
     asio::io_context io_;
     asio::ip::tcp::socket peer_{io_};
     asio::ip::tcp::socket server_{io_};
