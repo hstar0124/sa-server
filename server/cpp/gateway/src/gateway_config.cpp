@@ -50,6 +50,11 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
         *link_linger == 0 || *hello_timeout == 0) {
         return std::unexpected(common::ConfigError{"rates and intervals must be positive"});
     }
+    if (*shutdown_grace <= *rpc_timeout) {
+        return std::unexpected(common::ConfigError{
+            "shutdown.grace_ms must exceed backend.rpc_timeout_ms, so the EndSession calls made "
+            "when shutdown kicks every session are answered before the zone links close"});
+    }
 
     GatewayConfig out;
     out.listen_address = *address;

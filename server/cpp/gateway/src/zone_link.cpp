@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include <string>
+#include <tuple>
 
 namespace sa::gateway {
 
@@ -28,6 +29,12 @@ void ZoneLink::Start() {
 void ZoneLink::Stop() {
     state_ = State::kStopped;
     backoff_timer_.cancel();
+    resolver_.cancel();
+    if (connecting_) {
+        std::error_code ignored;
+        std::ignore = connecting_->close(ignored);
+        connecting_.reset();
+    }
     if (connection_) {
         connection_->Close();
     }
@@ -49,12 +56,14 @@ void ZoneLink::Connect() {
                 return;
             }
             auto socket = std::make_shared<asio::ip::tcp::socket>(self->io_);
+            self->connecting_ = socket;
             asio::async_connect(
                 *socket, results,
                 [self, socket](const std::error_code& connect_ec, const asio::ip::tcp::endpoint&) {
                     if (self->state_ != State::kConnecting) {
                         return;
                     }
+                    self->connecting_.reset();
                     if (connect_ec) {
                         self->ScheduleReconnect("connect: " + connect_ec.message());
                         return;

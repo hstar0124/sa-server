@@ -51,8 +51,9 @@ address = "localhost"
 port = 7802
 
 [shutdown]
-# Time allowed for evictions, detaches and final RPCs to leave the process on SIGTERM.
-grace_ms = 2000
+# After SIGTERM kicks every session, the time detaches and EndSession calls get before the zone
+# links close. Must exceed backend.rpc_timeout_ms.
+grace_ms = 3000
 
 [logging]
 level = "info"

@@ -148,8 +148,11 @@ int Run(int argc, char** argv) {
             });
     }
 
-    // Shutdown: stop accepting, kick every session, then let pending writes and EndSession RPCs
-    // drain for the grace period before the io_context is stopped .
+    // Shutdown: stop accepting, kick every session, wait the grace period for detaches and
+    // EndSession calls, then close the zone links. The io_context is not stopped: io.run()
+    // returns once every connection has closed (each close is bounded by a linger) and every
+    // in-flight RPC has delivered its result (each bounded by its deadline), so no late result
+    // can be posted into a destroyed io_context.
     asio::steady_timer drain_deadline{io};
     asio::signal_set signals{io, SIGINT, SIGTERM};
     signals.async_wait([&](const std::error_code&, int signal) {
@@ -161,10 +164,7 @@ int Run(int argc, char** argv) {
         }
         lease.Stop();
         drain_deadline.expires_after(config->shutdown_grace);
-        drain_deadline.async_wait([&](const std::error_code&) {
-            zones.StopAll();
-            io.stop();
-        });
+        drain_deadline.async_wait([&](const std::error_code&) { zones.StopAll(); });
     });
 
     // Once our lease lapses the Backend reaps our sessions and may admit the same characters

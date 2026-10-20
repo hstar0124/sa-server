@@ -20,6 +20,9 @@ target_link_libraries(gateway PRIVATE sa::gateway_core)
 if(SA_BUILD_TESTS)
   sa_add_test(sa_gateway_tests
     SOURCES tests/entry_ticket_verifier_test.cpp tests/session_protocol_test.cpp tests/test_tickets.hpp
-            tests/zone_link_test.cpp tests/client_session_test.cpp
+            tests/zone_link_test.cpp tests/client_session_test.cpp tests/gateway_config_test.cpp
     LIBS sa::gateway_core sa::common_testing)
+  # The config test reads the shipped file so a broken default fails CI, not a deployment.
+  target_compile_definitions(sa_gateway_tests
+    PRIVATE SA_GATEWAY_CONFIG="${CMAKE_SOURCE_DIR}/deploy/compose/config/gateway.toml")
 endif()
