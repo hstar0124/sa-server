@@ -11,6 +11,7 @@
 #include "sa/zone/sim/rng.hpp"
 #include "sa/zone/sim/spatial_grid.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -228,6 +229,19 @@ private:
 
     Zone(ZoneConfig config, MapData map, ZoneRules rules, ContentBundle content, Rng rng);
 
+    // The keys of an entity map in ascending order, into `out`. Ids are allocated in increasing
+    // order, so this is oldest first. Loops whose entities affect each other or draw from the RNG
+    // run in this order: who lands the killing blow in a tick, or which spawn point a respawning
+    // player draws, follows ids rather than hash-table order.
+    template <typename EntityMap>
+    static void IdsInOrder(const EntityMap& entities, std::vector<common::EntityId>& out) {
+        out.clear();
+        for (const auto& entry : entities) {
+            out.push_back(entry.first);
+        }
+        std::ranges::sort(out);
+    }
+
     // ---- zone.cpp ---------------------------------------------------------------------------
     using QueuedCommand = std::variant<CastCommand, PickupCommand>;
 
@@ -317,6 +331,7 @@ private:
     std::vector<DeliveredEvent> outbox_;
     std::vector<HostRequest> host_requests_;
     std::vector<common::EntityId> scratch_;  // reused query buffer
+    std::vector<common::EntityId> order_;    // reused IdsInOrder buffer for the tick's phases
     ZoneStats stats_;
 };
 

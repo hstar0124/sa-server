@@ -93,7 +93,9 @@ std::optional<common::EntityId> Zone::NearestLivePlayerWithin(common::Vec2 cente
 void Zone::UpdateMonsters() {
     const std::uint32_t think_period =
         std::max(1U, config_.simulation_rate.hz / rules_.combat.monster_think_hz);
-    for (auto& [id, monster] : monsters_) {
+    IdsInOrder(monsters_, order_);
+    for (const common::EntityId id : order_) {
+        Monster& monster = monsters_.at(id);  // monsters attack players; none dies in this loop
         if (tick_ >= monster.next_think) {
             Think(id, monster);
             monster.next_think = common::TickIndex{tick_.value() + think_period};

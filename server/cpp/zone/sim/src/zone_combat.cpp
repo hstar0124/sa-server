@@ -110,7 +110,9 @@ RejectReason Zone::ValidateCast(const Player& player, const SkillDefinition& ski
 }
 
 void Zone::ResolveCasts() {
-    for (auto& [id, player] : players_) {
+    IdsInOrder(players_, order_);
+    for (const common::EntityId id : order_) {
+        Player& player = players_.at(id);  // casts never remove players
         if (!player.cast || tick_ < player.cast->resolve_at) {
             continue;
         }
@@ -194,7 +196,9 @@ std::optional<common::EntityId> Zone::FirstMonsterAlong(common::Vec2 from, commo
 
 void Zone::UpdateProjectiles() {
     std::vector<common::EntityId> finished;
-    for (auto& [id, projectile] : projectiles_) {
+    IdsInOrder(projectiles_, order_);
+    for (const common::EntityId id : order_) {
+        Projectile& projectile = projectiles_.at(id);  // erased only after the loop
         const common::Vec2 from = projectile.position;
         const common::Vec2 next = from + projectile.velocity * dt_seconds_;
         projectile.travelled_m += common::Distance(from, next);
@@ -266,7 +270,9 @@ void Zone::OnPlayerDeath(common::EntityId /*id*/, Player& player) {
 }
 
 void Zone::RespawnPlayers() {
-    for (auto& [id, player] : players_) {
+    IdsInOrder(players_, order_);
+    for (const common::EntityId id : order_) {
+        Player& player = players_.at(id);
         if (!player.respawn_at || tick_ < *player.respawn_at) {
             continue;
         }
