@@ -33,6 +33,7 @@
 | [27](27-zone-review-fixes.md) | Zone 리뷰 수정: 유한한 입력, 빠짐없는 델타, 상한 있는 큐, 막히지 않는 몬스터 | – | |
 | [28](28-gateway-review-fixes.md) | Gateway 리뷰 수정: 남지 않는 세션, 해제되지 않는 연결, 끝이 있는 기다림 | – | |
 | [29](29-cpp-rule-cleanup-errors-config.md) | C++ 규칙 정리 1: 오류는 타입으로, 설정은 엄격하게, 종료는 끝까지 | – | |
+| [30](30-cpp-rule-cleanup-units-constants.md) | C++ 규칙 정리 2: 시간은 chrono로, ID는 타입으로, 수치는 데이터로 | – | |
 
 ## 형식
 
