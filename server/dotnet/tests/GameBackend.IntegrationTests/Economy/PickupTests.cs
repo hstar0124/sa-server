@@ -130,5 +130,27 @@ public sealed class PickupTests(PostgresFixture postgres) : IDisposable
         Assert.Equal(Enumerable.Range(0, capacity).Select(i => (uint)i), assets.Items.Select(i => i.SlotNo));
     }
 
+    [Fact]
+    public async Task Two_copies_of_one_pickup_request_at_once_take_effect_once()
+    {
+        using DirectoryClient directory = Directory;
+        using EconomyClient economy = Economy;
+        (byte[] gateway, _) = await WorldEntry.LiveInfrastructureAsync(directory, World, Zone);
+        EnteredCharacter picker = await WorldEntry.EnterAsync(Api, directory, gateway, World);
+        DroppedItem item = (await DropAsync(economy, picker, SlimeGel))[0];
+        PickupItemRequest request = EconomyClient.PickupRequest(World, picker.CharacterId, picker.Authority, item.ItemInstanceId);
+
+        // A zone retry racing its own first attempt: both carry the same key.
+        PickupItemResponse[] answers = await Task.WhenAll(economy.PickupAsync(request), economy.PickupAsync(request));
+
+        Assert.All(answers, a => Assert.Equal(PickupOutcome.Acquired, a.Outcome));
+        long acquisitions = await Db.ScalarAsync<long>(postgres.ConnectionString,
+            "SELECT count(*) FROM game.economy_ledger WHERE item_instance_id = @id AND kind = 'item_acquired'", new { id = item.ItemInstanceId.ToByteArray() });
+        int version = await Db.ScalarAsync<int>(postgres.ConnectionString,
+            "SELECT version FROM game.inventories WHERE character_id = @c", new { c = picker.CharacterId });
+        Assert.Equal(1, acquisitions);
+        Assert.Equal(1, version);
+    }
+
     public void Dispose() => _factory.Dispose();
 }

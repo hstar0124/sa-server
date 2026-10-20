@@ -3,10 +3,26 @@ using Tomlyn.Serialization;
 
 namespace Sa.GameBackend.Modules.Economy;
 
-/// <summary>What a monster may yield: the gold credited to the killer and the items the zone is allowed to roll.</summary>
-internal sealed record DropTable(int MonsterTemplateId, long Gold, IReadOnlySet<int> ItemTemplateIds)
+/// <summary>
+/// What a monster may yield: the gold credited to the killer and, per item template, how many drop
+/// entries name it. The zone rolls every entry once per kill, so no kill yields more of an item than
+/// the table has entries for it.
+/// </summary>
+internal sealed record DropTable(int MonsterTemplateId, long Gold, IReadOnlyDictionary<int, int> EntriesPerItem)
 {
-    public bool Allows(int itemTemplateId) => ItemTemplateIds.Contains(itemTemplateId);
+    /// <summary>True when every rolled template is in the table and none appears more often than its entries.</summary>
+    public bool Accepts(IEnumerable<int> rolledItemTemplateIds)
+    {
+        foreach (IGrouping<int, int> rolled in rolledItemTemplateIds.GroupBy(id => id))
+        {
+            if (!EntriesPerItem.TryGetValue(rolled.Key, out int entries) || rolled.Count() > entries)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
 
 /// <summary>
@@ -62,7 +78,7 @@ internal sealed class ContentCatalog
                 throw Invalid($"drop table references unknown monster {table.MonsterTemplateId}");
             }
 
-            HashSet<int> allowed = [];
+            var entriesPerItem = new Dictionary<int, int>();
             foreach (DropEntryFile entry in table.Entries)
             {
                 if (!itemIds.Contains(entry.ItemTemplateId))
@@ -70,10 +86,10 @@ internal sealed class ContentCatalog
                     throw Invalid($"drop table for monster {table.MonsterTemplateId} references unknown item {entry.ItemTemplateId}");
                 }
 
-                allowed.Add(entry.ItemTemplateId);
+                entriesPerItem[entry.ItemTemplateId] = entriesPerItem.GetValueOrDefault(entry.ItemTemplateId) + 1;
             }
 
-            if (table.Gold < 0 || !dropTables.TryAdd(table.MonsterTemplateId, new DropTable(table.MonsterTemplateId, table.Gold, allowed)))
+            if (table.Gold < 0 || !dropTables.TryAdd(table.MonsterTemplateId, new DropTable(table.MonsterTemplateId, table.Gold, entriesPerItem)))
             {
                 throw Invalid($"drop table for monster {table.MonsterTemplateId} is duplicated or has negative gold");
             }

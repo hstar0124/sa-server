@@ -99,5 +99,66 @@ public sealed class RecordKillTests(PostgresFixture postgres) : IDisposable
         Assert.Equal(0, receipts);
     }
 
+    [Fact]
+    public async Task A_kill_with_more_of_an_item_than_its_table_lists_is_refused()
+    {
+        using DirectoryClient directory = Directory;
+        using EconomyClient economy = Economy;
+        (byte[] gateway, _) = await WorldEntry.LiveInfrastructureAsync(directory, World, Zone);
+        EnteredCharacter killer = await WorldEntry.EnterAsync(Api, directory, gateway, World);
+        // The slime's table names the gel once, so one kill can yield at most one gel.
+        RecordKillRequest inflated = EconomyClient.KillRequest(World, killer.CharacterId, killer.Authority, Slime, ContentVersion, SlimeGel, SlimeGel);
+
+        RecordKillResponse answer = await economy.RecordKillAsync(inflated);
+
+        Assert.Equal(KillOutcome.UnknownTemplate, answer.Outcome);
+        long receipts = await Db.ScalarAsync<long>(postgres.ConnectionString, "SELECT count(*) FROM game.kill_receipts WHERE kill_id = @id", new { id = inflated.KillId.ToByteArray() });
+        Assert.Equal(0, receipts);
+    }
+
+    [Fact]
+    public async Task A_zone_whose_lease_ended_grants_nothing_for_a_character_it_still_names()
+    {
+        using DirectoryClient directory = Directory;
+        using EconomyClient economy = Economy;
+        (byte[] gateway, _) = await WorldEntry.LiveInfrastructureAsync(directory, World, Zone);
+        EnteredCharacter killer = await WorldEntry.EnterAsync(Api, directory, gateway, World);
+        // A restarted process takes the zone over; the ownership row still names the old instance.
+        Assert.True((await directory.RenewZoneAsync(DirectoryClient.NewInstanceId(), World, Zone)).Renewed);
+
+        RecordKillRequest kill = EconomyClient.KillRequest(World, killer.CharacterId, killer.Authority, Slime, ContentVersion, SlimeGel);
+        RecordKillResponse answer = await economy.RecordKillAsync(kill);
+
+        Assert.Equal(KillOutcome.StaleAuthority, answer.Outcome);
+        long receipts = await Db.ScalarAsync<long>(postgres.ConnectionString, "SELECT count(*) FROM game.kill_receipts WHERE kill_id = @id", new { id = kill.KillId.ToByteArray() });
+        Assert.Equal(0, receipts);
+    }
+
+    [Fact]
+    public async Task A_kill_retried_after_the_killer_entered_again_is_echoed_not_refused()
+    {
+        using DirectoryClient directory = Directory;
+        using EconomyClient economy = Economy;
+        (byte[] gateway, _) = await WorldEntry.LiveInfrastructureAsync(directory, World, Zone);
+        ApiClient owner = await Api.AsNewAccountAsync(Unique.Username());
+        (byte[] ticket, long characterId) = await owner.CreateCharacterAndEnterAsync(World, Unique.CharacterName());
+        byte[] session = DirectoryClient.NewInstanceId();
+        RedeemEntryTicketResponse first = await directory.RedeemAsync(ticket, gateway, session);
+        RecordKillRequest kill = EconomyClient.KillRequest(World, characterId, EconomyClient.AuthorityOf(first), Slime, ContentVersion, SlimeGel);
+        RecordKillResponse recorded = await economy.RecordKillAsync(kill);
+        Assert.Equal(KillOutcome.Recorded, recorded.Outcome);
+
+        // The answer was lost; meanwhile the player left and came back (a new ownership epoch).
+        await directory.EndSessionAsync(session);
+        RedeemEntryTicketResponse again = await directory.RedeemAsync(await owner.TicketForAsync(World, characterId), gateway, DirectoryClient.NewInstanceId());
+        Assert.Equal(RedeemOutcome.Granted, again.Outcome);
+        Assert.True(again.OwnerEpoch > first.OwnerEpoch);
+        RecordKillResponse retry = await economy.RecordKillAsync(kill);
+
+        Assert.Equal(KillOutcome.AlreadyRecorded, retry.Outcome);
+        Assert.Equal(recorded.Items.Select(i => i.ItemInstanceId.ToBase64()).Order(), retry.Items.Select(i => i.ItemInstanceId.ToBase64()).Order());
+        Assert.Equal(0UL, retry.GoldGranted);
+    }
+
     public void Dispose() => _factory.Dispose();
 }

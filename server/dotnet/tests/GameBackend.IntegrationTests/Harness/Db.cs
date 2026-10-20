@@ -3,7 +3,7 @@ using Npgsql;
 
 namespace Sa.GameBackend.IntegrationTests.Harness;
 
-/// <summary>Direct database reads for assertions: tests check rows, not only status codes (see tests/integration/README.md).</summary>
+/// <summary>Direct database access for assertions and arrangement: tests check rows, not only status codes (see tests/integration/README.md).</summary>
 internal static class Db
 {
     public static async Task<T> ScalarAsync<T>(string connectionString, string sql, object? parameters = null)
@@ -12,5 +12,27 @@ internal static class Db
         await using var connection = new NpgsqlConnection(connectionString);
         return await connection.ExecuteScalarAsync<T>(sql, parameters)
                ?? throw new InvalidOperationException("scalar query returned NULL: " + sql);
+    }
+
+    /// <summary>Arranges a state the API cannot reach quickly, such as an already expired lease or ticket.</summary>
+    public static async Task ExecuteAsync(string connectionString, string sql, object? parameters = null)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.ExecuteAsync(sql, parameters);
+    }
+
+    private static readonly TimeSpan LockWaitPoll = TimeSpan.FromMilliseconds(20);
+    private static readonly TimeSpan LockWaitTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>Returns once some session of this database is blocked on a row or index lock: the race a test arranged is in place.</summary>
+    public static async Task WaitForLockWaitAsync(string connectionString)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        using var timeout = new CancellationTokenSource(LockWaitTimeout);
+        while (!await connection.ExecuteScalarAsync<bool>(
+                   "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock')"))
+        {
+            await Task.Delay(LockWaitPoll, timeout.Token);
+        }
     }
 }
