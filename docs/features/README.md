@@ -26,6 +26,7 @@
 | [20](20-readme-diagrams.md) | README 다이어그램: 지금까지 만든 것을 그림으로 | – | |
 | [21](21-economy-schema.md) | 경제 스키마: 아이템·지갑·영수증·요청 결과를 제약으로 | 5 | |
 | [22](22-backend-economy.md) | Backend 경제 모듈: 처치 보상과 획득을 한 트랜잭션으로 | 5 | |
+| [23](23-zone-drops-pickup.md) | Zone 드롭과 획득: 굴리고 예약하고, 확정은 Backend가 | 5 | |
 
 ## 형식
 
