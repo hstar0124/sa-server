@@ -28,7 +28,7 @@ flowchart TD
 |---|---|---|
 | GameGateway | C++23 | 연결, 프레이밍, 티켓 검증, 세션 상태 기계, Zone 라우팅, 유량 제한 |
 | ZoneServer | C++23 | 지역 시뮬레이션(이동·충돌·전투·몬스터 AI·관심 관리), 세션 표, Backend lease 유지 |
-| GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory). 모듈형 모놀리스 |
+| GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory), 자산(Economy: 처치 기록·획득·조회). 모듈형 모놀리스 |
 | 브라우저 뷰어 | JavaScript | 2D 뷰어. 같은 `.proto`를 브라우저에서 읽고 WebSocket으로 접속해 WASD로 움직이며, 다른 엔티티를 보간 버퍼로 그린다. 버퍼 길이·인위적 유실·외삽을 조절해 동기화를 눈으로 본다. 몬스터·투사체·체력 막대를 그리고, Space·E로 스킬을 쓰고 전투 로그를 띄운다 |
 | loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장하고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 역할은 배회(Wanderer)와 전투(Fighter)다. 전투 봇은 보이는 가장 가까운 몬스터에 다가가 사거리 안에서 주기적으로 공격하고, 시전 수락·거절·처치·사망을 센다. 배회 두뇌는 Zone 안의 프로세스 봇으로도 돈다 |
 
@@ -73,10 +73,12 @@ flowchart TB
         BA["Modules/Auth<br/>가입·로그인·JWT·시도 상한"]
         BC["Modules/Characters<br/>생성·목록·소유 확인"]
         BW["Modules/WorldDirectory<br/>티켓 발급·소비, 세션, 소유권, lease"]
+        BE["Modules/Economy<br/>처치 기록·획득·자산 조회, 요청 결과"]
         BI["Infrastructure<br/>Npgsql 풀, 헬스체크, CORS"]
         BA --> BI
         BC --> BI
         BW --> BI
+        BE --> BI
     end
 
     classDef pure fill:#2d333b,stroke:#8a94a3,color:#e6e9ee
@@ -90,6 +92,7 @@ flowchart TB
 | 위치·속도, 관심 집합, 체력·마나, 시전·쿨타임, 투사체, 몬스터 상태 | Zone | 메모리. 재시작하면 초기화 |
 | 계정, 캐릭터 | Backend | PostgreSQL |
 | 입장 티켓, 세션, 캐릭터의 소유 Zone과 소유권 세대(owner_epoch), 프로세스 lease | Backend WorldDirectory | PostgreSQL |
+| 아이템, 인벤토리, 지갑, 원장, 처치 영수증, 요청 결과 | Backend Economy | PostgreSQL |
 
 규칙은 DB 제약으로도 지킨다. 티켓 소비는 조건부 UPDATE, 캐릭터당 활성 세션 하나는 부분 유일 인덱스, 소유권 변경은 같은 트랜잭션.
 
@@ -105,6 +108,11 @@ erDiagram
     zone_leases ||--o{ character_ownership : holds
     characters ||--o{ character_sessions : connects_as
     gateway_leases ||--o{ character_sessions : hosted_by
+    characters ||--o{ item_instances : holds
+    characters ||--|| inventories : has
+    characters ||--o{ wallets : has
+    characters ||--o{ economy_ledger : records
+    characters ||--o{ kill_receipts : killed_by
 
     accounts {
         bigint account_id PK
@@ -145,6 +153,38 @@ erDiagram
     gateway_leases {
         bytea gateway_instance_id PK
         timestamptz lease_expires_at
+    }
+    item_instances {
+        bytea item_instance_id PK
+        text location "ground | inventory, 위치별 필수 열 CHECK"
+        bigint owner_character_id FK
+        int slot_no "캐릭터별 칸당 1개 (부분 UNIQUE)"
+        int zone_id "바닥일 때"
+    }
+    inventories {
+        bigint character_id PK
+        int capacity
+        int version
+    }
+    wallets {
+        bigint character_id PK
+        text currency PK
+        bigint balance "CHECK >= 0"
+    }
+    economy_ledger {
+        bigint entry_id PK
+        text kind "덧붙이기만"
+    }
+    kill_receipts {
+        bytea kill_id PK "몬스터 생명주기당 1개"
+        bigint owner_epoch
+        text content_version
+    }
+    command_results {
+        text scope PK
+        bytea request_id PK
+        bytea request_hash "같은 ID 다른 본문 판별"
+        jsonb payload "재시도에 돌려줄 결과"
     }
 ```
 
@@ -289,6 +329,14 @@ stateDiagram-v2
 | `command_results` | 요청 ID별 결과. 먼저 넣은 쪽이 이기고(`INSERT ... ON CONFLICT`), 진 쪽은 저장된 결과를 읽는다. 본문 해시로 같은 ID에 다른 내용을 실은 요청을 가려낸다 |
 | `outbox_events` | 업무 변경과 같은 트랜잭션에 쓰는 이벤트 행. 집합(aggregate)별 순번이 유일하다 |
 
+Backend의 `Modules/Economy`가 이 계약을 구현한다. 호출 하나가 트랜잭션 하나이고, 판정은 그 안의 조건부 문장과 제약이 한다. 그래서 두 Zone, 두 캐릭터, 같은 요청의 두 재시도가 동시에 이길 수 없다.
+
+- **처치 기록**: 호출한 Zone이 지금 그 캐릭터의 소유자인지(Zone 인스턴스와 `owner_epoch`)를 소유권 행에 공유 잠금을 걸고 확인한다. 콘텐츠 버전이 같아야 하고, 드롭은 그 몬스터의 드롭 표가 허용하는 아이템만 받는다. 영수증을 넣는 데 성공한 쪽만 드롭 아이템을 그 Zone의 바닥에 만들고 골드를 지갑에 더하며 원장에 남긴다. 같은 `kill_id`가 다시 오면 저장된 아이템을 돌려주고 아무것도 더 주지 않는다.
+- **아이템 획득**: 요청 ID를 먼저 넣고, 이긴 요청만 진행한다. 캐릭터의 인벤토리 행을 잠가 한 캐릭터의 획득을 줄 세운 뒤, 아이템이 아직 소유 Zone의 바닥에 있을 때만 조건부 UPDATE로 비어 있는 가장 앞 칸에 넣는다. 결과는 요청 ID와 함께 저장해, 재시도는 같은 답을 받고 다른 본문은 거절된다.
+- **자산 조회**: 인벤토리와 지갑의 현재 상태를 돌려준다.
+
+Backend도 `Economy:ContentDir`의 같은 game-data를 읽는다. Zone과 다른 콘텐츠 버전으로 보고된 처치는 거절한다.
+
 콘텐츠는 `game-data/`의 데이터다. 아이템 템플릿, 몬스터별 드롭 표(항목별 확률과 골드), 경제 규칙(인벤토리 용량, 획득 거리, 바닥 아이템 소멸 시간)이 있다. Zone 로더가 전투 콘텐츠와 함께 읽고, 드롭 표가 모르는 몬스터나 아이템을 가리키면 거절한다.
 
 ## 소유권과 lease
@@ -304,7 +352,7 @@ stateDiagram-v2
 
 **전투 end-to-end**: 같은 스크립트에 `fighters.toml` 프로필을 주면 전투 봇 5개와 배회 봇 1개가 40초 동안 몬스터를 사냥한다. 정해진 수 이상의 몬스터가 죽고 모순이 0이어야 통과한다.
 
-**정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절.
+**정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭 거절.
 
 ## 기술 선택
 

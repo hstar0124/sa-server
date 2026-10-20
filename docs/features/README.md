@@ -25,6 +25,7 @@
 | [19](19-docs-self-contained.md) | 설계 노트 자기완결화: 노트 하나만 읽어도 이해되게 | – | |
 | [20](20-readme-diagrams.md) | README 다이어그램: 지금까지 만든 것을 그림으로 | – | |
 | [21](21-economy-schema.md) | 경제 스키마: 아이템·지갑·영수증·요청 결과를 제약으로 | 5 | |
+| [22](22-backend-economy.md) | Backend 경제 모듈: 처치 보상과 획득을 한 트랜잭션으로 | 5 | |
 
 ## 형식
 

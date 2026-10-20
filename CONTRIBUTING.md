@@ -10,7 +10,7 @@
 - [ ] 작업 중 만난 문제는 `docs/issues/NNN-slug.md` + 색인 표. 보고서·피처 문서는 링크만.
 - [ ] 설계 변경이면 `docs/adr/`에 ADR, "왜"가 길면 `docs/design-notes/`, 측정은 `docs/reports/`.
 - [ ] C++: `cmake --build --preset dev && ctest --preset dev`, `cmake --build --preset tidy`, `cmake --build --preset asan && ctest --preset asan`, `scripts/check-format.sh`.
-- [ ] C#: `dotnet build` 경고 0, 통합 테스트(Testcontainers) 통과, `dotnet format --verify-no-changes`.
+- [ ] C#: `dotnet build` 경고 0, 통합 테스트(Testcontainers) 통과, `dotnet format --verify-no-changes`. 패키지를 더하거나 바꾸면 `dotnet restore server/dotnet/GameServer.slnx --force-evaluate`로 `packages.lock.json`을 갱신해 같은 커밋에 넣는다. CI는 `--locked-mode`로 복원하므로 잠금 파일이 낡으면 .NET 잡이 실패한다.
 - [ ] end-to-end: `scripts/e2e-local.sh <프로필>` PASS(3단계 이후).
 - [ ] 단계 끝이면 `scripts/bench/capacity.sh` 50~2,000 재측정, 보고서에 비교(7단계 이후).
 - [ ] 검증은 **커밋된 트리**로 한다: `git stash -u` 뒤 빌드하거나 별도 worktree(`git worktree add`)에서 빌드한다. 작업 트리에만 있는 파일에 기대지 않는다.

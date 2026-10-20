@@ -2,6 +2,7 @@ using Sa.GameBackend.Infrastructure.Database;
 using Sa.GameBackend.Infrastructure.Http;
 using Sa.GameBackend.Modules.Auth;
 using Sa.GameBackend.Modules.Characters;
+using Sa.GameBackend.Modules.Economy;
 using Sa.GameBackend.Modules.WorldDirectory;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -13,6 +14,7 @@ builder.Services.AddViewerCors(builder.Configuration);
 builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddCharactersModule(builder.Configuration);
 builder.Services.AddWorldDirectoryModule(builder.Configuration);
+builder.Services.AddEconomyModule(builder.Configuration);
 
 builder.Services.AddGrpc();
 builder.Services.AddProblemDetails();
@@ -32,6 +34,7 @@ app.MapAuthEndpoints();
 app.MapCharacterEndpoints();
 app.MapEntryEndpoints();
 app.MapGrpcService<WorldDirectoryGrpcService>();
+app.UseEconomyModule();
 
 // Liveness answers while the process runs; readiness also requires the database.
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
