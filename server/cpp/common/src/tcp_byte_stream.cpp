@@ -31,7 +31,11 @@ void TcpByteStream::ReadMore() {
                                     self->Finish(ec);
                                     return;
                                 }
-                                self->callbacks_.on_bytes(std::span{self->read_chunk_.data(), n});
+                                // A copy: the callback may close the stream, which drops
+                                // callbacks_ and with them the last reference to the connection
+                                // above, while the callback is still running.
+                                const auto on_bytes = self->callbacks_.on_bytes;
+                                on_bytes(std::span{self->read_chunk_.data(), n});
                                 if (self->state_ == State::kOpen) {
                                     self->ReadMore();
                                 }

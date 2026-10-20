@@ -35,7 +35,9 @@ void FramedConnection::OnBytes(std::span<const std::byte> bytes) {
         if (!*popped) {
             return;
         }
-        callbacks_.on_message(**popped);
+        // A copy: the handler may close this connection, which clears callbacks_ while it runs.
+        const auto on_message = callbacks_.on_message;
+        on_message(**popped);
     }
 }
 

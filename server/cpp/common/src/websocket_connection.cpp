@@ -94,7 +94,11 @@ void WebSocketConnection::OnFrame(websocket::Frame frame) {
                     websocket::CloseStatus::kUnsupportedData);  // fragmentation is not used
                 return;
             }
-            callbacks_.on_message(frame.payload);
+            {
+                // A copy: the handler may close this connection, which clears callbacks_.
+                const auto on_message = callbacks_.on_message;
+                on_message(frame.payload);
+            }
             return;
         case Opcode::kPing:
             WriteFrame(Opcode::kPong, frame.payload);
