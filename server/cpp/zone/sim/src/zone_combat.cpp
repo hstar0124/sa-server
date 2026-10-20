@@ -52,7 +52,7 @@ void Zone::ApplyCast(const CastCommand& command) {
     // Cost is paid when the cast starts so a second cast cannot spend the same MP; the cooldown
     // starts at activation so an interrupted cast does not lock the skill.
     player.vitals.mp -= skill->cost_mp;
-    player.vitals_changed_this_tick = true;
+    player.changed_at = tick_;
     if (skill->cast_time.count() == 0) {
         Activate(command.player, player, *skill, command.target);
         return;
@@ -221,19 +221,19 @@ void Zone::UpdateProjectiles() {
 void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, SkillId skill,
                        std::int32_t damage) {
     Vitals* vitals = nullptr;
-    bool* changed = nullptr;
+    common::TickIndex* changed_at = nullptr;
     if (const auto m = monsters_.find(target); m != monsters_.end()) {
         vitals = &m->second.vitals;
-        changed = &m->second.vitals_changed_this_tick;
+        changed_at = &m->second.changed_at;
     } else if (const auto p = players_.find(target); p != players_.end()) {
         vitals = &p->second.vitals;
-        changed = &p->second.vitals_changed_this_tick;
+        changed_at = &p->second.changed_at;
     }
     if (vitals == nullptr || !vitals->IsAlive()) {
         return;  // death is processed exactly once per lifecycle
     }
     vitals->hp = std::max(0, vitals->hp - std::max(0, damage));
-    *changed = true;
+    *changed_at = tick_;
     ++stats_.hits;
     const bool killed = !vitals->IsAlive();
     const CombatEvent event{.attacker = attacker,
@@ -260,7 +260,7 @@ void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, Skill
 
 void Zone::OnPlayerDeath(common::EntityId /*id*/, Player& player) {
     player.cast.reset();
-    player.velocity = {};
+    SetVelocity(player.velocity, player.changed_at, {});
     player.desired_direction = {};
     player.respawn_at = TicksFromNow(rules_.combat.player_respawn);
 }
@@ -275,8 +275,7 @@ void Zone::RespawnPlayers() {
         player.position = map_.spawn_points[index];
         player.vitals.hp = player.vitals.max_hp;
         player.vitals.mp = player.vitals.max_mp;
-        player.moved_this_tick = true;
-        player.vitals_changed_this_tick = true;
+        player.changed_at = tick_;
         grid_.Move(id, player.position);
     }
 }
@@ -291,7 +290,7 @@ void Zone::RegenerateMp() {
         if (whole > 0) {
             player.mp_regen_carry -= static_cast<float>(whole);
             player.vitals.mp = std::min(player.vitals.max_mp, player.vitals.mp + whole);
-            player.vitals_changed_this_tick = true;
+            player.changed_at = tick_;
         }
     }
 }

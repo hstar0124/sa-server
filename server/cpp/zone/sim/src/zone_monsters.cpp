@@ -166,7 +166,7 @@ void Zone::Think(common::EntityId id, Monster& monster) {
                 // Returning restores full health: a leash cannot be used to whittle a monster down.
                 if (monster.vitals.hp != monster.vitals.max_hp) {
                     monster.vitals.hp = monster.vitals.max_hp;
-                    monster.vitals_changed_this_tick = true;
+                    monster.changed_at = tick_;
                 }
             }
             return;
@@ -175,17 +175,18 @@ void Zone::Think(common::EntityId id, Monster& monster) {
 
 void Zone::MoveMonster(common::EntityId id, Monster& monster) {
     if (!monster.goal) {
-        monster.velocity = {};
+        SetVelocity(monster.velocity, monster.changed_at, {});
         return;
     }
     const common::Vec2 next = StepTowards(monster.position, *monster.goal, monster.def->speed_mps);
     if (next == monster.position) {
-        monster.velocity = {};
+        SetVelocity(monster.velocity, monster.changed_at, {});
         return;
     }
-    monster.velocity = (next - monster.position) * (1.0F / dt_seconds_);
+    SetVelocity(monster.velocity, monster.changed_at,
+                (next - monster.position) * (1.0F / dt_seconds_));
     monster.position = next;
-    monster.moved_this_tick = true;
+    monster.changed_at = tick_;
     grid_.Move(id, next);
 }
 

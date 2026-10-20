@@ -156,8 +156,11 @@ private:
         common::Vec2 velocity;
         common::Vec2 desired_direction;  // unit or zero
         std::uint32_t last_input_seq = 0;
-        bool moved_this_tick = false;
-        bool vitals_changed_this_tick = false;
+        // Last tick this player's snapshot (position, velocity, vitals) changed, and the tick of
+        // this player's previous view: a view reports what changed since then, however many
+        // ticks passed in between.
+        common::TickIndex changed_at;
+        common::TickIndex viewed_at;
         Vitals vitals;
         float mp_regen_carry = 0.0F;  // fractional MP accumulated between whole points
         std::unordered_map<SkillId, common::TickIndex> cooldown_ready_at;
@@ -179,8 +182,7 @@ private:
         common::Vec2 position;
         common::Vec2 velocity;
         Vitals vitals;
-        bool moved_this_tick = false;
-        bool vitals_changed_this_tick = false;
+        common::TickIndex changed_at;  // last tick this monster's snapshot changed
         AiState state = AiState::kIdle;
         common::EntityId target;
         std::optional<common::Vec2> goal;
@@ -228,9 +230,12 @@ private:
                                            float speed_mps) const;
     void UpdateInterestSets();
     void RecomputeInterest(common::EntityId self, Player& player);
-    [[nodiscard]] bool ChangedThisTick(common::EntityId entity) const;
+    [[nodiscard]] bool ChangedSince(common::EntityId entity, common::TickIndex tick) const;
+    // Sets a body's velocity and stamps the change when there is one: a stop is news to observers
+    // just like a step, or they keep extrapolating the old velocity.
+    void SetVelocity(common::Vec2& velocity, common::TickIndex& changed_at,
+                     common::Vec2 next) const;
     [[nodiscard]] static bool SortedContainsInterest(const Player& player, common::EntityId entity);
-    void ResetTickFlags();
     [[nodiscard]] common::TickIndex TicksFromNow(std::chrono::milliseconds duration) const;
     void Deliver(common::EntityId recipient, ZoneEvent event);
     // Everyone who currently sees `subject`, plus `subject` itself when it is a player.

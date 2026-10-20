@@ -149,7 +149,6 @@ void Zone::ApplyMove(const MoveCommand& command) {
 
 void Zone::Tick() {
     tick_ = tick_.Next();
-    ResetTickFlags();
     DrainCommands();      // ValidateAndApplyCommands within the per-tick budget
     ResolveCasts();       // casts whose cast time elapsed
     IntegratePlayers();   // UpdateMovementAndCollision
@@ -164,35 +163,33 @@ void Zone::Tick() {
     stats_.projectiles = projectiles_.size();
 }
 
-void Zone::ResetTickFlags() {
-    for (auto& [id, player] : players_) {
-        player.moved_this_tick = false;
-        player.vitals_changed_this_tick = false;
-    }
-    for (auto& [id, monster] : monsters_) {
-        monster.moved_this_tick = false;
-        monster.vitals_changed_this_tick = false;
-    }
-}
-
 void Zone::IntegratePlayers() {
     for (auto& [id, player] : players_) {
         // Casting roots the caster; the intent is kept and applied once the cast resolves.
         const bool rooted = player.cast.has_value() || !player.vitals.IsAlive();
         if (rooted || player.desired_direction.IsZero()) {
-            player.velocity = {};
+            SetVelocity(player.velocity, player.changed_at, {});
             continue;
         }
-        player.velocity = player.desired_direction * rules_.movement.max_speed_mps;
-        const common::Vec2 target = player.position + player.velocity * dt_seconds_;
-        const common::Vec2 resolved = ResolveCollisions(player.position, target);
-        if (resolved != player.position) {
-            player.position = resolved;
-            player.moved_this_tick = true;
-            grid_.Move(id, resolved);
-        } else {
-            player.velocity = {};
+        const common::Vec2 velocity = player.desired_direction * rules_.movement.max_speed_mps;
+        const common::Vec2 resolved =
+            ResolveCollisions(player.position, player.position + velocity * dt_seconds_);
+        if (resolved == player.position) {
+            SetVelocity(player.velocity, player.changed_at, {});
+            continue;
         }
+        SetVelocity(player.velocity, player.changed_at, velocity);
+        player.position = resolved;
+        player.changed_at = tick_;
+        grid_.Move(id, resolved);
+    }
+}
+
+void Zone::SetVelocity(common::Vec2& velocity, common::TickIndex& changed_at,
+                       common::Vec2 next) const {
+    if (velocity != next) {
+        velocity = next;
+        changed_at = tick_;
     }
 }
 
@@ -276,14 +273,14 @@ void Zone::RecomputeInterest(common::EntityId self, Player& player) {
 // ---- output
 // -----------------------------------------------------------------------------------------
 
-bool Zone::ChangedThisTick(common::EntityId entity) const {
+bool Zone::ChangedSince(common::EntityId entity, common::TickIndex tick) const {
     if (const auto p = players_.find(entity); p != players_.end()) {
-        return p->second.moved_this_tick || p->second.vitals_changed_this_tick;
+        return p->second.changed_at > tick;
     }
     if (const auto m = monsters_.find(entity); m != monsters_.end()) {
-        return m->second.moved_this_tick || m->second.vitals_changed_this_tick;
+        return m->second.changed_at > tick;
     }
-    return projectiles_.contains(entity);  // projectiles move every tick
+    return projectiles_.contains(entity);  // projectiles move every tick; items never change
 }
 
 PlayerView Zone::CollectView(common::EntityId player_id) {
@@ -304,13 +301,14 @@ PlayerView Zone::CollectView(common::EntityId player_id) {
             if (auto snapshot = SnapshotOf(id)) {
                 view.spawned.push_back(*snapshot);
             }
-        } else if (ChangedThisTick(id)) {
+        } else if (ChangedSince(id, player.viewed_at)) {
             if (auto snapshot = SnapshotOf(id)) {
                 view.updated.push_back(*snapshot);
             }
         }
     }
     player.known = player.interest;
+    player.viewed_at = tick_;
     return view;
 }
 
