@@ -2,14 +2,10 @@
 #include "sa/zone/sim/zone.hpp"
 
 #include <algorithm>
-#include <cmath>
-#include <numbers>
 
 namespace sa::zone::sim {
 namespace {
 
-// Monsters sharing a home stand on a ring around it so they do not stack.
-constexpr float kPackRingRadiusM = 1.5F;
 // Close enough to the home to count as returned.
 constexpr float kArriveDistanceM = 0.5F;
 
@@ -18,14 +14,8 @@ constexpr float kArriveDistanceM = 0.5F;
 void Zone::PopulateMonsterSlots() {
     for (const MonsterSpawn& spawn : map_.monster_spawns) {
         const MonsterDefinition& def = content_.monsters.at(spawn.template_id);
-        for (std::uint32_t i = 0; i < spawn.count; ++i) {
-            const float angle = 2.0F * std::numbers::pi_v<float> * static_cast<float>(i) /
-                                static_cast<float>(spawn.count);
-            const common::Vec2 offset =
-                spawn.count == 1
-                    ? common::Vec2{}
-                    : common::Vec2{std::cos(angle), std::sin(angle)} * kPackRingRadiusM;
-            monster_slots_.push_back(MonsterSlot{.def = &def, .home = spawn.position + offset});
+        for (const common::Vec2 home : MapData::HomesOf(spawn)) {
+            monster_slots_.push_back(MonsterSlot{.def = &def, .home = home});
         }
     }
     for (std::size_t i = 0; i < monster_slots_.size(); ++i) {

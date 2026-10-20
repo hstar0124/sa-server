@@ -19,6 +19,8 @@ TEST(GameDataLoader, ShippedMapAndRulesAreValid) {
     const auto rules = LoadMovementRules(kGameData / "rules" / "movement.toml");
     ASSERT_TRUE(rules.has_value()) << rules.error().message;
     EXPECT_GE(rules->aoi_leave_radius_m, rules->aoi_enter_radius_m);
+    EXPECT_TRUE(map->ValidateWalkable(rules->body_radius_m).has_value())
+        << map->ValidateWalkable(rules->body_radius_m).error();
 }
 
 TEST(GameDataLoader, ParsesMinimalMap) {
@@ -48,10 +50,28 @@ TEST(GameDataLoader, RejectsMalformedTuplesAndSemanticErrors) {
     EXPECT_FALSE(ParseMap("[map\n").has_value());
 }
 
+TEST(GameDataLoader, RejectsNumbersThatAreNotFinite) {
+    // TOML allows nan and inf; neither is a size or a speed. A NaN cell size passes the "<= 0"
+    // check and reaches an undefined float-to-integer cast in the spatial grid.
+    const auto map = ParseMap(
+        "[map]\nwidth = 10.0\nheight = 10.0\ncell_size = nan\nobstacles = []\n"
+        "spawn_points = [[5.0, 5.0]]\n");
+    ASSERT_FALSE(map.has_value());
+    EXPECT_NE(map.error().message.find("map.cell_size"), std::string::npos);
+    EXPECT_FALSE(ParseMap("[map]\nwidth = 10.0\nheight = 10.0\ncell_size = 5.0\nobstacles = "
+                          "[]\nspawn_points = [[inf, 5.0]]\n")
+                     .has_value());
+    EXPECT_FALSE(ParseMap("[map]\nwidth = 1e300\nheight = 10.0\ncell_size = 5.0\nobstacles = "
+                          "[]\nspawn_points = [[5.0, 5.0]]\n")
+                     .has_value())
+        << "beyond the float range";
+}
+
 TEST(GameDataLoader, RejectsRulesWithLeaveBelowEnter) {
     const auto rules = ParseMovementRules(R"(
 [movement]
 max_speed_mps = 6.0
+body_radius_m = 0.4
 [aoi]
 enter_radius_m = 40.0
 leave_radius_m = 30.0

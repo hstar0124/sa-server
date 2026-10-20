@@ -11,10 +11,6 @@
 namespace sa::zone::sim {
 namespace {
 
-// Half-width of a player's or monster's footprint for terrain tests; a property of the collision
-// model, not of the content.
-constexpr float kBodyRadiusM = 0.4F;
-
 bool SortedContains(const std::vector<common::EntityId>& sorted, common::EntityId id) {
     return std::ranges::binary_search(sorted, id);
 }
@@ -30,6 +26,9 @@ std::expected<Zone, std::string> Zone::Create(ZoneConfig config, MapData map, Zo
     }
     if (auto valid = map.ValidateAgainst(content); !valid) {
         return std::unexpected(valid.error());
+    }
+    if (auto walkable = map.ValidateWalkable(rules.movement.body_radius_m); !walkable) {
+        return std::unexpected(walkable.error());
     }
     Zone zone{config, std::move(map), std::move(rules), std::move(content), rng};
     zone.PopulateMonsterSlots();
@@ -240,15 +239,7 @@ void Zone::SetVelocity(common::Vec2& velocity, common::TickIndex& changed_at,
 }
 
 bool Zone::Blocked(common::Vec2 point) const {
-    if (point.x < kBodyRadiusM || point.y < kBodyRadiusM || point.x > map_.size.x - kBodyRadiusM ||
-        point.y > map_.size.y - kBodyRadiusM) {
-        return true;
-    }
-    const common::Vec2 footprint{kBodyRadiusM, kBodyRadiusM};
-    return std::ranges::any_of(map_.obstacles, [&](const common::Aabb& box) {
-        const common::Aabb grown{.min = box.min - footprint, .max = box.max + footprint};
-        return grown.Contains(point);
-    });
+    return !map_.IsWalkable(point, rules_.movement.body_radius_m);
 }
 
 // Axis-separated resolution: try the full move, then each axis alone so bodies slide along walls

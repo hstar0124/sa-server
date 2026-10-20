@@ -118,6 +118,7 @@ inline sim::Zone MakeZone() {
                      .monster_spawns = {sim::MonsterSpawn{
                          .template_id = kRat, .position = kRatHome, .count = 1}}},
         sim::ZoneRules{.movement = sim::MovementRules{.max_speed_mps = 10.0F,
+                                                      .body_radius_m = 0.4F,
                                                       .aoi_enter_radius_m = 20.0F,
                                                       .aoi_leave_radius_m = 25.0F,
                                                       .commands_per_tick_budget = 100,

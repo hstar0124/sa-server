@@ -186,6 +186,15 @@ TEST(ZoneMovement, AFullQueueAnswersUnknownWithoutProcessing) {
     EXPECT_EQ(zone.stats().commands_applied, 3U);
 }
 
+TEST(ZoneMovement, AZoneWithASpawnPointNobodyCouldMoveFromIsNotCreated) {
+    MapData map = test::OpenField();
+    map.spawn_points.emplace_back(0.0F, 0.0F);
+    const auto zone =
+        Zone::Create(test::Config(), std::move(map), test::AllRules(), test::Content(), Rng{1});
+    ASSERT_FALSE(zone.has_value());
+    EXPECT_NE(zone.error().find("spawn point 2"), std::string::npos);
+}
+
 TEST(ZoneMovement, SpawnWithoutPositionUsesASpawnPoint) {
     Zone zone = test::MakeZone();
     const EntityId p = test::SpawnAnywhere(zone, 1);

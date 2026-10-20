@@ -3,8 +3,10 @@
 #include <toml++/toml.hpp>
 
 #include <chrono>
+#include <cmath>
 #include <format>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <utility>
@@ -32,11 +34,23 @@ std::expected<toml::table, LoadError> ParseText(std::string_view text, const cha
 
 // ---- typed field access -------------------------------------------------------------------------
 
-std::expected<float, LoadError> RequireFloat(const toml::table& table, std::string_view key) {
-    if (const auto value = table.at_path(key).value<double>()) {
-        return static_cast<float>(*value);
+// A number as a float, or nothing when it is absent, not a number, NaN, infinite or beyond the
+// float range (converting such a double is undefined). NaN would slip past every "<= 0" check.
+template <typename Node>
+std::optional<float> FiniteFloat(const Node& node) {
+    const auto value = node.template value<double>();
+    if (!value || !std::isfinite(*value) ||
+        std::abs(*value) > static_cast<double>(std::numeric_limits<float>::max())) {
+        return std::nullopt;
     }
-    return std::unexpected(LoadError{std::format("missing or non-numeric '{}'", key)});
+    return static_cast<float>(*value);
+}
+
+std::expected<float, LoadError> RequireFloat(const toml::table& table, std::string_view key) {
+    if (const auto value = FiniteFloat(table.at_path(key))) {
+        return *value;
+    }
+    return std::unexpected(LoadError{std::format("missing or non-finite number '{}'", key)});
 }
 
 std::expected<std::int64_t, LoadError> RequireInt(const toml::table& table, std::string_view key) {
@@ -102,11 +116,12 @@ std::expected<std::vector<std::vector<float>>, LoadError> RequireTuples(const to
         }
         std::vector<float> tuple;
         for (const toml::node& n : *inner) {
-            const auto v = n.value<double>();
+            const auto v = FiniteFloat(n);
             if (!v) {
-                return std::unexpected(LoadError{std::format("'{}' contains a non-number", key)});
+                return std::unexpected(
+                    LoadError{std::format("'{}' contains a non-finite number", key)});
             }
-            tuple.push_back(static_cast<float>(*v));
+            tuple.push_back(*v);
         }
         out.push_back(std::move(tuple));
     }
@@ -121,11 +136,12 @@ std::expected<std::vector<float>, LoadError> RequirePair(const toml::table& tabl
     }
     std::vector<float> out;
     for (const toml::node& n : *array) {
-        const auto v = n.value<double>();
+        const auto v = FiniteFloat(n);
         if (!v) {
-            return std::unexpected(LoadError{std::format("'{}' contains a non-number", key)});
+            return std::unexpected(
+                LoadError{std::format("'{}' contains a non-finite number", key)});
         }
-        out.push_back(static_cast<float>(*v));
+        out.push_back(*v);
     }
     return out;
 }
@@ -217,14 +233,16 @@ std::expected<sim::MapData, LoadError> MapFromTable(const toml::table& table) {
 
 std::expected<sim::MovementRules, LoadError> RulesFromTable(const toml::table& table) {
     const auto speed = RequireFloat(table, "movement.max_speed_mps");
+    const auto body = RequireFloat(table, "movement.body_radius_m");
     const auto enter = RequireFloat(table, "aoi.enter_radius_m");
     const auto leave = RequireFloat(table, "aoi.leave_radius_m");
     const auto budget = RequireU32(table, "input.commands_per_tick_budget");
     const auto queued = RequireU32(table, "input.max_queued_per_player");
-    if (auto err = FirstError(speed, enter, leave, budget, queued)) {
+    if (auto err = FirstError(speed, body, enter, leave, budget, queued)) {
         return std::unexpected(*err);
     }
     const sim::MovementRules rules{.max_speed_mps = *speed,
+                                   .body_radius_m = *body,
                                    .aoi_enter_radius_m = *enter,
                                    .aoi_leave_radius_m = *leave,
                                    .commands_per_tick_budget = *budget,

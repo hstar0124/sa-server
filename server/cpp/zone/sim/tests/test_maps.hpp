@@ -114,6 +114,7 @@ inline MapData FieldWithSlime(common::Vec2 at = {70.0F, 70.0F}) {
 
 inline MovementRules Rules() {
     return MovementRules{.max_speed_mps = 10.0F,
+                         .body_radius_m = 0.4F,
                          .aoi_enter_radius_m = 20.0F,
                          .aoi_leave_radius_m = 25.0F,
                          .commands_per_tick_budget = 1024,

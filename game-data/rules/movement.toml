@@ -1,6 +1,9 @@
 # Movement and interest-management rules. Initial proposals (see README "Zone의 한 틱"), not tuned.
 [movement]
 max_speed_mps = 6.0
+# Half-width of a player's or monster's footprint against terrain. Spawn points and monster homes
+# must leave this much room to every obstacle and to the map edge.
+body_radius_m = 0.4
 
 [aoi]
 # Entities within enter_radius become visible; they stay visible until beyond leave_radius.
