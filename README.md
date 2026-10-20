@@ -333,9 +333,9 @@ stateDiagram-v2
 
 Backend의 `Modules/Economy`가 이 계약을 구현한다. 호출 하나가 트랜잭션 하나이고, 판정은 그 안의 조건부 문장과 제약이 한다. 그래서 두 Zone, 두 캐릭터, 같은 요청의 두 재시도가 동시에 이길 수 없다.
 
-- **처치 기록**: 호출한 Zone이 지금 그 캐릭터의 소유자인지(Zone 인스턴스와 `owner_epoch`)를 소유권 행에 공유 잠금을 걸고 확인한다. 콘텐츠 버전이 같아야 하고, 드롭은 그 몬스터의 드롭 표가 허용하는 아이템만 받는다. 영수증을 넣는 데 성공한 쪽만 드롭 아이템을 그 Zone의 바닥에 만들고 골드를 지갑에 더하며 원장에 남긴다. 같은 `kill_id`가 다시 오면 저장된 아이템을 돌려주고 아무것도 더 주지 않는다.
-- **아이템 획득**: 요청 ID를 먼저 넣고, 이긴 요청만 진행한다. 캐릭터의 인벤토리 행을 잠가 한 캐릭터의 획득을 줄 세운 뒤, 아이템이 아직 소유 Zone의 바닥에 있을 때만 조건부 UPDATE로 비어 있는 가장 앞 칸에 넣는다. 결과는 요청 ID와 함께 저장해, 재시도는 같은 답을 받고 다른 본문은 거절된다.
-- **자산 조회**: 인벤토리와 지갑의 현재 상태를 돌려준다.
+- **처치 기록**: 호출한 Zone이 지금 그 캐릭터의 소유자인지(Zone 인스턴스와 `owner_epoch`)를 소유권 행에 공유 잠금을 걸고 확인한다. 그 Zone의 lease도 살아 있어야 한다. 콘텐츠 버전이 같아야 하고, 드롭은 그 몬스터의 드롭 표에 있는 아이템만, 표가 그 아이템에 둔 항목 수까지만 받는다. 영수증을 넣는 데 성공한 쪽만 드롭 아이템을 그 Zone의 바닥에 만들고 골드를 지갑에 더하며 원장에 남긴다. 같은 `kill_id`가 다시 오면 영수증을 먼저 보고, 기록한 Zone이 묻는 것이면 저장된 아이템을 돌려주고 아무것도 더 주지 않는다. 답을 잃은 사이 플레이어가 다시 입장해 소유권 세대가 바뀌었어도 마찬가지다.
+- **아이템 획득**: 요청 ID를 먼저 넣고, 이긴 요청만 진행한다. 캐릭터의 인벤토리 행을 잠가 한 캐릭터의 획득을 줄 세운 뒤, 아이템이 아직 소유 Zone의 바닥에 있을 때만 조건부 UPDATE로 비어 있는 가장 앞 칸에 넣는다. 결과는 요청 ID와 함께 저장해, 재시도는 같은 답을 받고 다른 본문은 거절된다. 결과가 이미 있는 요청은 권한을 보기 전에 저장된 결과로 답한다. 결과는 그때의 권한으로 정해졌기 때문이다.
+- **자산 조회**: 인벤토리와 지갑의 현재 상태를 한 스냅샷에서 읽어 돌려준다. 아이템 목록과 인벤토리 버전이 어긋나지 않는다.
 
 Zone은 자산을 확정하지 않는다. 굴리고, 예약하고, Backend의 답을 반영한다. 틱은 답을 기다리지 않는다.
 
@@ -370,7 +370,8 @@ Backend도 `Economy:ContentDir`의 같은 game-data를 읽는다. Zone과 다른
 ## 소유권과 lease
 
 - Backend가 캐릭터마다 소유 Zone 인스턴스와 증가하는 소유권 세대(owner_epoch)를 기록한다. Zone 프로세스는 재시작하면 새 인스턴스 ID를 받는다.
-- Zone과 Gateway는 Backend lease를 주기적으로 갱신한다. lease가 끊긴 Zone에는 배정하지 않는다.
+- Zone과 Gateway는 Backend lease를 주기적으로 갱신한다. lease가 끊긴 Zone에는 배정하지 않고, 그 Zone의 처치·획득도 받지 않는다.
+- Zone ID 하나에는 살아 있는 인스턴스가 하나뿐이다. 재시작한 Zone이 옛 lease가 끝나기 전에 등록하면 옛 인스턴스의 lease를 그 자리에서 끝내고, 옛 인스턴스는 다시 갱신하지 못한다. 대신하는 인스턴스 없이 lease만 놓친 Zone은 다시 갱신할 수 있다([이슈 013](docs/issues/013-redeem-assigns-a-dead-zone-instance-after-restart.md)).
 - Zone은 lease를 잃으면 모든 세션을 내보내고 플레이어를 지운다. 권한 없는 프로세스가 상태를 바꾸지 않는다.
 - Gateway의 Zone 링크가 끊기면 그 Zone의 세션을 끝내고 Backend에 세션 종료를 알린다.
 
@@ -388,7 +389,7 @@ Backend도 `Economy:ContentDir`의 같은 game-data를 읽는다. Zone과 다른
 
 **전투 end-to-end**: 같은 스크립트에 `fighters.toml` 프로필을 주면 전투 봇 5개와 배회 봇 1개가 40초 동안 몬스터를 사냥한다. 정해진 수 이상의 처치가 DB에 기록되고 모순이 0이어야 통과한다.
 
-**정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭 거절.
+**정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭·표보다 많은 드롭 거절, 만료 티켓 거절, 유니크 인덱스에서 진 Redeem도 티켓은 소비, 같은 획득 요청 두 개가 동시에 와도 효과는 한 번, 재입장 뒤 처치 재시도는 반향, lease가 끝난 Zone의 지급 거절, 재시작한 Zone이 옛 인스턴스를 대신함.
 
 ## 기술 선택
 
@@ -405,13 +406,15 @@ Backend도 `Economy:ContentDir`의 같은 game-data를 읽는다. Zone과 다른
 
 지금은 미니 PC 한 대에서 PostgreSQL만 compose로 띄우고 나머지는 호스트 프로세스로 돌린다.
 
+Backend는 설정 파일에 연결 문자열과 서명 키를 두지 않는다. 환경 변수나 user-secrets로 주고, 빠지면 시작하지 않는다. 내부 gRPC(입장·lease·경제)는 호출자 인증이 아직 없어서 기본으로 127.0.0.1에서만 듣는다. Zone·Gateway가 다른 호스트에 있는 배포는 `Kestrel__Endpoints__Grpc__Url`로 바꾼다.
+
 ```mermaid
 flowchart LR
     subgraph compose["docker compose"]
         PG[("PostgreSQL 17")]
     end
     subgraph host["호스트 프로세스 (scripts/dev-stack.sh, scripts/e2e-local.sh)"]
-        BE["Backend<br/>:5100 HTTP · :5101 gRPC"]
+        BE["Backend<br/>:5100 HTTP · 127.0.0.1:5101 gRPC"]
         ZA["Zone A<br/>:7801 Gateway 링크"]
         GW["Gateway<br/>:7777 TCP · :7778 WebSocket"]
         VW["뷰어 정적 서버<br/>:8080"]
@@ -432,7 +435,7 @@ dotnet test  server/dotnet/GameServer.slnx          # 통합 테스트는 Docker
 scripts/check-format.sh
 
 # 로컬 실행용 비밀 값과 DB (저장소에 넣지 않는다)
-cp deploy/compose/.env.example deploy/compose/.env   # 비밀번호 수정
+cp deploy/compose/.env.example deploy/compose/.env   # 비밀번호 수정. 스크립트가 여기서 연결 문자열과 서명 키를 만든다
 
 # 전체 스택 end-to-end: 봇이 로그인 → 티켓 → Gateway → Zone 입장, 서로를 보는지 검증
 scripts/e2e-local.sh
