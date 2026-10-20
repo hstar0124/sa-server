@@ -4,11 +4,10 @@
 
 namespace sa::zone {
 
-// No close linger: gateways are trusted peers that close their side as soon as they see ours, and
-// the zone's shutdown stops its io_context after a grace period anyway.
-GatewayLink::GatewayLink(asio::ip::tcp::socket socket, common::FrameLimits limits, Handler& handler)
+GatewayLink::GatewayLink(asio::ip::tcp::socket socket, common::FrameLimits limits,
+                         std::chrono::milliseconds close_linger, Handler& handler)
     : connection_(
-          std::make_shared<common::FramedConnection>(std::move(socket), limits, std::nullopt)),
+          std::make_shared<common::FramedConnection>(std::move(socket), limits, close_linger)),
       handler_(handler) {}
 
 void GatewayLink::Start() {

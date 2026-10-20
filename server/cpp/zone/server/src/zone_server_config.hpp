@@ -37,6 +37,7 @@ struct ZoneServerConfig {
     std::uint16_t link_listen_port = 0;
     std::uint32_t link_max_gateways = 0;
     common::FrameLimits link_frame_limits;
+    std::chrono::milliseconds link_close_linger{};
     std::uint32_t max_sessions = 0;
 
     // Backend gRPC and lease cadence (see README "소유권과 lease").

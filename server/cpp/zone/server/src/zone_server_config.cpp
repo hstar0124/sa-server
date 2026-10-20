@@ -19,6 +19,7 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     const auto link_port = source.Require<std::uint16_t>("gateway_link.listen_port");
     const auto link_max = source.Require<std::uint32_t>("gateway_link.max_gateways");
     const auto link_frame = source.Require<std::size_t>("gateway_link.max_frame_bytes");
+    const auto link_linger = source.Require<std::uint32_t>("gateway_link.close_linger_ms");
     const auto backend_address = source.Require<std::string>("backend.address");
     const auto rpc_timeout = source.Require<std::uint32_t>("backend.rpc_timeout_ms");
     const auto renew_interval = source.Require<std::uint32_t>("backend.lease_renew_interval_ms");
@@ -29,8 +30,8 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     if (auto err = common::FirstConfigError(
             world_id, zone_id, hz, snapshot_hz, catch_up, stats_interval, max_sessions, map_file,
             rules_file, economy_file, content_dir, link_address, link_port, link_max, link_frame,
-            backend_address, rpc_timeout, renew_interval, safety_margin, call_attempts, retry_delay,
-            shutdown_grace)) {
+            link_linger, backend_address, rpc_timeout, renew_interval, safety_margin, call_attempts,
+            retry_delay, shutdown_grace)) {
         return std::unexpected(*err);
     }
     if (*hz == 0) {
@@ -40,7 +41,7 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
         return std::unexpected(
             common::ConfigError{"zone.snapshot_hz must be positive and divide zone.simulation_hz"});
     }
-    if (*renew_interval == 0 || *rpc_timeout == 0 || *call_attempts == 0) {
+    if (*renew_interval == 0 || *rpc_timeout == 0 || *call_attempts == 0 || *link_linger == 0) {
         return std::unexpected(
             common::ConfigError{"backend intervals and economy_call_attempts must be positive"});
     }
@@ -67,6 +68,7 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     out.link_listen_port = *link_port;
     out.link_max_gateways = *link_max;
     out.link_frame_limits.max_payload_bytes = *link_frame;
+    out.link_close_linger = std::chrono::milliseconds{*link_linger};
     out.backend_address = *backend_address;
     out.backend_rpc_timeout = std::chrono::milliseconds{*rpc_timeout};
     out.lease_renew_interval = std::chrono::milliseconds{*renew_interval};

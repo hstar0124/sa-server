@@ -15,6 +15,7 @@ listen_address = "0.0.0.0"
 listen_port = 7801
 max_gateways = 8
 max_frame_bytes = 262144  # a SessionOutput wraps one client frame (<= 64 KiB) plus headers
+close_linger_ms = 1000     # bounds closing a link at shutdown when the gateway does not close its side
 
 [backend]
 address = "localhost:5101"
@@ -36,7 +37,8 @@ dir = "game-data"
 local_bots = 0
 
 [shutdown]
-# Time allowed for evictions, detaches and final RPCs to leave the process on SIGTERM.
+# After SIGTERM evicts every session, the time eviction frames get before the gateway links close.
+# The process then exits once links have closed and economy calls (retries included) answered.
 grace_ms = 2000
 
 [logging]
