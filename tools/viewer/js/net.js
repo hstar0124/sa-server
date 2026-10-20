@@ -19,6 +19,7 @@ export async function loadContracts() {
     KickReason: root.lookupEnum('sa.game.v1.KickReason'),
     RejectCode: root.lookupEnum('sa.game.v1.RejectCode'),
     EntityKind: root.lookupEnum('sa.game.v1.EntityKind'),
+    CommandStatus: root.lookupEnum('sa.game.v1.CommandStatus'),
   };
 }
 
