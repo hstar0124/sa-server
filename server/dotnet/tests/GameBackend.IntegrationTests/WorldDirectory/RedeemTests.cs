@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using Dapper;
+using Npgsql;
 using Sa.Backend.V1;
 using Sa.GameBackend.IntegrationTests.Harness;
 
@@ -213,6 +215,80 @@ public sealed class RedeemTests(PostgresFixture postgres) : IDisposable
         HttpResponseMessage enter = await owner.EnterAsync(World, characterId);
         enter.EnsureSuccessStatusCode();
         return Convert.FromBase64String((await enter.Content.ReadFromJsonAsync<ApiClient.EnterResponse>())!.EntryTicket);
+    }
+
+    [Fact]
+    public async Task Two_gateways_redeeming_the_same_ticket_at_once_admit_exactly_one()
+    {
+        using DirectoryClient directory = Directory;
+        (byte[] gateway, _) = await LiveInfrastructureAsync(directory);
+        byte[] otherGateway = DirectoryClient.NewInstanceId();
+        Assert.True((await directory.RenewGatewayAsync(otherGateway)).Renewed);
+        ApiClient owner = await Api.AsNewAccountAsync(Unique.Username());
+        (byte[] ticket, long characterId) = await owner.CreateCharacterAndEnterAsync(World, Unique.CharacterName());
+
+        RedeemEntryTicketResponse[] answers = await Task.WhenAll(
+            directory.RedeemAsync(ticket, gateway, DirectoryClient.NewInstanceId()),
+            directory.RedeemAsync(ticket, otherGateway, DirectoryClient.NewInstanceId()));
+
+        Assert.Single(answers, a => a.Outcome == RedeemOutcome.Granted);
+        Assert.Single(answers, a => a.Outcome == RedeemOutcome.AlreadyRedeemed);
+        long live = await Db.ScalarAsync<long>(postgres.ConnectionString,
+            "SELECT count(*) FROM game.character_sessions WHERE character_id = @c AND ended_at IS NULL", new { c = characterId });
+        Assert.Equal(1, live);
+    }
+
+    [Fact]
+    public async Task An_expired_ticket_is_refused_and_creates_nothing()
+    {
+        using DirectoryClient directory = Directory;
+        (byte[] gateway, _) = await LiveInfrastructureAsync(directory);
+        ApiClient owner = await Api.AsNewAccountAsync(Unique.Username());
+        (byte[] ticket, long characterId) = await owner.CreateCharacterAndEnterAsync(World, Unique.CharacterName());
+        await Db.ExecuteAsync(postgres.ConnectionString,
+            "UPDATE game.entry_tickets SET expires_at = now() - interval '1 second' WHERE character_id = @c", new { c = characterId });
+
+        RedeemEntryTicketResponse answer = await directory.RedeemAsync(ticket, gateway, DirectoryClient.NewInstanceId());
+
+        Assert.Equal(RedeemOutcome.Expired, answer.Outcome);
+        long sessions = await Db.ScalarAsync<long>(postgres.ConnectionString,
+            "SELECT count(*) FROM game.character_sessions WHERE character_id = @c", new { c = characterId });
+        Assert.Equal(0, sessions);
+    }
+
+    [Fact]
+    public async Task A_redeem_that_loses_the_race_at_the_unique_index_spends_its_ticket_and_moves_no_ownership()
+    {
+        using DirectoryClient directory = Directory;
+        (byte[] gateway, _) = await LiveInfrastructureAsync(directory);
+        byte[] otherGateway = DirectoryClient.NewInstanceId();
+        Assert.True((await directory.RenewGatewayAsync(otherGateway)).Renewed);
+        ApiClient owner = await Api.AsNewAccountAsync(Unique.Username());
+        (byte[] ticket, long characterId) = await owner.CreateCharacterAndEnterAsync(World, Unique.CharacterName());
+
+        // Another gateway's session for the same character, inserted but not committed yet: the redeem
+        // passes the existence check, then waits on the unique index until the rival commits.
+        await using var rival = new NpgsqlConnection(postgres.ConnectionString);
+        await rival.OpenAsync();
+        await using NpgsqlTransaction rivalTx = await rival.BeginTransactionAsync();
+        await rival.ExecuteAsync("""
+            INSERT INTO game.character_sessions
+                (gateway_session_id, gateway_instance_id, world_id, character_id, account_id, owner_epoch)
+            SELECT @Session, @Gateway, world_id, character_id, account_id, 0
+            FROM game.characters WHERE character_id = @CharacterId
+            """, new { Session = DirectoryClient.NewInstanceId(), Gateway = otherGateway, CharacterId = characterId }, rivalTx);
+
+        Task<RedeemEntryTicketResponse> redeem = directory.RedeemAsync(ticket, gateway, DirectoryClient.NewInstanceId());
+        await Db.WaitForLockWaitAsync(postgres.ConnectionString);
+        await rivalTx.CommitAsync();
+
+        Assert.Equal(RedeemOutcome.ActiveSessionExists, (await redeem).Outcome);
+        long unspent = await Db.ScalarAsync<long>(postgres.ConnectionString,
+            "SELECT count(*) FROM game.entry_tickets WHERE character_id = @c AND redeemed_at IS NULL", new { c = characterId });
+        long ownership = await Db.ScalarAsync<long>(postgres.ConnectionString,
+            "SELECT count(*) FROM game.character_ownership WHERE character_id = @c", new { c = characterId });
+        Assert.Equal(0, unspent);
+        Assert.Equal(0, ownership);
     }
 
     public void Dispose() => _factory.Dispose();
