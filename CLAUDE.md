@@ -22,6 +22,12 @@ scl enable gcc-toolset-14 -- cmake --build --preset asan && ctest --preset asan
 dotnet build server/dotnet/GameServer.slnx
 # 로컬 인프라 (1단계부터, deploy/compose)
 docker compose -f deploy/compose/docker-compose.yml up -d
+# 전체 스택 end-to-end (종료 코드 = 판정), 대화형 스택
+scripts/e2e-local.sh [profile.toml]
+scripts/dev-stack.sh up && scripts/viewer.sh
+# K3s (6단계부터, deploy/k3s/README.md): 이미지 빌드·반입 후 data → migrate → game, 같은 검사로 확인
+scripts/build-images.sh && scripts/k3s-stack.sh import && scripts/k3s-stack.sh up
+scripts/e2e-k3s.sh tools/loadgen/client/profiles/looters.toml
 ```
 `VCPKG_ROOT=/opt/vcpkg`. 빌드 산출물은 `build/`.
 

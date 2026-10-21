@@ -36,6 +36,7 @@ lease_safety_margin_ms = 2000
 [zone_link]
 max_frame_bytes = 262144
 reconnect_backoff_ms = 1000
+establish_timeout_ms = 3000  # one attempt, connect through the zone's welcome
 # Bounds closing a zone link at shutdown when the zone does not close its side.
 close_linger_ms = 1000
 

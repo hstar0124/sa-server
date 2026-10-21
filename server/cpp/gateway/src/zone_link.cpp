@@ -18,7 +18,8 @@ ZoneLink::ZoneLink(asio::io_context& io, ZoneLinkConfig config, common::Instance
       gateway_instance_(gateway_instance),
       handler_(handler),
       resolver_(io),
-      backoff_timer_(io) {}
+      backoff_timer_(io),
+      establish_timer_(io) {}
 
 void ZoneLink::Start() {
     if (state_ == State::kStopped) {
@@ -29,6 +30,7 @@ void ZoneLink::Start() {
 void ZoneLink::Stop() {
     state_ = State::kStopped;
     backoff_timer_.cancel();
+    establish_timer_.cancel();
     resolver_.cancel();
     if (connecting_) {
         std::error_code ignored;
@@ -44,6 +46,12 @@ void ZoneLink::Stop() {
 
 void ZoneLink::Connect() {
     state_ = State::kConnecting;
+    establish_timer_.expires_after(config_.establish_timeout);
+    establish_timer_.async_wait([self = shared_from_this()](const std::error_code& ec) {
+        if (!ec) {
+            self->OnEstablishDeadline();
+        }
+    });
     resolver_.async_resolve(
         config_.address, std::to_string(config_.port),
         [self = shared_from_this()](const std::error_code& ec,
@@ -101,7 +109,26 @@ void ZoneLink::OnClosed(const std::error_code& ec) {
     ScheduleReconnect(why);
 }
 
+void ZoneLink::OnEstablishDeadline() {
+    const std::string limit = std::to_string(config_.establish_timeout.count()) + " ms";
+    if (state_ == State::kConnecting) {
+        // Cancel the resolve or connect in flight; their handlers see the backoff state and return.
+        resolver_.cancel();
+        if (connecting_) {
+            std::error_code ignored;
+            std::ignore = connecting_->close(ignored);
+            connecting_.reset();
+        }
+        ScheduleReconnect("no connection within " + limit);
+    } else if (state_ == State::kHandshaking) {
+        // Connected, but no LinkWelcome: closing the connection reconnects through OnClosed.
+        spdlog::warn("zone {} did not welcome the link within {}", config_.zone.value(), limit);
+        connection_->Abort();
+    }
+}
+
 void ZoneLink::ScheduleReconnect(const std::string& why) {
+    establish_timer_.cancel();
     // The first failure is operator-visible; a zone that stays down is reported once, not per try.
     if (++consecutive_failures_ == 1) {
         spdlog::warn("zone {} unreachable ({}); retrying every {} ms", config_.zone.value(), why,
@@ -142,6 +169,7 @@ void ZoneLink::OnFrame(std::span<const std::byte> payload) {
             return;
         }
         state_ = State::kReady;
+        establish_timer_.cancel();
         consecutive_failures_ = 0;
         spdlog::info("zone {} link ready (instance {})", config_.zone.value(),
                      common::InstanceId::FromString(message.link_welcome().zone_instance_id())
