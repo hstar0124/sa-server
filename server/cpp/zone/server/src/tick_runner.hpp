@@ -19,9 +19,17 @@ public:
     // Invoked after every simulation tick, on the zone thread; hosts hang snapshot delivery and
     // local bots off it.
     using AfterTick = std::function<void(common::TickIndex)>;
+    // Where the runner reads the time it has fallen behind. The timer still wakes it on the real
+    // clock; tests substitute this to simulate a stall without waiting through one.
+    using Clock = std::function<std::chrono::steady_clock::time_point()>;
 
     TickRunner(asio::io_context& io, sim::Zone& zone, sim::FixedStepScheduler scheduler,
-               std::chrono::seconds stats_log_interval, AfterTick after_tick);
+               std::chrono::seconds stats_log_interval, AfterTick after_tick,
+               Clock clock = &std::chrono::steady_clock::now);
+
+    [[nodiscard]] std::uint64_t dropped_ticks() const noexcept {
+        return scheduler_.dropped_ticks();
+    }
 
     void Start();
     void Stop();
@@ -36,6 +44,7 @@ private:
     sim::FixedStepScheduler scheduler_;
     std::chrono::seconds stats_log_interval_;
     AfterTick after_tick_;
+    Clock clock_;
     std::chrono::steady_clock::time_point last_wake_;
     std::chrono::steady_clock::time_point next_stats_;
     std::uint64_t ticks_since_stats_ = 0;

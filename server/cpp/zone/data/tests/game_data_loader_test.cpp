@@ -19,8 +19,11 @@ TEST(GameDataLoader, ShippedMapAndRulesAreValid) {
     const auto rules = LoadMovementRules(kGameData / "rules" / "movement.toml");
     ASSERT_TRUE(rules.has_value()) << rules.error().message;
     EXPECT_GE(rules->aoi_leave_radius_m, rules->aoi_enter_radius_m);
-    EXPECT_TRUE(map->ValidateWalkable(rules->body_radius_m).has_value())
-        << map->ValidateWalkable(rules->body_radius_m).error();
+    const auto combat = LoadCombatRules(kGameData / "rules" / "movement.toml");
+    ASSERT_TRUE(combat.has_value()) << combat.error().message;
+    const auto walkable =
+        map->ValidateWalkable(rules->body_radius_m, combat->monster_pack_ring_radius_m);
+    EXPECT_TRUE(walkable.has_value()) << walkable.error();
 }
 
 TEST(GameDataLoader, ParsesMinimalMap) {
@@ -126,6 +129,14 @@ attack_damage = 1
 attack_cooldown_ms = 1000
 respawn_ms = 1000
 )";
+
+TEST(GameDataLoader, SkillIdZeroIsReservedForTheMonsterAttack) {
+    const std::string skill_zero =
+        std::string{kSkills}.replace(std::string{kSkills}.find("id = 1"), 6, "id = 0");
+    const auto content = ParseContent({.version = kVersion, .skills = skill_zero});
+    ASSERT_FALSE(content.has_value());
+    EXPECT_NE(content.error().message.find("reserved"), std::string::npos);
+}
 
 TEST(GameDataLoader, ContentRejectsUnknownSkillReferencesAndBadProjectiles) {
     constexpr std::string_view kClassWithSkill99 =

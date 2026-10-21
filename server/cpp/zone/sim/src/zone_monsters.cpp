@@ -4,17 +4,11 @@
 #include <algorithm>
 
 namespace sa::zone::sim {
-namespace {
-
-// Close enough to the home to count as returned.
-constexpr float kArriveDistanceM = 0.5F;
-
-}  // namespace
-
 void Zone::PopulateMonsterSlots() {
     for (const MonsterSpawn& spawn : map_.monster_spawns) {
         const MonsterDefinition& def = content_.monsters.at(spawn.template_id);
-        for (const common::Vec2 home : MapData::HomesOf(spawn)) {
+        for (const common::Vec2 home :
+             MapData::HomesOf(spawn, rules_.combat.monster_pack_ring_radius_m)) {
             monster_slots_.push_back(MonsterSlot{.def = &def, .home = home});
         }
     }
@@ -146,11 +140,12 @@ void Zone::Think(common::EntityId id, Monster& monster) {
             }
             if (tick_ >= monster.attack_ready_at) {
                 monster.attack_ready_at = TicksFromNow(def.attack_cooldown);
-                ApplyDamage(id, monster.target, SkillId{}, def.attack_damage);
+                ApplyDamage(id, monster.target, kMonsterBasicAttack, def.attack_damage);
             }
             return;
         case AiState::kReturn:
-            if (common::WithinDistance(monster.position, monster.home, kArriveDistanceM)) {
+            if (common::WithinDistance(monster.position, monster.home,
+                                       rules_.combat.monster_home_arrive_m)) {
                 SettleAtHome(monster);
             } else if (Stalled(monster)) {
                 // Held by a wall on the way home: put it back rather than leave it out of place.

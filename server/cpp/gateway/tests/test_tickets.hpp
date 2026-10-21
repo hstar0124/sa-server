@@ -3,11 +3,13 @@
 #include "sa/common/bytes.hpp"
 #include "sa/common/hmac.hpp"
 #include "sa/common/instance_id.hpp"
+#include "sa/common/wall_clock.hpp"
 
 #include "entry_ticket_verifier.hpp"
 
 #include <backend/entry_ticket.pb.h>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -21,17 +23,20 @@ inline const std::vector<std::byte>& Key() {
     static const std::vector<std::byte> key(32, std::byte{0x5a});
     return key;
 }
-constexpr std::uint32_t kKeyId = 1;
-constexpr std::uint64_t kNow = 1'700'000'000'000;
-constexpr std::uint64_t kSkewMs = 2'000;
+constexpr TicketKeyId kKeyId{1};
+constexpr common::WallTime kNow = common::FromUnixMillis(1'700'000'000'000);
+constexpr std::chrono::milliseconds kSkew{2'000};
+constexpr std::chrono::milliseconds kIssuedAgo{1'000};
+constexpr std::chrono::milliseconds kLifetime{30'000};
 
 struct TicketFields {
     std::uint64_t account = 10;
     std::uint64_t character = 20;
     std::uint64_t world = 1;
-    std::uint64_t issued_at = kNow - 1'000;
-    std::uint64_t expires_at = kNow + 30'000;
-    std::uint32_t key_id = kKeyId;
+    // As the wire carries them: Unix milliseconds and the raw key id.
+    std::uint64_t issued_at = common::ToUnixMillis(kNow - kIssuedAgo);
+    std::uint64_t expires_at = common::ToUnixMillis(kNow + kLifetime);
+    std::uint32_t key_id = kKeyId.value();
 };
 
 inline std::string SignedTicket(const TicketFields& f, const std::vector<std::byte>& key = Key(),
@@ -52,7 +57,7 @@ inline std::string SignedTicket(const TicketFields& f, const std::vector<std::by
 }
 
 inline EntryTicketVerifier Verifier() {
-    return EntryTicketVerifier{{EntryTicketVerifier::Key{.id = kKeyId, .secret = Key()}}, kSkewMs};
+    return EntryTicketVerifier{{EntryTicketVerifier::Key{.id = kKeyId, .secret = Key()}}, kSkew};
 }
 
 }  // namespace sa::gateway::test

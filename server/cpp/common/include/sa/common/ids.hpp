@@ -19,6 +19,11 @@ using SessionId = StrongId<struct SessionIdTag>;
 // Monotonic ownership generation for a character; it fences off stale owners. Higher wins.
 using OwnerEpoch = StrongId<struct OwnerEpochTag>;
 
+// Content ids from game-data that cross processes: a character's class comes from the Backend,
+// and a client names the skill it casts.
+using ClassId = StrongId<struct ClassIdTag, std::uint32_t>;
+using SkillId = StrongId<struct SkillIdTag, std::uint32_t>;
+
 // Simulation tick counter of one zone process lifetime.
 using TickIndex = StrongId<struct TickIndexTag>;
 

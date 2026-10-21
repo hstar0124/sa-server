@@ -40,9 +40,8 @@ std::vector<std::optional<sa::loadgen::BotAccount>> Provision(
         const sa::loadgen::BotIdentity identity = profile.IdentityOf(i);
         reports[i].index = i;
         reports[i].username = identity.username;
-        auto account = api.Provision(identity.username, profile.password,
-                                     sa::common::WorldId{profile.world_id}, identity.character_name,
-                                     profile.class_id);
+        auto account = api.Provision(identity.username, profile.password, profile.world,
+                                     identity.character_name, profile.class_id);
         if (!account) {
             reports[i].failure = account.error().message;
             spdlog::warn("bot {} provisioning failed: {}", i, account.error().message);
@@ -64,7 +63,7 @@ void Enter(const sa::loadgen::LoadProfile& profile, const sa::loadgen::BackendAp
         if (!account) {
             continue;
         }
-        auto grant = api.Enter(*account, sa::common::WorldId{profile.world_id});
+        auto grant = api.Enter(*account, profile.world);
         if (!grant) {
             reports[i].failure = grant.error().message;
             spdlog::warn("bot {} entry failed: {}", i, grant.error().message);

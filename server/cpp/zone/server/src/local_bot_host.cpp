@@ -3,31 +3,18 @@
 #include "sa/bot/observation.hpp"
 
 namespace sa::zone {
-namespace {
 
-// Dev bots dawdle a little at each destination so the crowd does not move in lockstep.
-constexpr bot::WandererParams kDevBotParams{
-    .arrive_distance_m = 1.0F,
-    .retarget_after_ticks = 400,
-    .idle_ticks_min = 0,
-    .idle_ticks_max = 40,
-    .margin_m = 2.0F,
-};
-constexpr sim::ClassId kDevBotClassId{1};
-
-}  // namespace
-
-LocalBotHost::LocalBotHost(sim::Zone& zone, std::uint32_t count, std::uint32_t ticks_per_snapshot,
-                           std::uint64_t seed)
+LocalBotHost::LocalBotHost(sim::Zone& zone, const DevBotConfig& config,
+                           std::uint32_t ticks_per_snapshot, std::uint64_t seed)
     : zone_(zone), ticks_per_snapshot_(ticks_per_snapshot) {
-    bots_.reserve(count);
-    for (std::uint32_t i = 0; i < count; ++i) {
+    bots_.reserve(config.count);
+    for (std::uint32_t i = 0; i < config.count; ++i) {
         // Dev bots are not real characters; ids are local to this process.
-        const auto entity = zone_.SpawnPlayer(common::CharacterId{i + 1}, kDevBotClassId);
+        const auto entity = zone_.SpawnPlayer(common::CharacterId{i + 1}, config.class_id);
         if (!entity) {
             continue;  // class missing from content: nothing to drive
         }
-        bots_.push_back(Bot{.entity = *entity, .brain = bot::Wanderer{seed + i, kDevBotParams}});
+        bots_.push_back(Bot{.entity = *entity, .brain = bot::Wanderer{seed + i, config.wanderer}});
     }
 }
 
@@ -43,7 +30,7 @@ void LocalBotHost::OnTick(common::TickIndex tick) {
                                            .self_hp = 1,
                                            .self_max_hp = 1,
                                            .visible = {},
-                                           .tick = tick.value(),
+                                           .tick = tick,
                                            .tick_hz = zone_.config().simulation_rate.hz};
         const common::Vec2 direction = b.brain.Decide(observation).direction;
         zone_.Submit(sim::MoveCommand{

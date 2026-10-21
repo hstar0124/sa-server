@@ -27,7 +27,9 @@ std::expected<Zone, std::string> Zone::Create(ZoneConfig config, MapData map, Zo
     if (auto valid = map.ValidateAgainst(content); !valid) {
         return std::unexpected(valid.error());
     }
-    if (auto walkable = map.ValidateWalkable(rules.movement.body_radius_m); !walkable) {
+    if (auto walkable = map.ValidateWalkable(rules.movement.body_radius_m,
+                                             rules.combat.monster_pack_ring_radius_m);
+        !walkable) {
         return std::unexpected(walkable.error());
     }
     Zone zone{config, std::move(map), std::move(rules), std::move(content), rng};
@@ -284,7 +286,7 @@ void Zone::RecomputeInterest(common::EntityId self, Player& player) {
     const float leave_sq = rules_.movement.aoi_leave_radius_m * rules_.movement.aoi_leave_radius_m;
 
     std::vector<common::EntityId> next;
-    next.reserve(player.interest.size() + 4);
+    next.reserve(player.interest.size());
     for (const common::EntityId candidate : scratch_) {
         if (candidate == self) {
             continue;

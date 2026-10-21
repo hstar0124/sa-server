@@ -217,8 +217,8 @@ int Run(int argc, char** argv) {
 
     std::optional<sa::zone::LocalBotHost> bots;
     std::optional<BotStatsLogger> bot_stats;
-    if (config->local_bots > 0) {
-        bots.emplace(zone, config->local_bots, config->TicksPerSnapshot(), seed);
+    if (config->dev_bots.count > 0) {
+        bots.emplace(zone, config->dev_bots, config->TicksPerSnapshot(), seed);
         bot_stats.emplace(io, *bots, config->stats_log_interval);
         spdlog::warn("dev mode: {} in-process bots, no network", bots->size());
     }

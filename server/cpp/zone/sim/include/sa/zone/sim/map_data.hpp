@@ -29,9 +29,10 @@ struct MapData {
         return common::Aabb{.min = {}, .max = size};
     }
 
-    // Where the monsters of one spawn live: a pack stands on a ring around the spawn position so
-    // its members do not stack.
-    [[nodiscard]] static std::vector<common::Vec2> HomesOf(const MonsterSpawn& spawn);
+    // Where the monsters of one spawn live: a pack stands on a ring of `ring_radius_m` around the
+    // spawn position so its members do not stack.
+    [[nodiscard]] static std::vector<common::Vec2> HomesOf(const MonsterSpawn& spawn,
+                                                           float ring_radius_m);
 
     // True when a body of radius `body_radius_m` centred at `point` stays inside the map and clear
     // of every obstacle: the collision model the zone moves bodies by. A NaN point is not walkable.
@@ -42,7 +43,8 @@ struct MapData {
     [[nodiscard]] std::expected<void, std::string> Validate() const;
     // Every player spawn point and monster home is walkable for a body of this radius, so nothing
     // starts inside a wall or pressed against the map edge.
-    [[nodiscard]] std::expected<void, std::string> ValidateWalkable(float body_radius_m) const;
+    [[nodiscard]] std::expected<void, std::string> ValidateWalkable(float body_radius_m,
+                                                                    float pack_ring_radius_m) const;
     // Cross-check against content: every monster spawn names a known template.
     [[nodiscard]] std::expected<void, std::string> ValidateAgainst(
         const ContentBundle& content) const;

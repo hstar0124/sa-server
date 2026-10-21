@@ -52,7 +52,13 @@ void ZoneHost::OnLinkClosed(GatewayLink& link) {
 // ---- sessions ---------------------------------------------------------------------------------
 
 void ZoneHost::Attach(LinkSink& sink, const internal::v1::SessionAttach& attach) {
-    const std::string& session_id = attach.gateway_session_id();
+    // The session id is parsed here, once; everything inside the host uses the typed id.
+    const auto parsed = common::InstanceId::FromString(attach.gateway_session_id());
+    if (!parsed) {
+        ++stats_.bad_inputs;  // a gateway bug: not a session id at all
+        return;
+    }
+    const common::InstanceId& session_id = *parsed;
     if (!authoritative_()) {
         Reject(sink, session_id, internal::v1::REJECT_REASON_NOT_AUTHORITATIVE);
         return;
@@ -84,7 +90,7 @@ void ZoneHost::Attach(LinkSink& sink, const internal::v1::SessionAttach& attach)
 
     ZoneToGateway attached;
     auto* a = attached.mutable_session_attached();
-    a->set_gateway_session_id(session_id);
+    a->set_gateway_session_id(session_id.ToWire());
     a->set_entity_id(entity.value());
     a->set_server_tick(zone_.current_tick().value());
     sink.Send(attached);
@@ -105,14 +111,16 @@ void ZoneHost::Attach(LinkSink& sink, const internal::v1::SessionAttach& attach)
 }
 
 void ZoneHost::Detach(const internal::v1::SessionDetach& detach) {
-    if (sessions_.contains(detach.gateway_session_id())) {
-        RemoveSession(detach.gateway_session_id(), true);
+    const auto session_id = common::InstanceId::FromString(detach.gateway_session_id());
+    if (session_id && sessions_.contains(*session_id)) {
+        RemoveSession(*session_id, true);
         ++stats_.detaches;
     }
 }
 
 void ZoneHost::Input(const internal::v1::SessionInput& input) {
-    const auto it = sessions_.find(input.gateway_session_id());
+    const auto session_id = common::InstanceId::FromString(input.gateway_session_id());
+    const auto it = session_id ? sessions_.find(*session_id) : sessions_.end();
     if (it == sessions_.end()) {
         ++stats_.bad_inputs;
         return;
@@ -149,37 +157,37 @@ void ZoneHost::Input(const internal::v1::SessionInput& input) {
 }
 
 void ZoneHost::LinkClosed(const LinkSink& sink) {
-    std::vector<std::string> gone;
+    std::vector<common::InstanceId> gone;
     for (const auto& [id, session] : sessions_) {
         if (session.sink == &sink) {
             gone.push_back(id);
         }
     }
-    for (const std::string& id : gone) {
+    for (const common::InstanceId& id : gone) {
         RemoveSession(id, true);
         ++stats_.detaches;
     }
 }
 
 void ZoneHost::EvictAll(internal::v1::EvictReason reason) {
-    std::vector<std::string> ids;
+    std::vector<common::InstanceId> ids;
     ids.reserve(sessions_.size());
     for (const auto& [id, _] : sessions_) {
         ids.push_back(id);
     }
-    for (const std::string& id : ids) {
+    for (const common::InstanceId& id : ids) {
         Evict(id, reason);
     }
 }
 
-void ZoneHost::Evict(const std::string& session_id, internal::v1::EvictReason reason) {
+void ZoneHost::Evict(const common::InstanceId& session_id, internal::v1::EvictReason reason) {
     const auto it = sessions_.find(session_id);
     if (it == sessions_.end()) {
         return;
     }
     const Session session = it->second;
     ZoneToGateway evicted;
-    evicted.mutable_session_evicted()->set_gateway_session_id(session_id);
+    evicted.mutable_session_evicted()->set_gateway_session_id(session_id.ToWire());
     evicted.mutable_session_evicted()->set_reason(reason);
     session.sink->Send(evicted);
     RemoveSession(session_id, true);
@@ -236,7 +244,7 @@ codec::ZoneAuthority ZoneHost::AuthorityFor(const Session& session) const {
     return codec::ZoneAuthority{.zone_instance = identity_.zone_instance, .epoch = session.epoch};
 }
 
-void ZoneHost::RequestAssets(const std::string& session_id) {
+void ZoneHost::RequestAssets(const common::InstanceId& session_id) {
     const Session& session = sessions_.at(session_id);
     backend::v1::GetCharacterAssetsRequest request;
     request.set_world_id(zone_.config().world_id.value());
@@ -248,7 +256,7 @@ void ZoneHost::RequestAssets(const std::string& session_id) {
         });
 }
 
-void ZoneHost::OnAssets(const std::string& session_id, common::EntityId entity,
+void ZoneHost::OnAssets(const common::InstanceId& session_id, common::EntityId entity,
                         const std::optional<backend::v1::GetCharacterAssetsResponse>& response) {
     const auto it = sessions_.find(session_id);
     if (it == sessions_.end() || it->second.entity != entity) {
@@ -289,7 +297,7 @@ void ZoneHost::RecordKill(const sim::KillRecord& kill) {
 void ZoneHost::OnKillRecorded(common::EntityId killer, common::KillId kill_id,
                               const std::optional<backend::v1::RecordKillResponse>& response) {
     const auto by_entity = session_by_entity_.find(killer);
-    const std::string* session_id =
+    const common::InstanceId* session_id =
         by_entity == session_by_entity_.end() ? nullptr : &by_entity->second;
     if (!response) {
         // The last attempt may have timed out after the Backend committed: the gold may be in the
@@ -360,7 +368,7 @@ void ZoneHost::SettlePickup(const sim::PickupReservation& pickup) {
 void ZoneHost::OnPickupSettled(const sim::PickupReservation& pickup,
                                const std::optional<backend::v1::PickupItemResponse>& response) {
     const auto by_entity = session_by_entity_.find(pickup.player);
-    const std::string* session_id =
+    const common::InstanceId* session_id =
         by_entity == session_by_entity_.end() ? nullptr : &by_entity->second;
     if (!response) {
         // Unknown even after the client's retries: release the reservation, and read the assets
@@ -407,7 +415,7 @@ void ZoneHost::OnPickupSettled(const sim::PickupReservation& pickup,
     SendAssets(*session_id, session);
 }
 
-void ZoneHost::EvictNotOwner(const std::string& session_id) {
+void ZoneHost::EvictNotOwner(const common::InstanceId& session_id) {
     // Another zone owns the character now (a re-entry elsewhere, or this zone's lease lapsed):
     // nothing this session does here can be granted, so it ends and the client enters again.
     ++stats_.not_owner_evictions;
@@ -425,25 +433,25 @@ ZoneHost::Session* ZoneHost::SessionOf(common::EntityId entity) {
     return session == sessions_.end() ? nullptr : &session->second;
 }
 
-void ZoneHost::Reject(LinkSink& sink, const std::string& session_id,
+void ZoneHost::Reject(LinkSink& sink, const common::InstanceId& session_id,
                       internal::v1::RejectReason reason) {
     ZoneToGateway rejected;
-    rejected.mutable_session_rejected()->set_gateway_session_id(session_id);
+    rejected.mutable_session_rejected()->set_gateway_session_id(session_id.ToWire());
     rejected.mutable_session_rejected()->set_reason(reason);
     sink.Send(rejected);
     ++stats_.rejects;
 }
 
-void ZoneHost::SendToSession(const Session& session, const std::string& session_id,
+void ZoneHost::SendToSession(const Session& session, const common::InstanceId& session_id,
                              const game::v1::ServerMessage& message) {
     ZoneToGateway out;
     auto* output = out.mutable_session_output();
-    output->set_gateway_session_id(session_id);
+    output->set_gateway_session_id(session_id.ToWire());
     *output->mutable_message() = message;
     session.sink->Send(out);
 }
 
-void ZoneHost::SendAssets(const std::string& session_id, Session& session) {
+void ZoneHost::SendAssets(const common::InstanceId& session_id, Session& session) {
     if (!session.assets) {
         return;
     }
@@ -453,7 +461,7 @@ void ZoneHost::SendAssets(const std::string& session_id, Session& session) {
     ++stats_.inventory_updates_sent;
 }
 
-void ZoneHost::RemoveSession(const std::string& session_id, bool despawn) {
+void ZoneHost::RemoveSession(const common::InstanceId& session_id, bool despawn) {
     const auto it = sessions_.find(session_id);
     if (it == sessions_.end()) {
         return;

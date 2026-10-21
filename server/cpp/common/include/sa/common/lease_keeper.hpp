@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sa/common/lease.hpp"
+#include "sa/common/wall_clock.hpp"
 
 #include <asio/io_context.hpp>
 #include <asio/steady_timer.hpp>
@@ -37,9 +38,9 @@ public:
     // Fires once per transition from alive to not alive.
     void set_on_lost(std::function<void()> fn) { on_lost_ = std::move(fn); }
 
-    // Helper for adapters: server expiry (Unix ms) -> duration from our send time.
-    [[nodiscard]] static std::chrono::milliseconds DurationFromServerExpiry(
-        std::uint64_t expires_at_ms, std::uint64_t sent_at_ms);
+    // Helper for adapters: the server's expiry as a duration from when we sent the request.
+    [[nodiscard]] static std::chrono::milliseconds DurationFromServerExpiry(WallTime expires_at,
+                                                                            WallTime sent_at);
 
 private:
     void Renew();

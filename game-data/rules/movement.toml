@@ -30,4 +30,11 @@ player_respawn_ms = 5000
 # return home, and a return that is held puts the monster back at its home.
 monster_stall_timeout_ms = 3000
 monster_stall_distance_m = 1.0
+# A targeted cast that started in range still lands if the target is within range x this factor
+# when it resolves (it may have stepped a little during the cast).
+range_tolerance = 1.1
+# A returning monster this close to its home counts as home (and heals).
+monster_home_arrive_m = 0.5
+# Monsters sharing one spawn stand on a ring of this radius around it, so they do not stack.
+monster_pack_ring_radius_m = 1.5
 # Casting blocks movement; a move input during a cast is applied once the cast resolves.

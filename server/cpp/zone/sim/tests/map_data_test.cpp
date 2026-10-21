@@ -24,6 +24,7 @@ TEST(MapData, RejectsObstacleOutsideTheMap) {
 // Spawns are judged by the same rule bodies move by: a body may not overlap an obstacle or leave
 // the map, so a spawn too close to either would start stuck.
 constexpr float kBody = 0.4F;
+constexpr float kRing = 1.5F;
 
 TEST(MapData, WalkabilityLeavesRoomForTheBody) {
     const MapData map = test::FieldWithWall();  // wall x 50..52, y 0..60
@@ -34,22 +35,22 @@ TEST(MapData, WalkabilityLeavesRoomForTheBody) {
 }
 
 TEST(MapData, RejectsSpawnsAndHomesABodyCannotStandOn) {
-    EXPECT_TRUE(test::FieldWithSlime().ValidateWalkable(kBody).has_value());
+    EXPECT_TRUE(test::FieldWithSlime().ValidateWalkable(kBody, kRing).has_value());
 
     MapData blocked = test::OpenField();
     blocked.obstacles.push_back(
         common::Aabb{.min = {5.0F, 5.0F}, .max = {15.0F, 15.0F}});  // covers spawn (10,10)
-    EXPECT_FALSE(blocked.ValidateWalkable(kBody).has_value());
+    EXPECT_FALSE(blocked.ValidateWalkable(kBody, kRing).has_value());
 
     MapData on_edge = test::OpenField();
     on_edge.spawn_points.emplace_back(0.0F, 0.0F);  // inside the map, but no room for a body
     EXPECT_TRUE(on_edge.Validate().has_value());
-    EXPECT_FALSE(on_edge.ValidateWalkable(kBody).has_value());
+    EXPECT_FALSE(on_edge.ValidateWalkable(kBody, kRing).has_value());
 
     MapData pack_in_wall = test::FieldWithWall();
     pack_in_wall.monster_spawns.push_back(MonsterSpawn{
         .template_id = test::kSlime, .position = {53.0F, 30.0F}, .count = 2});  // ring hits x 51.5
-    EXPECT_FALSE(pack_in_wall.ValidateWalkable(kBody).has_value());
+    EXPECT_FALSE(pack_in_wall.ValidateWalkable(kBody, kRing).has_value());
 }
 
 TEST(MapData, RejectsMissingSpawnPointsAndBadCellSize) {

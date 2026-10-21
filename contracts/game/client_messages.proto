@@ -30,28 +30,31 @@ message Ping {
   uint64 client_time_ms = 2;
 }
 
+// 0의 뜻: proto3는 0을 "보내지 않음"과 구별하지 않는다. 그래서 id와 순번은 1부터 쓰고, 0은 "없음"이다.
+// 요청 id가 0인 명령은 REJECT_CODE_INVALID_REQUEST로 거절되고 재시도 기록에 남지 않는다.
+
 // 이동 입력. 서버가 위치를 적분한다. direction은 정규화된 방향 또는 영벡터(정지).
 message MoveInput {
-  uint32 input_seq = 1;
+  uint32 input_seq = 1;   // 연결마다 1부터 증가. 이전 이하의 순번은 버려진다
   Vec2 direction = 2;
   uint32 client_tick = 3;
 }
 
 message CastSkill {
-  uint64 request_id = 1;
-  uint32 skill_id = 2;
+  uint64 request_id = 1;  // 세션마다 1부터. 같은 id로 다시 보내면 같은 결과가 온다
+  uint32 skill_id = 2;    // game-data의 스킬 id(1부터)
   oneof target {
-    uint64 target_entity_id = 3;
-    Vec2 direction = 4;
+    uint64 target_entity_id = 3;  // 엔티티 id는 1부터. 대상 지정 스킬
+    Vec2 direction = 4;           // 투사체 스킬
   }
 }
 
 message PickupItem {
-  uint64 request_id = 1;
-  uint64 item_entity_id = 2;
+  uint64 request_id = 1;      // 세션마다 1부터
+  uint64 item_entity_id = 2;  // 바닥 아이템의 엔티티 id(1부터)
 }
 
 message ChangeZone {
-  uint64 request_id = 1;
+  uint64 request_id = 1;  // 세션마다 1부터
   uint32 portal_id = 2;
 }

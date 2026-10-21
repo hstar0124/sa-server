@@ -5,6 +5,8 @@
 #include "sa/common/ids.hpp"
 #include "sa/common/logging.hpp"
 
+#include "entry_ticket_verifier.hpp"
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -39,8 +41,8 @@ struct GatewayConfig {
     std::chrono::milliseconds client_close_linger{};
     // [ticket]
     std::vector<std::byte> ticket_key;
-    std::uint32_t ticket_key_id = 0;
-    std::uint64_t ticket_max_clock_skew_ms = 0;
+    TicketKeyId ticket_key_id;
+    std::chrono::milliseconds ticket_max_clock_skew{};
     // [backend]
     std::string backend_address;
     std::chrono::milliseconds backend_rpc_timeout{};

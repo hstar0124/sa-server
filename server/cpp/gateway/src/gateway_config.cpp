@@ -1,11 +1,12 @@
 #include "gateway_config.hpp"
 
 #include "sa/common/bytes.hpp"
+#include "sa/common/hmac.hpp"
 
+#include <format>
 #include <initializer_list>
 
 namespace sa::gateway {
-namespace {}  // namespace
 
 std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const common::ConfigSource& source) {
@@ -17,7 +18,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const auto hello_timeout = source.Require<std::uint32_t>("protocol.hello_timeout_ms");
     const auto key_b64 = source.Require<std::string>("ticket.signing_key_base64");
     const auto key_id = source.Require<std::uint32_t>("ticket.key_id");
-    const auto skew = source.Require<std::uint64_t>("ticket.max_clock_skew_ms");
+    const auto skew = source.Require<std::uint32_t>("ticket.max_clock_skew_ms");
     const auto backend_address = source.Require<std::string>("backend.address");
     const auto rpc_timeout = source.Require<std::uint32_t>("backend.rpc_timeout_ms");
     const auto renew = source.Require<std::uint32_t>("backend.lease_renew_interval_ms");
@@ -41,10 +42,11 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
         return std::unexpected(
             common::ConfigError{"ticket.signing_key_base64 is not valid base64"});
     }
-    constexpr std::size_t kMinKeyBytes = 32;
-    if (key->size() < kMinKeyBytes) {
-        return std::unexpected(
-            common::ConfigError{"ticket.signing_key_base64 must decode to at least 32 bytes"});
+    // RFC 2104: an HMAC key shorter than the hash output weakens it.
+    if (key->size() < common::kHmacSha256Bytes) {
+        return std::unexpected(common::ConfigError{
+            std::format("ticket.signing_key_base64 must decode to at least {} bytes",
+                        common::kHmacSha256Bytes)});
     }
     if (*max_msgs == 0 || *rpc_timeout == 0 || *renew == 0 || *client_linger == 0 ||
         *link_linger == 0 || *hello_timeout == 0 || *backoff == 0 || *max_connections == 0) {
@@ -93,8 +95,8 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     out.client_close_linger = std::chrono::milliseconds{*client_linger};
     out.hello_timeout = std::chrono::milliseconds{*hello_timeout};
     out.ticket_key = std::move(*key);
-    out.ticket_key_id = *key_id;
-    out.ticket_max_clock_skew_ms = *skew;
+    out.ticket_key_id = TicketKeyId{*key_id};
+    out.ticket_max_clock_skew = std::chrono::milliseconds{*skew};
     out.backend_address = *backend_address;
     out.backend_rpc_timeout = std::chrono::milliseconds{*rpc_timeout};
     out.lease_renew_interval = std::chrono::milliseconds{*renew};

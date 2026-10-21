@@ -72,8 +72,8 @@ std::expected<common::CharacterId, ApiError> BackendApi::FindCharacter(
 
 std::expected<common::CharacterId, ApiError> BackendApi::EnsureCharacter(
     const std::string& token, common::WorldId world, const std::string& name,
-    std::uint32_t class_id) const {
-    const json body{{"name", name}, {"classId", class_id}};
+    common::ClassId class_id) const {
+    const json body{{"name", name}, {"classId", class_id.value()}};
     const cpr::Response response =
         cpr::Post(cpr::Url{std::format("{}/api/v1/worlds/{}/characters", base_url_, world.value())},
                   cpr::Bearer{token}, cpr::Header{{"content-type", "application/json"}},
@@ -97,7 +97,7 @@ std::expected<BotAccount, ApiError> BackendApi::Provision(const std::string& use
                                                           const std::string& password,
                                                           common::WorldId world,
                                                           const std::string& character_name,
-                                                          std::uint32_t class_id) const {
+                                                          common::ClassId class_id) const {
     const json register_body{{"username", username}, {"password", password}};
     const cpr::Response registered = cpr::Post(cpr::Url{base_url_ + "/api/v1/auth/register"},
                                                cpr::Header{{"content-type", "application/json"}},

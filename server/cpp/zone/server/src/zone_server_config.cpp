@@ -79,7 +79,26 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     out.movement_rules_file = *rules_file;
     out.economy_rules_file = *economy_file;
     out.content_dir = *content_dir;
-    out.local_bots = *local_bots;
+    out.dev_bots.count = *local_bots;
+    if (out.dev_bots.count > 0) {
+        const auto cls = source.Require<std::uint32_t>("dev.bot_class_id");
+        const auto arrive = source.Require<double>("dev.wanderer.arrive_distance_m");
+        const auto retarget = source.Require<std::uint32_t>("dev.wanderer.retarget_after_ticks");
+        const auto idle_min = source.Require<std::uint32_t>("dev.wanderer.idle_ticks_min");
+        const auto idle_max = source.Require<std::uint32_t>("dev.wanderer.idle_ticks_max");
+        const auto margin = source.Require<double>("dev.wanderer.margin_m");
+        if (auto err =
+                common::FirstConfigError(cls, arrive, retarget, idle_min, idle_max, margin)) {
+            return std::unexpected(*err);
+        }
+        out.dev_bots.class_id = common::ClassId{*cls};
+        out.dev_bots.wanderer =
+            bot::WandererParams{.arrive_distance_m = static_cast<float>(*arrive),
+                                .retarget_after_ticks = *retarget,
+                                .idle_ticks_min = *idle_min,
+                                .idle_ticks_max = *idle_max,
+                                .margin_m = static_cast<float>(*margin)};
+    }
     out.link_listen_address = *link_address;
     out.link_listen_port = *link_port;
     out.link_max_gateways = *link_max;

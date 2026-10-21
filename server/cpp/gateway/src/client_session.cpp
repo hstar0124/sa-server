@@ -7,6 +7,13 @@
 #include <utility>
 
 namespace sa::gateway {
+namespace {
+
+ArrivalTime Now() {
+    return ArrivalTime{.monotonic = std::chrono::steady_clock::now(), .wall = common::WallNow()};
+}
+
+}  // namespace
 
 ClientSession::ClientSession(std::shared_ptr<common::MessageConnection> connection,
                              Dependencies deps)
@@ -43,10 +50,10 @@ void ClientSession::OnFrame(std::span<const std::byte> payload) {
     if (!message.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
         const game::v1::ClientMessage
             malformed;  // an empty body is a protocol error in the state machine
-        Apply(protocol_.OnClientMessage(malformed, common::UnixMillisNow()));
+        Apply(protocol_.OnClientMessage(malformed, Now()));
         return;
     }
-    Apply(protocol_.OnClientMessage(message, common::UnixMillisNow()));
+    Apply(protocol_.OnClientMessage(message, Now()));
 }
 
 void ClientSession::OnClosed(const std::error_code& reason) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sa/common/geometry.hpp"
+#include "sa/common/ids.hpp"
 #include "sa/common/strong_id.hpp"
 
 #include <chrono>
@@ -15,8 +16,12 @@
 // milliseconds here and are converted to ticks by the zone that knows its tick rate.
 namespace sa::zone::sim {
 
-using SkillId = common::StrongId<struct SkillIdTag, std::uint32_t>;
-using ClassId = common::StrongId<struct ClassIdTag, std::uint32_t>;
+using common::ClassId;
+using common::SkillId;
+
+// A monster's swing is not a skill; combat events carry skill id 0 for it (CombatEvent.skill_id
+// in contracts/game). Content skill ids start at 1.
+inline constexpr SkillId kMonsterBasicAttack{};
 using MonsterTemplateId = common::StrongId<struct MonsterTemplateIdTag, std::uint32_t>;
 using ItemTemplateId = common::StrongId<struct ItemTemplateIdTag, std::uint32_t>;
 
@@ -97,6 +102,11 @@ struct CombatRules {
     // stuck chase turns into a return; a stuck return puts the monster back at its home.
     std::chrono::milliseconds monster_stall_timeout{};
     float monster_stall_distance_m = 0.0F;
+    // A target slightly beyond a skill's range still counts when the cast resolves, if it was in
+    // range when the cast started: range x this factor (>= 1).
+    float range_tolerance = 0.0F;
+    float monster_home_arrive_m = 0.0F;       // this close to its home a returning monster is home
+    float monster_pack_ring_radius_m = 0.0F;  // monsters sharing a spawn stand on this ring
 
     [[nodiscard]] std::expected<void, std::string> Validate() const;
 };

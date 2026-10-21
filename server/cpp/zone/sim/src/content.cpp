@@ -7,6 +7,9 @@ namespace sa::zone::sim {
 namespace {
 
 std::expected<void, std::string> ValidateSkill(const SkillDefinition& skill) {
+    if (skill.id == kMonsterBasicAttack) {
+        return std::unexpected("skill id 0 is reserved for a monster's basic attack");
+    }
     if (skill.damage < 0 || skill.cost_mp < 0 || skill.range_m <= 0.0F) {
         return std::unexpected(std::format(
             "skill {} has a non-positive range or negative cost/damage", skill.id.value()));
@@ -137,6 +140,12 @@ std::expected<void, std::string> CombatRules::Validate() const {
     if (monster_stall_timeout.count() <= 0 || monster_stall_distance_m <= 0.0F) {
         return std::unexpected(
             "combat.monster_stall_timeout_ms and combat.monster_stall_distance_m must be positive");
+    }
+    if (range_tolerance < 1.0F || monster_home_arrive_m <= 0.0F ||
+        monster_pack_ring_radius_m < 0.0F) {
+        return std::unexpected(
+            "combat.range_tolerance must be at least 1, combat.monster_home_arrive_m positive and "
+            "combat.monster_pack_ring_radius_m not negative");
     }
     return {};
 }
