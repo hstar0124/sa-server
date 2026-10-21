@@ -25,12 +25,23 @@ struct BotReport {
     std::uint64_t snapshots = 0;
     std::uint64_t inputs_sent = 0;
     std::uint64_t casts_sent = 0;
+    std::uint64_t pickups_sent = 0;
     std::uint32_t last_acked_input = 0;
     std::size_t max_visible = 0;
     std::size_t max_visible_players = 0;
     std::vector<std::chrono::milliseconds> ping_rtts;
     WorldModel::Integrity integrity;
     WorldModel::Combat combat;
+    WorldModel::Loot loot;
+};
+
+// What a run must reach to PASS, beyond everyone entering and the world staying consistent.
+struct PassCriteria {
+    // Random walks on a large map may keep a few bots apart within a short run, so the smoke
+    // profile asks for fewer than all.
+    std::uint32_t min_bots_seeing_others = 0;
+    std::uint32_t min_kills = 0;    // monsters killed across all bots (0 without fighters)
+    std::uint32_t min_pickups = 0;  // items acquired across all bots (0 without looters)
 };
 
 // Aggregate across bots; the exit code of the run is derived from it.
@@ -50,21 +61,25 @@ struct RunReport {
     std::size_t max_visible = 0;
     std::optional<std::chrono::milliseconds> rtt_p50;
     std::optional<std::chrono::milliseconds> rtt_max;
-    std::uint32_t min_bots_seeing_others = 0;
-    std::uint32_t min_kills = 0;
+    PassCriteria criteria;
     std::uint64_t casts_accepted = 0;
     std::uint64_t casts_rejected = 0;
-    std::uint64_t results_unknown = 0;
+    std::uint64_t casts_unknown = 0;
     std::uint64_t hits_dealt = 0;
     std::uint64_t kills = 0;
     std::uint64_t deaths = 0;
+    std::uint64_t pickups_sent = 0;
+    std::uint64_t pickups_acquired = 0;
+    std::uint64_t pickups_rejected = 0;
+    std::uint64_t pickups_unknown = 0;
+    std::uint64_t items_held = 0;  // across all bots at the end of the run
+    std::uint64_t gold = 0;
 
     [[nodiscard]] static RunReport Aggregate(const std::vector<BotReport>& bots,
-                                             std::uint32_t min_bots_seeing_others,
-                                             std::uint32_t min_kills);
+                                             PassCriteria criteria);
 
-    // Success: everyone got in, nobody was kicked, the world stayed consistent, at least the
-    // configured number of bots saw another player, and at least min_kills monsters died.
+    // Success: everyone got in, nobody was kicked, the world stayed consistent, and the criteria
+    // for meetings, kills and pickups were reached.
     [[nodiscard]] bool Succeeded() const noexcept;
     [[nodiscard]] std::string ToText() const;
 };

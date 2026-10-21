@@ -5,11 +5,9 @@
 
 namespace sa::loadgen {
 
-RunReport RunReport::Aggregate(const std::vector<BotReport>& bots,
-                               std::uint32_t min_bots_seeing_others, std::uint32_t min_kills) {
+RunReport RunReport::Aggregate(const std::vector<BotReport>& bots, PassCriteria criteria) {
     RunReport out;
-    out.min_bots_seeing_others = min_bots_seeing_others;
-    out.min_kills = min_kills;
+    out.criteria = criteria;
     out.bots = static_cast<std::uint32_t>(bots.size());
     std::vector<std::chrono::milliseconds> rtts;
     for (const BotReport& b : bots) {
@@ -28,10 +26,16 @@ RunReport RunReport::Aggregate(const std::vector<BotReport>& bots,
         out.integrity_errors += b.integrity.Total();
         out.casts_accepted += b.combat.casts_accepted;
         out.casts_rejected += b.combat.casts_rejected;
-        out.results_unknown += b.combat.results_unknown;
+        out.casts_unknown += b.combat.casts_unknown;
         out.hits_dealt += b.combat.hits_dealt;
         out.kills += b.combat.kills;
         out.deaths += b.combat.deaths;
+        out.pickups_sent += b.pickups_sent;
+        out.pickups_acquired += b.loot.pickups_acquired;
+        out.pickups_rejected += b.loot.pickups_rejected;
+        out.pickups_unknown += b.loot.pickups_unknown;
+        out.items_held += b.loot.items_held;
+        out.gold += b.loot.gold;
         out.max_visible = std::max(out.max_visible, b.max_visible);
         rtts.insert(rtts.end(), b.ping_rtts.begin(), b.ping_rtts.end());
     }
@@ -48,8 +52,9 @@ bool RunReport::Succeeded() const noexcept {
     // ignores input fails even if bots happen to spawn next to each other.
     const bool everyone_in =
         welcomed == bots && inputs_acked == bots && failed == 0 && kicks.empty();
-    const bool enough_met = saw_another_player >= min_bots_seeing_others;
-    return everyone_in && enough_met && kills >= min_kills && integrity_errors == 0;
+    const bool enough_met = saw_another_player >= criteria.min_bots_seeing_others;
+    return everyone_in && enough_met && kills >= criteria.min_kills &&
+           pickups_acquired >= criteria.min_pickups && integrity_errors == 0;
 }
 
 std::string RunReport::ToText() const {
@@ -58,12 +63,18 @@ std::string RunReport::ToText() const {
         "(required {}) failed={}\n"
         "snapshots={} inputs_sent={} max_visible={} integrity_errors={}\n",
         bots, provisioned, connected, welcomed, inputs_acked, saw_another_player,
-        min_bots_seeing_others, failed, snapshots, inputs_sent, max_visible, integrity_errors);
+        criteria.min_bots_seeing_others, failed, snapshots, inputs_sent, max_visible,
+        integrity_errors);
     text += std::format(
         "casts sent={} accepted={} rejected={} unknown={} hits={} kills={} (required {}) "
         "deaths={}\n",
-        casts_sent, casts_accepted, casts_rejected, results_unknown, hits_dealt, kills, min_kills,
-        deaths);
+        casts_sent, casts_accepted, casts_rejected, casts_unknown, hits_dealt, kills,
+        criteria.min_kills, deaths);
+    text += std::format(
+        "pickups sent={} acquired={} (required {}) rejected={} unknown={} items_held={} "
+        "gold={}\n",
+        pickups_sent, pickups_acquired, criteria.min_pickups, pickups_rejected, pickups_unknown,
+        items_held, gold);
     if (rtt_p50 && rtt_max) {
         text += std::format("ping_rtt_ms p50={} max={}\n", rtt_p50->count(), rtt_max->count());
     }

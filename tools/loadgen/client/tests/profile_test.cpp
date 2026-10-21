@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <string>
+#include <string_view>
+#include <utility>
 
 namespace sa::loadgen {
 namespace {
@@ -17,6 +20,7 @@ class_id = 1
 [bots]
 wanderers = 1
 fighters = 2
+looters = 1
 seed = 7
 account_prefix = "bot"
 password = "pw"
@@ -24,6 +28,7 @@ password = "pw"
 duration_sec = 5
 min_bots_seeing_others = 1
 min_kills = 0
+min_pickups = 0
 [client]
 tick_hz = 20
 ping_interval_ms = 1000
@@ -39,6 +44,10 @@ engage_radius_m = 30.0
 attack_skill_id = 1
 attack_range_m = 2.5
 attack_interval_ms = 900
+[looter]
+loot_radius_m = 20.0
+pickup_range_m = 1.5
+pickup_retry_ms = 2000
 )";
 
 TEST(LoadProfile, ParsesAndDefaultsGatewayOverrideToEmpty) {
@@ -46,9 +55,14 @@ TEST(LoadProfile, ParsesAndDefaultsGatewayOverrideToEmpty) {
     ASSERT_TRUE(source.has_value());
     auto profile = LoadProfile::FromConfig(*source);
     ASSERT_TRUE(profile.has_value()) << profile.error().message;
-    EXPECT_EQ(profile->bot_count(), 3U);
-    EXPECT_FALSE(profile->IsFighter(0));
-    EXPECT_TRUE(profile->IsFighter(1));
+    EXPECT_EQ(profile->bot_count(), 4U);
+    EXPECT_EQ(profile->RoleOf(0), BotRole::kWanderer);
+    EXPECT_EQ(profile->RoleOf(1), BotRole::kFighter);
+    EXPECT_EQ(profile->RoleOf(2), BotRole::kFighter);
+    EXPECT_EQ(profile->RoleOf(3), BotRole::kLooter);
+    EXPECT_EQ(profile->looter.pickup_retry, std::chrono::milliseconds{2000});
+    EXPECT_EQ(profile->looter.fight.attack_range_m, profile->fighter.attack_range_m)
+        << "a looter fights like a fighter";
     EXPECT_EQ(profile->fighter.attack_interval, std::chrono::milliseconds{900})
         << "kept as wall time; the fighter converts it with the server's tick rate";
     EXPECT_EQ(profile->seed, 7U);
@@ -61,12 +75,28 @@ TEST(LoadProfile, RejectsZeroBotsAndInvertedIdleRange) {
     std::string zero{kProfile};
     zero.replace(zero.find("wanderers = 1"), 13, "wanderers = 0");
     zero.replace(zero.find("fighters = 2"), 12, "fighters = 0");
+    zero.replace(zero.find("looters = 1"), 11, "looters = 0");
     EXPECT_FALSE(LoadProfile::FromConfig(*common::ConfigSource::FromText(zero, "")).has_value());
 
     std::string inverted{kProfile};
     inverted.replace(inverted.find("idle_ticks_min = 0"), 18, "idle_ticks_min = 50");
     EXPECT_FALSE(
         LoadProfile::FromConfig(*common::ConfigSource::FromText(inverted, "")).has_value());
+}
+
+TEST(LoadProfile, RejectsNonPositiveLooterSettingsAndRoleCountsThatOverflow) {
+    for (const auto& [key, bad] : {std::pair{"loot_radius_m = 20.0", "loot_radius_m = 0.0"},
+                                   std::pair{"pickup_range_m = 1.5", "pickup_range_m = nan"},
+                                   std::pair{"pickup_retry_ms = 2000", "pickup_retry_ms = 0"}}) {
+        std::string text{kProfile};
+        text.replace(text.find(key), std::string_view{key}.size(), bad);
+        EXPECT_FALSE(LoadProfile::FromConfig(*common::ConfigSource::FromText(text, "")).has_value())
+            << bad;
+    }
+    std::string wrapping{kProfile};
+    wrapping.replace(wrapping.find("wanderers = 1"), 13, "wanderers = 4294967295");
+    EXPECT_FALSE(LoadProfile::FromConfig(*common::ConfigSource::FromText(wrapping, "")).has_value())
+        << "4294967295 + 2 + 1 must not wrap around to 2 bots";
 }
 
 TEST(LoadProfile, AGatewayOverrideMustBeARealAddressWhenGiven) {
@@ -79,7 +109,8 @@ TEST(LoadProfile, AGatewayOverrideMustBeARealAddressWhenGiven) {
 // The shipped profiles are what scripts/e2e-local.sh runs; a profile that no longer loads, or
 // loads into a different meaning, would only show up there.
 TEST(LoadProfile, TheShippedProfilesLoadWithoutAGatewayOverride) {
-    for (const char* file : {SA_PROFILE_DIR "/smoke.toml", SA_PROFILE_DIR "/fighters.toml"}) {
+    for (const char* file : {SA_PROFILE_DIR "/smoke.toml", SA_PROFILE_DIR "/fighters.toml",
+                             SA_PROFILE_DIR "/looters.toml"}) {
         auto source = common::ConfigSource::Load(file, LoadProfile::kEnvPrefix);
         ASSERT_TRUE(source.has_value()) << file;
         const auto profile = LoadProfile::FromConfig(*source);

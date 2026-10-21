@@ -15,6 +15,7 @@ class_id = 1
 [bots]
 wanderers = 1
 fighters = 5
+looters = 0
 seed = 2
 account_prefix = "fighter"
 password = "bots-fight-monsters-2026"
@@ -23,6 +24,7 @@ password = "bots-fight-monsters-2026"
 duration_sec = 40
 min_bots_seeing_others = 1
 min_kills = 2
+min_pickups = 0
 
 [client]
 tick_hz = 20
@@ -41,6 +43,11 @@ engage_radius_m = 40.0
 attack_skill_id = 1
 attack_range_m = 2.5
 attack_interval_ms = 900
+
+[looter]
+loot_radius_m = 20.0
+pickup_range_m = 1.5
+pickup_retry_ms = 2000
 
 [logging]
 level = "info"
