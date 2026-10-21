@@ -8,6 +8,12 @@ namespace Sa.GameBackend.Modules.Auth;
 
 internal static class AuthModule
 {
+    // The option counts attempts per minute, so the window is a minute by definition.
+    private static readonly TimeSpan CredentialAttemptWindow = TimeSpan.FromMinutes(1);
+
+    // Over the limit is refused at once, not held until the window turns.
+    private const int NoQueue = 0;
+
     public static IServiceCollection AddAuthModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<AuthOptions>()
@@ -32,7 +38,7 @@ internal static class AuthModule
                     ValidAudience = auth.Value.Audience,
                     IssuerSigningKey = new SymmetricSecurityKey(auth.Value.DecodedSigningKey()),
                     ValidateIssuerSigningKey = true,
-                    ClockSkew = TimeSpan.FromSeconds(30),
+                    ClockSkew = auth.Value.TokenClockSkew,
                 };
             });
         services.AddAuthorization();
@@ -49,8 +55,8 @@ internal static class AuthModule
                     _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = permits,
-                        Window = TimeSpan.FromMinutes(1),
-                        QueueLimit = 0,
+                        Window = CredentialAttemptWindow,
+                        QueueLimit = NoQueue,
                     });
             });
         });

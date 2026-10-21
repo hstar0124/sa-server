@@ -4,20 +4,21 @@ using System.Text.Json;
 using Dapper;
 using Npgsql;
 using Sa.GameBackend.Common;
+using Sa.GameBackend.Infrastructure.GameData;
 
 namespace Sa.GameBackend.Modules.Economy;
 
 /// <summary>Which zone process claims to act for a character, and under which ownership generation (see README "소유권과 lease").</summary>
-internal sealed record ZoneAuthority(InstanceId ZoneInstanceId, long OwnerEpoch);
+internal sealed record ZoneAuthority(InstanceId ZoneInstanceId, OwnerEpoch OwnerEpoch);
 
-internal sealed record DropRoll(int ItemTemplateId, float X, float Y);
+internal sealed record DropRoll(ItemTemplateId ItemTemplateId, float X, float Y);
 
 internal sealed record RecordKillCommand(
     KillId KillId,
     WorldId WorldId,
     CharacterId Killer,
     ZoneAuthority Authority,
-    int MonsterTemplateId,
+    MonsterTemplateId MonsterTemplateId,
     string ContentVersion,
     IReadOnlyList<DropRoll> Drops);
 
@@ -30,7 +31,7 @@ internal enum KillOutcome
     UnknownTemplate,
 }
 
-internal sealed record DroppedItem(ItemInstanceId Id, int ItemTemplateId, float X, float Y);
+internal sealed record DroppedItem(ItemInstanceId Id, ItemTemplateId ItemTemplateId, float X, float Y);
 
 internal sealed record KillResult(KillOutcome Outcome, IReadOnlyList<DroppedItem> Items, long GoldGranted, long GoldBalance)
 {
@@ -60,7 +61,7 @@ internal enum PickupOutcome
     UnknownItem,
 }
 
-internal sealed record InventoryItem(ItemInstanceId Id, int ItemTemplateId, int SlotNo);
+internal sealed record InventoryItem(ItemInstanceId Id, ItemTemplateId ItemTemplateId, int SlotNo);
 
 internal sealed record PickupResult(PickupOutcome Outcome, InventoryItem? Item, int InventoryVersion)
 {
@@ -98,7 +99,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         """;
 
     /// <summary>The zone id the character is simulated in, or null when the caller is not its current owner.</summary>
-    private static async Task<int?> OwnedZoneAsync(NpgsqlConnection connection, NpgsqlTransaction tx, WorldId worldId, CharacterId characterId, ZoneAuthority authority, CancellationToken ct)
+    private static async Task<ZoneId?> OwnedZoneAsync(NpgsqlConnection connection, NpgsqlTransaction tx, WorldId worldId, CharacterId characterId, ZoneAuthority authority, CancellationToken ct)
     {
         OwnershipRow? row = await connection.QuerySingleOrDefaultAsync<OwnershipRow>(Cmd(OwnershipSql, new { WorldId = worldId, CharacterId = characterId }, tx, ct));
         bool holds = row is { State: "active", ZoneAlive: true } && row.OwnerEpoch == authority.OwnerEpoch && authority.ZoneInstanceId.SameAs(row.ZoneInstanceId);
@@ -168,13 +169,13 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         ReceiptRow? receipt = await connection.QuerySingleOrDefaultAsync<ReceiptRow>(Cmd(ReceiptSql, killScope, tx, ct));
         if (receipt is not null)
         {
-            bool same = command.Authority.ZoneInstanceId.SameAs(receipt.ZoneInstanceId) && receipt.KillerCharacterId == command.Killer.Value;
+            bool same = command.Authority.ZoneInstanceId.SameAs(receipt.ZoneInstanceId) && receipt.KillerCharacterId == command.Killer;
             return same
                 ? await EchoKillAsync(connection, tx, killScope, ct)
                 : KillResult.Refused(KillOutcome.StaleAuthority);
         }
 
-        int? zoneId = await OwnedZoneAsync(connection, tx, command.WorldId, command.Killer, command.Authority, ct);
+        ZoneId? zoneId = await OwnedZoneAsync(connection, tx, command.WorldId, command.Killer, command.Authority, ct);
         if (zoneId is null)
         {
             return KillResult.Refused(KillOutcome.StaleAuthority);
@@ -269,9 +270,13 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         WHERE world_id = @WorldId AND scope = @Scope AND request_id = @RequestId
         """;
 
+    // An inventory nobody has changed yet; every change raises it, and the zone keeps the highest
+    // version it has seen. Matches the column default (migration 0005).
+    private const int InitialInventoryVersion = 0;
+
     private const string EnsureInventorySql = """
         INSERT INTO game.inventories (world_id, character_id, capacity, version)
-        VALUES (@WorldId, @CharacterId, @Capacity, 0)
+        VALUES (@WorldId, @CharacterId, @Capacity, @InitialVersion)
         ON CONFLICT (world_id, character_id) DO NOTHING
         """;
 
@@ -329,7 +334,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
                 : PickupResult.Refused(PickupOutcome.RequestMismatch);
         }
 
-        int? zoneId = await OwnedZoneAsync(connection, tx, command.WorldId, command.CharacterId, command.Authority, ct);
+        ZoneId? zoneId = await OwnedZoneAsync(connection, tx, command.WorldId, command.CharacterId, command.Authority, ct);
         if (zoneId is null)
         {
             return PickupResult.Refused(PickupOutcome.StaleAuthority);
@@ -346,7 +351,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         }
 
         var inventoryKey = new { command.WorldId, command.CharacterId };
-        await connection.ExecuteAsync(Cmd(EnsureInventorySql, new { command.WorldId, command.CharacterId, Capacity = content.InventoryCapacity }, tx, ct));
+        await connection.ExecuteAsync(Cmd(EnsureInventorySql, new { command.WorldId, command.CharacterId, Capacity = content.InventoryCapacity, InitialVersion = InitialInventoryVersion }, tx, ct));
         InventoryRow inventory = await connection.QuerySingleAsync<InventoryRow>(Cmd(LockInventorySql, inventoryKey, tx, ct));
         List<int> occupied = (await connection.QueryAsync<int>(Cmd(OccupiedSlotsSql, inventoryKey, tx, ct))).ToList();
         if (occupied.Count >= inventory.Capacity)
@@ -383,7 +388,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
             Reason = "pickup",
             RequestId = command.RequestId.Bytes,
         }, tx, ct));
-        var acquired = new PickupResult(PickupOutcome.Acquired, new InventoryItem(command.ItemInstanceId, templateId.Value, slot), version);
+        var acquired = new PickupResult(PickupOutcome.Acquired, new InventoryItem(command.ItemInstanceId, new ItemTemplateId(templateId.Value), slot), version);
         return await ConcludeAsync(connection, tx, requestKey, acquired, ct);
     }
 
@@ -445,7 +450,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         List<InventoryItem> items = (await connection.QueryAsync<InventoryItemRow>(Cmd(InventoryItemsSql, key, tx, ct))).Select(r => r.ToItem()).ToList();
         List<WalletEntry> wallet = (await connection.QueryAsync<WalletEntry>(Cmd(WalletSql, key, tx, ct))).ToList();
         InventoryRow inventory = await connection.QuerySingleOrDefaultAsync<InventoryRow>(Cmd(InventorySql, key, tx, ct))
-                                 ?? new InventoryRow(content.InventoryCapacity, 0);
+                                 ?? new InventoryRow(content.InventoryCapacity, InitialInventoryVersion);
         await tx.CommitAsync(ct);
         return new CharacterAssets(items, wallet, inventory.Capacity, inventory.Version);
     }
@@ -455,18 +460,18 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
 
     private sealed record RequestKey(WorldId WorldId, string Scope, byte[] RequestId);
 
-    private sealed record OwnershipRow(int ZoneId, byte[] ZoneInstanceId, long OwnerEpoch, string State, bool ZoneAlive);
+    private sealed record OwnershipRow(ZoneId ZoneId, byte[] ZoneInstanceId, OwnerEpoch OwnerEpoch, string State, bool ZoneAlive);
 
-    private sealed record ItemWhereabouts(string Location, int? ZoneId);
+    private sealed record ItemWhereabouts(string Location, ZoneId? ZoneId);
 
-    private sealed record ReceiptRow(byte[] ZoneInstanceId, long KillerCharacterId);
+    private sealed record ReceiptRow(byte[] ZoneInstanceId, CharacterId KillerCharacterId);
 
-    private sealed record DroppedItemRow(byte[] Id, int ItemTemplateId, float X, float Y)
+    private sealed record DroppedItemRow(byte[] Id, ItemTemplateId ItemTemplateId, float X, float Y)
     {
         public DroppedItem ToItem() => new(new ItemInstanceId(Id), ItemTemplateId, X, Y);
     }
 
-    private sealed record InventoryItemRow(byte[] Id, int ItemTemplateId, int SlotNo)
+    private sealed record InventoryItemRow(byte[] Id, ItemTemplateId ItemTemplateId, int SlotNo)
     {
         public InventoryItem ToItem() => new(new ItemInstanceId(Id), ItemTemplateId, SlotNo);
     }
@@ -476,7 +481,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
     private sealed record StoredRequestRow(byte[] RequestHash, string Outcome, string Payload);
 
     /// <summary>The jsonb payload of a stored pickup: enough to rebuild the response for a retry.</summary>
-    private sealed record StoredPickup(int? ItemTemplateId, int? SlotNo, int InventoryVersion)
+    private sealed record StoredPickup(ItemTemplateId? ItemTemplateId, int? SlotNo, int InventoryVersion)
     {
         private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

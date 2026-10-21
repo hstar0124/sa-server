@@ -2,7 +2,7 @@ using Sa.GameBackend.Common;
 
 namespace Sa.GameBackend.Modules.Characters;
 
-internal sealed record Character(CharacterId Id, WorldId WorldId, AccountId AccountId, string Name, int ClassId);
+internal sealed record Character(CharacterId Id, WorldId WorldId, AccountId AccountId, string Name, ClassId ClassId);
 
 /// <summary>Mirrored by the characters_name_format CHECK constraint.</summary>
 internal static class CharacterRules

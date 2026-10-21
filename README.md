@@ -96,7 +96,7 @@ flowchart TB
 | 입장 티켓, 세션, 캐릭터의 소유 Zone과 소유권 세대(owner_epoch), 프로세스 lease | Backend WorldDirectory | PostgreSQL |
 | 아이템, 인벤토리, 지갑, 원장, 처치 영수증, 요청 결과 | Backend Economy | PostgreSQL |
 
-규칙은 DB 제약으로도 지킨다. 티켓 소비는 조건부 UPDATE, 캐릭터당 활성 세션 하나는 부분 유일 인덱스, 소유권 변경은 같은 트랜잭션.
+규칙은 DB 제약으로도 지킨다. 티켓 소비는 조건부 UPDATE, 캐릭터당 활성 세션 하나는 부분 유일 인덱스, 소유권 변경은 같은 트랜잭션. 코드가 지키던 나머지 규칙도 제약으로 건다. 캐릭터를 월드·계정과 함께 가리키는 행은 복합 외래 키로 그 캐릭터의 것과 맞아야 하고, 소유 Zone은 같은 월드·Zone ID의 lease다. 원장 행은 재화 이동이거나 아이템 이동 중 하나로 온전해야 하고, 칸 번호·세대·템플릿 id의 범위와 요청 범위·해시 길이가 정해져 있다. Backend 코드를 거치지 않은 쓰기도 이름 붙은 제약에서 거절되는지 통합 테스트가 확인한다.
 
 Backend가 PostgreSQL에 두는 기준 상태와 그것을 지키는 제약이다.
 
@@ -376,7 +376,7 @@ sequenceDiagram
     Z-->>C: CommandResult(최종) + InventoryUpdate(전체 상태)
 ```
 
-Backend도 `Economy:ContentDir`의 같은 game-data를 읽는다. Zone과 다른 콘텐츠 버전으로 보고된 처치는 거절한다.
+Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 만들 때 클래스가 콘텐츠에 있는지도 여기서 본다. Zone과 다른 콘텐츠 버전으로 보고된 처치는 거절한다.
 
 콘텐츠는 `game-data/`의 데이터다. 아이템 템플릿, 몬스터별 드롭 표(항목별 확률과 골드), 경제 규칙(인벤토리 용량, 획득 거리, 바닥 아이템 소멸 시간)이 있다. Zone 로더가 전투 콘텐츠와 함께 읽고, 드롭 표가 모르는 몬스터나 아이템을 가리키면 거절한다.
 

@@ -17,4 +17,12 @@ internal static class WorldDirectoryModule
         services.AddSingleton<EntryTicketIssuer>();
         return services;
     }
+
+    /// <summary>Maps the client entry endpoint and the gRPC surface for gateways and zones.</summary>
+    public static WebApplication UseWorldDirectoryModule(this WebApplication app)
+    {
+        app.MapEntryEndpoints();
+        app.MapGrpcService<WorldDirectoryGrpcService>();
+        return app;
+    }
 }

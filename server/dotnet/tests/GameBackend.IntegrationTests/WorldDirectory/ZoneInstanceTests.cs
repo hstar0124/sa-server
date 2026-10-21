@@ -1,4 +1,7 @@
+using Microsoft.Extensions.DependencyInjection;
+using Sa.GameBackend.Common;
 using Sa.GameBackend.IntegrationTests.Harness;
+using Sa.GameBackend.Modules.WorldDirectory;
 
 namespace Sa.GameBackend.IntegrationTests.WorldDirectory;
 
@@ -50,6 +53,25 @@ public sealed class ZoneInstanceTests(PostgresFixture postgres) : IDisposable
 
         // A stall that outlived the lease with no replacement: refusing would leave the zone dead.
         Assert.True((await directory.RenewZoneAsync(zone, World, Zone)).Renewed);
+    }
+
+    [Fact]
+    public async Task A_refused_renewal_says_whether_the_instance_was_superseded_or_named_another_zone()
+    {
+        using DirectoryClient directory = Directory;
+        byte[] before = DirectoryClient.NewInstanceId();
+        Assert.True((await directory.RenewZoneAsync(before, World, Zone)).Renewed);
+        Assert.True((await directory.RenewZoneAsync(DirectoryClient.NewInstanceId(), World, Zone)).Renewed);
+
+        WorldDirectoryRepository repository = _factory.Services.GetRequiredService<WorldDirectoryRepository>();
+        ZoneLeaseRenewal superseded = await repository.RenewZoneLeaseAsync(
+            new InstanceId(before), new WorldId(World), new ZoneId((int)Zone), TimeSpan.FromSeconds(15), CancellationToken.None);
+        ZoneLeaseRenewal elsewhere = await repository.RenewZoneLeaseAsync(
+            new InstanceId(before), new WorldId(World), new ZoneId((int)Zone + 1), TimeSpan.FromSeconds(15), CancellationToken.None);
+
+        Assert.Equal(ZoneLeaseOutcome.Superseded, superseded.Outcome);
+        Assert.Equal(ZoneLeaseOutcome.IdentityMismatch, elsewhere.Outcome);
+        Assert.Null(superseded.ExpiresAt);
     }
 
     public void Dispose() => _factory.Dispose();

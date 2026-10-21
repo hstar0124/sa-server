@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
 using Sa.GameBackend.Common;
+using Sa.GameBackend.Infrastructure.GameData;
 using Sa.GameBackend.Modules.Auth;
 
 namespace Sa.GameBackend.Modules.Characters;
@@ -14,7 +15,7 @@ internal sealed record CreateCharacterRequest(
 internal sealed record CharacterResponse(long CharacterId, long WorldId, string Name, int ClassId)
 {
     public static CharacterResponse From(Character character)
-        => new(character.Id.Value, character.WorldId.Value, character.Name, character.ClassId);
+        => new(character.Id.Value, character.WorldId.Value, character.Name, character.ClassId.Value);
 }
 
 internal static class CharacterEndpoints
@@ -28,18 +29,19 @@ internal static class CharacterEndpoints
     }
 
     private static async Task<Ok<IReadOnlyList<CharacterResponse>>> ListAsync(
-        long worldId, ClaimsPrincipal principal, CharacterRepository characters, CancellationToken cancellationToken)
+        WorldId worldId, ClaimsPrincipal principal, CharacterRepository characters, CancellationToken cancellationToken)
     {
-        IReadOnlyList<Character> rows = await characters.ListAsync(CurrentAccount.Require(principal), new WorldId(worldId), cancellationToken);
+        IReadOnlyList<Character> rows = await characters.ListAsync(CurrentAccount.Require(principal), worldId, cancellationToken);
         return TypedResults.Ok<IReadOnlyList<CharacterResponse>>(rows.Select(CharacterResponse.From).ToList());
     }
 
     private static async Task<Results<Created<CharacterResponse>, ValidationProblem, ProblemHttpResult>> CreateAsync(
-        long worldId,
+        WorldId worldId,
         CreateCharacterRequest request,
         ClaimsPrincipal principal,
         CharacterRepository characters,
         IOptions<CharactersOptions> options,
+        ContentCatalog content,
         CancellationToken cancellationToken)
     {
         if (RequestValidation.Validate(request) is { } invalid)
@@ -47,8 +49,14 @@ internal static class CharacterEndpoints
             return invalid;
         }
 
+        // A class the zones do not know would make a character no zone can spawn.
+        if (!content.KnowsClass(new ClassId(request.ClassId)))
+        {
+            return Problems.UnprocessableEntity("unknown-class", $"class {request.ClassId} does not exist");
+        }
+
         CreateCharacterResult result = await characters.CreateAsync(
-            CurrentAccount.Require(principal), new WorldId(worldId), request.Name, request.ClassId,
+            CurrentAccount.Require(principal), worldId, request.Name, new ClassId(request.ClassId),
             options.Value.MaxCharactersPerWorld, cancellationToken);
 
         return result.Outcome switch

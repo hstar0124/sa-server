@@ -21,21 +21,21 @@ internal static class EntryEndpoints
     }
 
     private static async Task<Results<Ok<EnterWorldResponse>, ProblemHttpResult>> EnterAsync(
-        long worldId,
-        long characterId,
+        WorldId worldId,
+        CharacterId characterId,
         ClaimsPrincipal principal,
-        CharacterRepository characters,
+        CharacterOwnership characters,
         EntryTicketIssuer tickets,
         IOptions<WorldDirectoryOptions> options,
         CancellationToken cancellationToken)
     {
         AccountId accountId = CurrentAccount.Require(principal);
-        if (!await characters.IsOwnedByAsync(new CharacterId(characterId), accountId, new WorldId(worldId), cancellationToken))
+        if (!await characters.IsOwnedByAsync(characterId, accountId, worldId, cancellationToken))
         {
             return Problems.NotFound("unknown-character", "no such character on this account");
         }
 
-        IssuedTicket issued = await tickets.IssueAsync(accountId, new CharacterId(characterId), new WorldId(worldId), cancellationToken);
+        IssuedTicket issued = await tickets.IssueAsync(accountId, characterId, worldId, cancellationToken);
         WorldDirectoryOptions o = options.Value;
         return TypedResults.Ok(new EnterWorldResponse(
             Convert.ToBase64String(issued.SignedTicket), new GatewayEndpoint(o.GatewayHost, o.GatewayPort, o.GatewayWebSocketPort), issued.ExpiresAt));
