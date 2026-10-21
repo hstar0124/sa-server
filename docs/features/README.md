@@ -38,6 +38,7 @@
 | [32](32-loadgen-looter.md) | 획득 봇: 떨어진 아이템을 줍는 Looter와 획득 end-to-end | 5 | 0.3.0 |
 | [33](33-events-contracts-schema.md) | 이벤트 계약과 소비 쪽 스키마: 처치 이벤트, Inbox, 조회 모델 | 6 | |
 | [34](34-backend-outbox.md) | Backend Outbox: 확정된 처치와 획득이 같은 트랜잭션에 이벤트를 남긴다 | 6 | |
+| [35](35-eventworker-publisher.md) | EventWorker 발행자: Outbox를 Kafka로, 캐릭터마다 순서대로, 발행자는 하나 | 6 | |
 
 ## 형식
 
