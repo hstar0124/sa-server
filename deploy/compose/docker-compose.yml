@@ -1,5 +1,5 @@
-# Local development loop (ADR-0002). Stage 0 ships PostgreSQL only; Redis and Kafka join in
-# stages 6-7. Named volumes live under /var/lib/docker (the 500 GiB LV).
+# Local development loop (ADR-0002): PostgreSQL and a single-node Kafka. Named volumes live under
+# /var/lib/docker (the 500 GiB LV).
 name: sa
 
 services:
@@ -34,5 +34,45 @@ services:
         limits:
           memory: 3g
 
+  # One broker that is also its own controller (KRaft): a development node without replication.
+  # Topics are created by the EventWorker at start-up with the configured partition counts, so
+  # auto-creation stays off and a misspelled topic name fails loudly.
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: sa-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # Short, bounded retention: the Outbox and the ledger are the durable record, Kafka only
+      # carries events to their consumers.
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_BYTES: 2147483648
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: c2EtZGV2LWNsdXN0ZXItMDAwMQ
+    ports:
+      - "127.0.0.1:9092:9092"
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
 volumes:
   pgdata:
+  kafkadata:
