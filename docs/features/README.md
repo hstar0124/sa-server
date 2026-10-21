@@ -21,21 +21,21 @@
 | [15](15-zone-combat-host.md) | 전투 호스트 연결: 스킬 요청을 받고 결과·피해·체력을 보낸다 | 4 | 0.2.0 |
 | [16](16-loadgen-fighter.md) | 전투 봇: 몬스터를 사냥하는 Fighter와 전투 end-to-end | 4 | 0.2.0 |
 | [17](17-ci-cache-miss-on-version-bump.md) | CI 의존성 캐시: 버전을 올려도 의존성을 다시 빌드하지 않는다 | – | 0.2.0 |
-| [18](18-repo-main-branch-restored.md) | 저장소 보호: 지워진 main을 되살리고 룰셋을 다시 시행한다 | – | |
-| [19](19-docs-self-contained.md) | 설계 노트 자기완결화: 노트 하나만 읽어도 이해되게 | – | |
-| [20](20-readme-diagrams.md) | README 다이어그램: 지금까지 만든 것을 그림으로 | – | |
-| [21](21-economy-schema.md) | 경제 스키마: 아이템·지갑·영수증·요청 결과를 제약으로 | 5 | |
-| [22](22-backend-economy.md) | Backend 경제 모듈: 처치 보상과 획득을 한 트랜잭션으로 | 5 | |
-| [23](23-zone-drops-pickup.md) | Zone 드롭과 획득: 굴리고 예약하고, 확정은 Backend가 | 5 | |
-| [24](24-zone-economy-review-fixes.md) | 23의 리뷰 수정: 획득과 처치 정산 보강 | 5 | |
-| [25](25-verification-harness.md) | 검증 장치 수정: 통과가 실제로 무언가를 증명하게 | – | |
-| [26](26-backend-review-fixes.md) | Backend 리뷰 수정: Zone 인스턴스 하나, 재시도 순서, 빠진 정합성 테스트 | – | |
-| [27](27-zone-review-fixes.md) | Zone 리뷰 수정: 유한한 입력, 빠짐없는 델타, 상한 있는 큐, 막히지 않는 몬스터 | – | |
-| [28](28-gateway-review-fixes.md) | Gateway 리뷰 수정: 남지 않는 세션, 해제되지 않는 연결, 끝이 있는 기다림 | – | |
-| [29](29-cpp-rule-cleanup-errors-config.md) | C++ 규칙 정리 1: 오류는 타입으로, 설정은 엄격하게, 종료는 끝까지 | – | |
-| [30](30-cpp-rule-cleanup-units-constants.md) | C++ 규칙 정리 2: 시간은 chrono로, ID는 타입으로, 수치는 데이터로 | – | |
-| [31](31-backend-rule-cleanup.md) | Backend 규칙 정리: 타입 있는 ID, 결과 타입, 모듈 경계, DB 제약 | – | |
-| [32](32-loadgen-looter.md) | 획득 봇: 떨어진 아이템을 줍는 Looter와 획득 end-to-end | 5 | |
+| [18](18-repo-main-branch-restored.md) | 저장소 보호: 지워진 main을 되살리고 룰셋을 다시 시행한다 | – | 0.3.0 |
+| [19](19-docs-self-contained.md) | 설계 노트 자기완결화: 노트 하나만 읽어도 이해되게 | – | 0.3.0 |
+| [20](20-readme-diagrams.md) | README 다이어그램: 지금까지 만든 것을 그림으로 | – | 0.3.0 |
+| [21](21-economy-schema.md) | 경제 스키마: 아이템·지갑·영수증·요청 결과를 제약으로 | 5 | 0.3.0 |
+| [22](22-backend-economy.md) | Backend 경제 모듈: 처치 보상과 획득을 한 트랜잭션으로 | 5 | 0.3.0 |
+| [23](23-zone-drops-pickup.md) | Zone 드롭과 획득: 굴리고 예약하고, 확정은 Backend가 | 5 | 0.3.0 |
+| [24](24-zone-economy-review-fixes.md) | 23의 리뷰 수정: 획득과 처치 정산 보강 | 5 | 0.3.0 |
+| [25](25-verification-harness.md) | 검증 장치 수정: 통과가 실제로 무언가를 증명하게 | – | 0.3.0 |
+| [26](26-backend-review-fixes.md) | Backend 리뷰 수정: Zone 인스턴스 하나, 재시도 순서, 빠진 정합성 테스트 | – | 0.3.0 |
+| [27](27-zone-review-fixes.md) | Zone 리뷰 수정: 유한한 입력, 빠짐없는 델타, 상한 있는 큐, 막히지 않는 몬스터 | – | 0.3.0 |
+| [28](28-gateway-review-fixes.md) | Gateway 리뷰 수정: 남지 않는 세션, 해제되지 않는 연결, 끝이 있는 기다림 | – | 0.3.0 |
+| [29](29-cpp-rule-cleanup-errors-config.md) | C++ 규칙 정리 1: 오류는 타입으로, 설정은 엄격하게, 종료는 끝까지 | – | 0.3.0 |
+| [30](30-cpp-rule-cleanup-units-constants.md) | C++ 규칙 정리 2: 시간은 chrono로, ID는 타입으로, 수치는 데이터로 | – | 0.3.0 |
+| [31](31-backend-rule-cleanup.md) | Backend 규칙 정리: 타입 있는 ID, 결과 타입, 모듈 경계, DB 제약 | – | 0.3.0 |
+| [32](32-loadgen-looter.md) | 획득 봇: 떨어진 아이템을 줍는 Looter와 획득 end-to-end | 5 | 0.3.0 |
 
 ## 형식
 
