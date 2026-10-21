@@ -1,6 +1,6 @@
 # Loads game-data/*.toml into the simulation's plain structs. This is the only place the zone
 # touches content files; the simulation itself stays I/O-free (ADR-0008).
-add_library(sa_zone_data STATIC src/game_data_loader.cpp)
+add_library(sa_zone_data STATIC src/game_data_loader.cpp src/toml_fields.cpp)
 add_library(sa::zone_data ALIAS sa_zone_data)
 sa_apply_policy(sa_zone_data)
 target_include_directories(sa_zone_data PUBLIC include)

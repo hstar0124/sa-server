@@ -48,11 +48,10 @@ std::expected<std::string, ApiError> BackendApi::Login(const std::string& userna
     return parsed->value("accessToken", "");
 }
 
-std::expected<std::uint64_t, ApiError> BackendApi::FindCharacter(const std::string& token,
-                                                                 std::uint64_t world_id,
-                                                                 const std::string& name) const {
+std::expected<common::CharacterId, ApiError> BackendApi::FindCharacter(
+    const std::string& token, common::WorldId world, const std::string& name) const {
     const cpr::Response response =
-        cpr::Get(cpr::Url{std::format("{}/api/v1/worlds/{}/characters", base_url_, world_id)},
+        cpr::Get(cpr::Url{std::format("{}/api/v1/worlds/{}/characters", base_url_, world.value())},
                  cpr::Bearer{token});
     auto parsed = ParseBody(response, "list characters");
     if (!parsed) {
@@ -64,20 +63,19 @@ std::expected<std::uint64_t, ApiError> BackendApi::FindCharacter(const std::stri
     }
     for (const json& character : *parsed) {
         if (character.value("name", "") == name) {
-            return character.value("characterId", std::uint64_t{0});
+            return common::CharacterId{character.value("characterId", std::uint64_t{0})};
         }
     }
     return std::unexpected(
         ApiError{std::format("character '{}' exists in the world but not on this account", name)});
 }
 
-std::expected<std::uint64_t, ApiError> BackendApi::EnsureCharacter(const std::string& token,
-                                                                   std::uint64_t world_id,
-                                                                   const std::string& name,
-                                                                   std::uint32_t class_id) const {
-    const json body{{"name", name}, {"classId", class_id}};
+std::expected<common::CharacterId, ApiError> BackendApi::EnsureCharacter(
+    const std::string& token, common::WorldId world, const std::string& name,
+    common::ClassId class_id) const {
+    const json body{{"name", name}, {"classId", class_id.value()}};
     const cpr::Response response =
-        cpr::Post(cpr::Url{std::format("{}/api/v1/worlds/{}/characters", base_url_, world_id)},
+        cpr::Post(cpr::Url{std::format("{}/api/v1/worlds/{}/characters", base_url_, world.value())},
                   cpr::Bearer{token}, cpr::Header{{"content-type", "application/json"}},
                   cpr::Body{body.dump()});
     auto parsed = ParseBody(response, "create character");
@@ -85,21 +83,21 @@ std::expected<std::uint64_t, ApiError> BackendApi::EnsureCharacter(const std::st
         return std::unexpected(parsed.error());
     }
     if (response.status_code == kCreated) {
-        return parsed->value("characterId", std::uint64_t{0});
+        return common::CharacterId{parsed->value("characterId", std::uint64_t{0})};
     }
     if (response.status_code == kConflict) {
         // Same seed, same name: a previous run created it. Reuse it if it is ours.
-        return FindCharacter(token, world_id, name);
+        return FindCharacter(token, world, name);
     }
     return std::unexpected(
         ApiError{std::format("create character: HTTP {} {}", response.status_code, response.text)});
 }
 
-std::expected<EntryGrant, ApiError> BackendApi::ProvisionAndEnter(const std::string& username,
-                                                                  const std::string& password,
-                                                                  std::uint64_t world_id,
-                                                                  const std::string& character_name,
-                                                                  std::uint32_t class_id) const {
+std::expected<BotAccount, ApiError> BackendApi::Provision(const std::string& username,
+                                                          const std::string& password,
+                                                          common::WorldId world,
+                                                          const std::string& character_name,
+                                                          common::ClassId class_id) const {
     const json register_body{{"username", username}, {"password", password}};
     const cpr::Response registered = cpr::Post(cpr::Url{base_url_ + "/api/v1/auth/register"},
                                                cpr::Header{{"content-type", "application/json"}},
@@ -117,15 +115,19 @@ std::expected<EntryGrant, ApiError> BackendApi::ProvisionAndEnter(const std::str
     if (!token) {
         return std::unexpected(token.error());
     }
-    auto character = EnsureCharacter(*token, world_id, character_name, class_id);
+    auto character = EnsureCharacter(*token, world, character_name, class_id);
     if (!character) {
         return std::unexpected(character.error());
     }
+    return BotAccount{.token = std::move(*token), .character = *character};
+}
 
+std::expected<EntryGrant, ApiError> BackendApi::Enter(const BotAccount& account,
+                                                      common::WorldId world) const {
     const cpr::Response entered =
         cpr::Post(cpr::Url{std::format("{}/api/v1/worlds/{}/characters/{}/enter", base_url_,
-                                       world_id, *character)},
-                  cpr::Bearer{*token});
+                                       world.value(), account.character.value())},
+                  cpr::Bearer{account.token});
     auto parsed = ParseBody(entered, "enter");
     if (!parsed) {
         return std::unexpected(parsed.error());
@@ -134,15 +136,17 @@ std::expected<EntryGrant, ApiError> BackendApi::ProvisionAndEnter(const std::str
         return std::unexpected(
             ApiError{std::format("enter: HTTP {} {}", entered.status_code, entered.text)});
     }
-    EntryGrant grant;
-    grant.signed_ticket =
-        common::DecodeBase64(parsed->value("entryTicket", "")).value_or(std::vector<std::byte>{});
-    grant.gateway.host = (*parsed)["gateway"].value("host", "");
-    grant.gateway.port = static_cast<std::uint16_t>((*parsed)["gateway"].value("port", 0));
-    grant.character_id = *character;
-    if (grant.signed_ticket.empty() || grant.gateway.host.empty()) {
-        return std::unexpected(ApiError{"enter: response lacks ticket or gateway"});
+    auto ticket = common::DecodeBase64(parsed->value("entryTicket", ""));
+    const std::string host = (*parsed)["gateway"].value("host", "");
+    const auto port = (*parsed)["gateway"].value("port", std::int64_t{0});
+    if (!ticket || ticket->empty() || host.empty() || !std::in_range<std::uint16_t>(port) ||
+        port == 0) {
+        return std::unexpected(ApiError{"enter: response lacks a valid ticket or gateway address"});
     }
+    EntryGrant grant;
+    grant.signed_ticket = std::move(*ticket);
+    grant.gateway.host = host;
+    grant.gateway.port = static_cast<std::uint16_t>(port);
     return grant;
 }
 

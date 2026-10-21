@@ -48,10 +48,36 @@ public:
     template <typename T>
     [[nodiscard]] std::expected<T, ConfigError> Require(std::string_view dotted_key) const;
 
+    // A key that may be left out: nullopt when it is absent. A key that is present must be
+    // valid; a wrong type or a malformed environment override is an error, not "absent".
     template <typename T>
-    [[nodiscard]] T GetOr(std::string_view dotted_key, const T& fallback) const {
+    [[nodiscard]] std::expected<std::optional<T>, ConfigError> Optional(
+        std::string_view dotted_key) const {
+        if (!Has(dotted_key)) {
+            return std::nullopt;
+        }
         auto value = Require<T>(dotted_key);
-        return value ? *value : fallback;
+        if (!value) {
+            return std::unexpected(value.error());
+        }
+        return std::optional<T>{std::move(*value)};
+    }
+
+    // An absent key takes `fallback`; a present one must be valid (see Optional).
+    template <typename T>
+    [[nodiscard]] std::expected<T, ConfigError> GetOr(std::string_view dotted_key,
+                                                      const T& fallback) const {
+        auto value = Optional<T>(dotted_key);
+        if (!value) {
+            return std::unexpected(value.error());
+        }
+        return value->value_or(fallback);
+    }
+
+    // Whether the key is set, in the file or by an environment override.
+    [[nodiscard]] bool Has(std::string_view dotted_key) const {
+        const std::string key{dotted_key};
+        return env_overrides_.contains(key) || static_cast<bool>(table_.at_path(key));
     }
 
     // Each table of an array-of-tables ([[zones]]) as its own source. Environment overrides do

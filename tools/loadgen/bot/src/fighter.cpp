@@ -1,5 +1,8 @@
 #include "sa/bot/fighter.hpp"
 
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <limits>
 
 namespace sa::bot {
@@ -38,12 +41,16 @@ Intent Fighter::Decide(const Observation& observation) {
     if (to_monster.Length() > params_.attack_range_m) {
         return Intent{.direction = to_monster.Normalized()};
     }
-    if (observation.tick < next_cast_tick_) {
-        return Intent{};  // in range, waiting for the next swing
+    if (observation.tick_hz == 0 || observation.tick < next_cast_tick_) {
+        return Intent{};  // in range, waiting for the next swing (or for the server's tick rate)
     }
-    next_cast_tick_ = observation.tick + params_.attack_interval_ticks;
+    // The interval is wall time; convert it with the rate of the tick it is compared against.
+    const std::uint64_t interval_ticks =
+        TicksCovering(params_.attack_interval, observation.tick_hz);
+    next_cast_tick_ =
+        common::TickIndex{observation.tick.value() + std::max<std::uint64_t>(1, interval_ticks)};
     ++casts_;
-    return Intent{.cast = CastIntent{.skill_id = params_.attack_skill_id, .target = monster->id}};
+    return Intent{.cast = CastIntent{.skill = params_.attack_skill, .target = monster->id}};
 }
 
 }  // namespace sa::bot

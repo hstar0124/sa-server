@@ -14,7 +14,7 @@ namespace sa::common::websocket {
 namespace {
 
 constexpr std::string_view kGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-constexpr std::string_view kHeaderEnd = "\r\n\r\n";
+constexpr std::string_view kVersion = "13";  // the only version RFC 6455 defines
 constexpr std::size_t kMaxControlPayload = 125;
 constexpr std::size_t kMaskBytes = 4;
 constexpr std::uint8_t kFinBit = 0x80;
@@ -81,7 +81,7 @@ struct Headers {
 // ---- handshake ----------------------------------------------------------------------------------
 
 std::expected<HandshakeRequest, HandshakeError> ParseHandshake(std::string_view received) {
-    const auto end = received.find(kHeaderEnd);
+    const auto end = received.find(kHandshakeEnd);
     if (end == std::string_view::npos) {
         return std::unexpected(received.size() >= kMaxHandshakeBytes ? HandshakeError::kTooLarge
                                                                      : HandshakeError::kIncomplete);
@@ -120,7 +120,7 @@ std::expected<HandshakeRequest, HandshakeError> ParseHandshake(std::string_view 
     if (!headers.TokenIn("upgrade", "websocket") || !headers.TokenIn("connection", "upgrade")) {
         return std::unexpected(HandshakeError::kNotAnUpgrade);
     }
-    if (headers.Get("sec-websocket-version").value_or("") != "13") {
+    if (headers.Get("sec-websocket-version").value_or("") != kVersion) {
         return std::unexpected(HandshakeError::kBadVersion);
     }
     const auto key = headers.Get("sec-websocket-key");
@@ -160,8 +160,7 @@ std::string RejectionResponse() {
            "Content-Length: 0\r\n\r\n";
 }
 
-// ---- frames
-// ---------------------------------------------------------------------------------------
+// ---- frames -------------------------------------------------------------------------------------
 
 void FrameDecoder::Feed(std::span<const std::byte> bytes) {
     CompactIfWorthwhile();
@@ -219,6 +218,9 @@ std::expected<std::optional<Frame>, FrameError> FrameDecoder::TryPop() {
     const bool control = opcode_raw >= static_cast<std::uint8_t>(Opcode::kClose);
     if (control && length > kMaxControlPayload) {
         return std::unexpected(FrameError::kControlFrameTooLong);
+    }
+    if (control && (b0 & kFinBit) == 0) {
+        return std::unexpected(FrameError::kFragmentedControlFrame);
     }
     if (length > max_payload_bytes_) {
         return std::unexpected(FrameError::kPayloadTooLarge);

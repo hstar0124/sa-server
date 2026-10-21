@@ -46,6 +46,15 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
     public Task<HttpResponseMessage> EnterAsync(long worldId, long characterId)
         => SendAsync(HttpMethod.Post, $"/api/v1/worlds/{worldId}/characters/{characterId}/enter", body: null);
 
+    /// <summary>Requests entry for an existing character; returns the signed ticket bytes.</summary>
+    public async Task<byte[]> TicketForAsync(long worldId, long characterId)
+    {
+        HttpResponseMessage enter = await EnterAsync(worldId, characterId);
+        enter.EnsureSuccessStatusCode();
+        EnterResponse body = (await enter.Content.ReadFromJsonAsync<EnterResponse>(Json))!;
+        return Convert.FromBase64String(body.EntryTicket);
+    }
+
     /// <summary>Creates a character and requests entry; returns the signed ticket bytes and the character id.</summary>
     public async Task<(byte[] SignedTicket, long CharacterId)> CreateCharacterAndEnterAsync(long worldId, string name)
     {

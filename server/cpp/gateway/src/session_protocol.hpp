@@ -2,6 +2,7 @@
 
 #include "sa/common/ids.hpp"
 #include "sa/common/instance_id.hpp"
+#include "sa/common/wall_clock.hpp"
 
 #include "entry_ticket_verifier.hpp"
 
@@ -10,6 +11,7 @@
 #include <game/server_messages.pb.h>
 #include <internal/zone_link.pb.h>
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -18,8 +20,19 @@
 
 namespace sa::gateway {
 
+// When a client message arrived, on both clocks the protocol needs: wall time for what crosses
+// machines (ticket validity, the Pong's server time), monotonic time for the rate window, which
+// must not jump when the wall clock is stepped.
+struct ArrivalTime {
+    std::chrono::steady_clock::time_point monotonic;
+    common::WallTime wall;
+};
+
 struct SessionProtocolConfig {
     std::uint32_t max_messages_per_second = 0;
+    // From accepting the connection (which includes a WebSocket handshake) to a valid Hello.
+    // Without it, idle sockets could hold every connection slot.
+    std::chrono::milliseconds hello_timeout{};
 };
 
 // Per-connection state machine (see README "네트워크와 입장"), free of I/O so every transition
@@ -62,10 +75,11 @@ public:
                     common::InstanceId session_id);
 
     // ---- inputs ----
-    [[nodiscard]] Reaction OnClientMessage(const game::v1::ClientMessage& message,
-                                           std::uint64_t now_ms);
+    [[nodiscard]] Reaction OnClientMessage(const game::v1::ClientMessage& message, ArrivalTime now);
+    // Redeem answers are delivered even after the session closed: a grant that arrives late
+    // created a Backend session that only this gateway can end.
     [[nodiscard]] Reaction OnRedeemResult(const backend::v1::RedeemEntryTicketResponse& response);
-    [[nodiscard]] Reaction OnRedeemFailed();  // RPC error or deadline
+    [[nodiscard]] Reaction OnRedeemFailed();  // RPC error or deadline: the outcome is unknown
     [[nodiscard]] Reaction OnZoneAttached(common::EntityId entity);
     [[nodiscard]] Reaction OnZoneRejected(internal::v1::RejectReason reason);
     [[nodiscard]] Reaction OnZoneEvicted(internal::v1::EvictReason reason);
@@ -73,18 +87,24 @@ public:
     // Output from the zone for this session; passes through only while in the zone.
     [[nodiscard]] Reaction OnZoneOutput(const game::v1::ServerMessage& message);
     [[nodiscard]] Reaction OnClientDisconnected();
+    // The hello timeout passed; kicks a connection that has not sent a valid Hello yet.
+    [[nodiscard]] Reaction OnHelloDeadline();
+    // The gateway ends the session itself: shutdown, or the loss of its own lease.
+    [[nodiscard]] Reaction OnServerClose(game::v1::KickReason reason);
 
     [[nodiscard]] State state() const noexcept { return state_; }
     [[nodiscard]] std::optional<common::ZoneId> zone() const noexcept { return zone_; }
     [[nodiscard]] const common::InstanceId& session_id() const noexcept { return session_id_; }
 
 private:
-    [[nodiscard]] Reaction OnHello(const game::v1::Hello& hello, std::uint64_t now_ms);
-    [[nodiscard]] Reaction Kick(game::v1::KickReason reason);
+    [[nodiscard]] Reaction OnHello(const game::v1::Hello& hello, common::WallTime now);
+    [[nodiscard]] Reaction Kick(
+        game::v1::KickReason reason,
+        internal::v1::DetachReason detach_reason = internal::v1::DETACH_REASON_PROTOCOL_ERROR);
     // Transitions to Closed and emits the cleanup effects the current state requires.
     void Teardown(Reaction& reaction, internal::v1::DetachReason detach_reason,
                   std::string end_reason);
-    [[nodiscard]] bool WithinRateLimit(std::uint64_t now_ms);
+    [[nodiscard]] bool WithinRateLimit(std::chrono::steady_clock::time_point now);
 
     const EntryTicketVerifier& verifier_;
     SessionProtocolConfig config_;
@@ -92,9 +112,11 @@ private:
     State state_ = State::kAwaitingHello;
     std::optional<VerifiedTicket> ticket_;  // identity the Backend confirmed, used for the attach
     std::optional<common::ZoneId> zone_;
-    bool session_granted_ = false;  // the Backend holds a live session row for us
-    // Token bucket: refilled once per second window.
-    std::uint64_t window_start_ms_ = 0;
+    bool session_granted_ = false;   // the Backend holds a live session row for us
+    bool redeem_in_flight_ = false;  // asked the Backend; its answer has not arrived
+    // Fixed one-second windows: up to max_messages_per_second per window. A burst that straddles
+    // a window boundary can reach twice that, which the limit tolerates.
+    std::chrono::steady_clock::time_point window_start_;
     std::uint32_t messages_in_window_ = 0;
 };
 

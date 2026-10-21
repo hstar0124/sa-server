@@ -17,9 +17,24 @@ internal enum RedeemOutcome
     UnknownGateway,
 }
 
-internal sealed record ZoneAssignment(WorldId WorldId, int ZoneId, InstanceId ZoneInstanceId, long OwnerEpoch);
+internal enum ZoneLeaseOutcome
+{
+    Renewed,
+    IdentityMismatch,  // the instance id is bound to another world or zone: an instance never changes identity
+    Superseded,        // a newer instance of the same zone has registered since (issue 013)
+}
 
-internal sealed record CharacterProfile(CharacterId Id, string Name, int ClassId);
+internal sealed record ZoneLeaseRenewal(ZoneLeaseOutcome Outcome, DateTimeOffset? ExpiresAt);
+
+internal enum EndSessionOutcome
+{
+    Ended,
+    NotLive,  // unknown or already ended; ending it again is harmless
+}
+
+internal sealed record ZoneAssignment(WorldId WorldId, ZoneId ZoneId, InstanceId ZoneInstanceId, OwnerEpoch OwnerEpoch);
+
+internal sealed record CharacterProfile(CharacterId Id, string Name, ClassId ClassId);
 
 internal sealed record RedeemResult(RedeemOutcome Outcome, ZoneAssignment? Zone, CharacterProfile? Character);
 
@@ -60,22 +75,55 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
 
     // ---- leases ---------------------------------------------------------------------------
 
+    private const string BeforeOwnershipSavepoint = "before_ownership";
+
+    // One live instance per zone id: a restarted zone process is a new instance, and the newest one
+    // wins. An instance that a newer one has superseded may not renew (issue 013).
     private const string RenewZoneLeaseSql = """
         INSERT INTO game.zone_leases (zone_instance_id, world_id, zone_id, lease_expires_at)
         VALUES (@InstanceId, @WorldId, @ZoneId, now() + @Duration)
         ON CONFLICT (zone_instance_id) DO UPDATE
             SET lease_expires_at = EXCLUDED.lease_expires_at
             WHERE game.zone_leases.world_id = EXCLUDED.world_id AND game.zone_leases.zone_id = EXCLUDED.zone_id
-        RETURNING lease_expires_at
+              AND NOT EXISTS (
+                  SELECT 1 FROM game.zone_leases newer
+                  WHERE newer.world_id = EXCLUDED.world_id AND newer.zone_id = EXCLUDED.zone_id
+                    AND newer.first_seen_at > game.zone_leases.first_seen_at)
+        RETURNING lease_expires_at AS "LeaseExpiresAt", first_seen_at AS "FirstSeenAt"
         """;
 
-    /// <summary>Null when the instance id is already bound to a different world/zone: an instance never changes identity.</summary>
-    public async Task<DateTimeOffset?> RenewZoneLeaseAsync(InstanceId instanceId, WorldId worldId, int zoneId, TimeSpan duration, CancellationToken cancellationToken)
+    // The older instances of the same zone end now: placement must not pick a process that a restart
+    // replaced, and grants from it are refused because its lease is no longer live.
+    private const string SupersedeOlderZonesSql = """
+        UPDATE game.zone_leases
+        SET lease_expires_at = now()
+        WHERE world_id = @WorldId AND zone_id = @ZoneId AND zone_instance_id <> @InstanceId
+          AND first_seen_at < @FirstSeenAt AND lease_expires_at > now()
+        """;
+
+    private const string LeaseIdentitySql = """
+        SELECT world_id = @WorldId AND zone_id = @ZoneId FROM game.zone_leases WHERE zone_instance_id = @InstanceId
+        """;
+
+    /// <summary>Renews or creates the lease, or says why the instance may not hold it.</summary>
+    public async Task<ZoneLeaseRenewal> RenewZoneLeaseAsync(InstanceId instanceId, WorldId worldId, ZoneId zoneId, TimeSpan duration, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        DateTime? expires = await connection.ExecuteScalarAsync<DateTime?>(new CommandDefinition(
-            RenewZoneLeaseSql, new { InstanceId = instanceId.Bytes, WorldId = worldId, ZoneId = zoneId, Duration = duration }, cancellationToken: cancellationToken));
-        return expires is null ? null : new DateTimeOffset(expires.Value, TimeSpan.Zero);
+        await using NpgsqlTransaction tx = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        LeaseRow? lease = await connection.QuerySingleOrDefaultAsync<LeaseRow>(Cmd(
+            RenewZoneLeaseSql, new { InstanceId = instanceId.Bytes, WorldId = worldId, ZoneId = zoneId, Duration = duration }, tx, cancellationToken));
+        if (lease is null)
+        {
+            // The update's conditions refused it; the row says which one.
+            bool sameIdentity = await connection.ExecuteScalarAsync<bool>(Cmd(
+                LeaseIdentitySql, new { InstanceId = instanceId.Bytes, WorldId = worldId, ZoneId = zoneId }, tx, cancellationToken));
+            return new ZoneLeaseRenewal(sameIdentity ? ZoneLeaseOutcome.Superseded : ZoneLeaseOutcome.IdentityMismatch, null);
+        }
+
+        await connection.ExecuteAsync(Cmd(SupersedeOlderZonesSql,
+            new { InstanceId = instanceId.Bytes, WorldId = worldId, ZoneId = zoneId, FirstSeenAt = lease.FirstSeenAt }, tx, cancellationToken));
+        await tx.CommitAsync(cancellationToken);
+        return new ZoneLeaseRenewal(ZoneLeaseOutcome.Renewed, new DateTimeOffset(lease.LeaseExpiresAt, TimeSpan.Zero));
     }
 
     private const string RenewGatewayLeaseSql = """
@@ -101,12 +149,12 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
         WHERE gateway_session_id = @SessionId AND ended_at IS NULL
         """;
 
-    public async Task<bool> EndSessionAsync(InstanceId sessionId, string reason, CancellationToken cancellationToken)
+    public async Task<EndSessionOutcome> EndSessionAsync(InstanceId sessionId, string reason, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
         int rows = await connection.ExecuteAsync(new CommandDefinition(
             EndSessionSql, new { SessionId = sessionId.Bytes, Reason = reason }, cancellationToken: cancellationToken));
-        return rows == 1;
+        return rows == 1 ? EndSessionOutcome.Ended : EndSessionOutcome.NotLive;
     }
 
     // ---- redemption -----------------------------------------------------------------------
@@ -157,18 +205,19 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
         """;
 
     // Stage 3 placement: the lowest zone id with a live lease serves the whole world. Stage 8
-    // replaces this with the character's checkpointed zone and transfer state.
+    // replaces this with the character's checkpointed zone and transfer state. Newest instance first,
+    // although renewal already keeps only one live instance per zone id.
     private const string PickZoneSql = """
         SELECT zone_id AS "ZoneId", zone_instance_id AS "ZoneInstanceId"
         FROM game.zone_leases
         WHERE world_id = @WorldId AND lease_expires_at > now()
-        ORDER BY zone_id, first_seen_at
+        ORDER BY zone_id, first_seen_at DESC
         LIMIT 1
         """;
 
     private const string UpsertOwnershipSql = """
         INSERT INTO game.character_ownership (world_id, character_id, zone_id, zone_instance_id, owner_epoch, state)
-        VALUES (@WorldId, @CharacterId, @ZoneId, @ZoneInstanceId, 1, 'active')
+        VALUES (@WorldId, @CharacterId, @ZoneId, @ZoneInstanceId, @FirstEpoch, 'active')
         ON CONFLICT (world_id, character_id) DO UPDATE
             SET zone_id = EXCLUDED.zone_id,
                 zone_instance_id = EXCLUDED.zone_instance_id,
@@ -234,8 +283,12 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
             return Fail(RedeemOutcome.NoZoneAvailable);
         }
 
-        long epoch = await connection.ExecuteScalarAsync<long>(Cmd(UpsertOwnershipSql,
-            new { request.WorldId, request.CharacterId, zone.ZoneId, zone.ZoneInstanceId }, tx, cancellationToken));
+        // If another gateway wins the race for this character between the check above and the insert
+        // below, PostgreSQL aborts the statement. Rolling back to here keeps the ownership unchanged
+        // while the ticket stays consumed: a ticket is single-use whatever the outcome.
+        await tx.SaveAsync(BeforeOwnershipSavepoint, cancellationToken);
+        var epoch = new OwnerEpoch(await connection.ExecuteScalarAsync<long>(Cmd(UpsertOwnershipSql,
+            new { request.WorldId, request.CharacterId, zone.ZoneId, zone.ZoneInstanceId, FirstEpoch = OwnerEpoch.First }, tx, cancellationToken)));
 
         try
         {
@@ -252,6 +305,8 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
         catch (PostgresException ex) when (ex.IsUniqueViolation(LiveSessionIndex))
         {
             // Lost a race with another gateway between the existence check and the insert.
+            await tx.RollbackAsync(BeforeOwnershipSavepoint, cancellationToken);
+            await tx.CommitAsync(cancellationToken);
             return Fail(RedeemOutcome.ActiveSessionExists);
         }
 
@@ -269,7 +324,9 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
 
     private sealed record TicketState(bool Redeemed, bool Expired);
 
-    private sealed record OwnershipRow(int ZoneId, byte[] ZoneInstanceId, long OwnerEpoch, bool ZoneAlive);
+    private sealed record OwnershipRow(ZoneId ZoneId, byte[] ZoneInstanceId, OwnerEpoch OwnerEpoch, bool ZoneAlive);
 
-    private sealed record ZoneRow(int ZoneId, byte[] ZoneInstanceId);
+    private sealed record ZoneRow(ZoneId ZoneId, byte[] ZoneInstanceId);
+
+    private sealed record LeaseRow(DateTime LeaseExpiresAt, DateTime FirstSeenAt);
 }

@@ -5,6 +5,8 @@
 #include "sa/common/ids.hpp"
 #include "sa/common/logging.hpp"
 
+#include "entry_ticket_verifier.hpp"
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -33,10 +35,14 @@ struct GatewayConfig {
     // [protocol]
     common::FrameLimits frame_limits;
     std::uint32_t max_messages_per_second = 0;
+    std::chrono::milliseconds hello_timeout{};
+    // How long closing a client connection may wait for the client to take our last bytes and
+    // close its side, before the connection is reset and its slot freed.
+    std::chrono::milliseconds client_close_linger{};
     // [ticket]
     std::vector<std::byte> ticket_key;
-    std::uint32_t ticket_key_id = 0;
-    std::uint64_t ticket_max_clock_skew_ms = 0;
+    TicketKeyId ticket_key_id;
+    std::chrono::milliseconds ticket_max_clock_skew{};
     // [backend]
     std::string backend_address;
     std::chrono::milliseconds backend_rpc_timeout{};
@@ -45,9 +51,10 @@ struct GatewayConfig {
     // [zone_link] + [[zones]]
     common::FrameLimits zone_link_frame_limits;
     std::chrono::milliseconds zone_link_reconnect_backoff{};
+    std::chrono::milliseconds zone_link_close_linger{};  // bounds closing a link at shutdown
     std::vector<ZoneEndpoint> zones;
-    // How long shutdown waits for kicks, detaches and EndSession RPCs to drain (design
-    // document 16.3).
+    // How long shutdown waits after kicking every session before it closes the zone links, so
+    // detaches reach the zones and EndSession calls are answered. Longer than the RPC timeout.
     std::chrono::milliseconds shutdown_grace{};
 
     common::LoggingConfig logging;

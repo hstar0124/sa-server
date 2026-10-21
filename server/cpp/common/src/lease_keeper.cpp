@@ -26,10 +26,12 @@ bool LeaseKeeper::IsAlive() const {
     return lease_.IsAlive(LeaseState::Clock::now());
 }
 
-std::chrono::milliseconds LeaseKeeper::DurationFromServerExpiry(std::uint64_t expires_at_ms,
-                                                                std::uint64_t sent_at_ms) {
+std::chrono::milliseconds LeaseKeeper::DurationFromServerExpiry(WallTime expires_at,
+                                                                WallTime sent_at) {
     // Latency only ever shortens what we believe we hold.
-    return std::chrono::milliseconds{expires_at_ms > sent_at_ms ? expires_at_ms - sent_at_ms : 0};
+    return expires_at > sent_at
+               ? std::chrono::duration_cast<std::chrono::milliseconds>(expires_at - sent_at)
+               : std::chrono::milliseconds::zero();
 }
 
 void LeaseKeeper::Renew() {

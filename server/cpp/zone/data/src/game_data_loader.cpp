@@ -1,168 +1,21 @@
 #include "sa/zone/data/game_data_loader.hpp"
 
+#include "toml_fields.hpp"
+
 #include <toml++/toml.hpp>
 
-#include <chrono>
 #include <format>
-#include <fstream>
 #include <optional>
-#include <sstream>
+#include <string_view>
 #include <utility>
 
 namespace sa::zone::data {
 namespace {
 
-template <typename ParseFn>
-std::expected<toml::table, LoadError> TryParse(ParseFn&& parse, const std::string& what) {
-    try {
-        return std::forward<ParseFn>(parse)();
-    } catch (const toml::parse_error& error) {
-        return std::unexpected(
-            LoadError{std::format("cannot parse {}: {}", what, error.description())});
-    }
-}
+using namespace toml_fields;  // NOLINT(google-build-using-namespace): the loader's own field
+                              // readers
 
-std::expected<toml::table, LoadError> ParseFile(const std::filesystem::path& file) {
-    return TryParse([&] { return toml::parse_file(file.string()); }, "'" + file.string() + "'");
-}
-
-std::expected<toml::table, LoadError> ParseText(std::string_view text, const char* what) {
-    return TryParse([&] { return toml::parse(text); }, what);
-}
-
-// ---- typed field access -------------------------------------------------------------------------
-
-std::expected<float, LoadError> RequireFloat(const toml::table& table, std::string_view key) {
-    if (const auto value = table.at_path(key).value<double>()) {
-        return static_cast<float>(*value);
-    }
-    return std::unexpected(LoadError{std::format("missing or non-numeric '{}'", key)});
-}
-
-std::expected<std::int64_t, LoadError> RequireInt(const toml::table& table, std::string_view key) {
-    if (const auto value = table.at_path(key).value<std::int64_t>()) {
-        return *value;
-    }
-    return std::unexpected(LoadError{std::format("missing or non-integer '{}'", key)});
-}
-
-std::expected<std::uint32_t, LoadError> RequireU32(const toml::table& table, std::string_view key) {
-    const auto value = RequireInt(table, key);
-    if (!value) {
-        return std::unexpected(value.error());
-    }
-    if (*value < 0 || !std::in_range<std::uint32_t>(*value)) {
-        return std::unexpected(LoadError{std::format("'{}' is out of range", key)});
-    }
-    return static_cast<std::uint32_t>(*value);
-}
-
-std::expected<std::int32_t, LoadError> RequireI32(const toml::table& table, std::string_view key) {
-    const auto value = RequireInt(table, key);
-    if (!value) {
-        return std::unexpected(value.error());
-    }
-    if (!std::in_range<std::int32_t>(*value)) {
-        return std::unexpected(LoadError{std::format("'{}' is out of range", key)});
-    }
-    return static_cast<std::int32_t>(*value);
-}
-
-std::expected<std::chrono::milliseconds, LoadError> RequireMs(const toml::table& table,
-                                                              std::string_view key) {
-    const auto value = RequireInt(table, key);
-    if (!value) {
-        return std::unexpected(value.error());
-    }
-    return std::chrono::milliseconds{*value};
-}
-
-std::expected<std::string, LoadError> RequireString(const toml::table& table,
-                                                    std::string_view key) {
-    if (const auto value = table.at_path(key).value<std::string>()) {
-        return *value;
-    }
-    return std::unexpected(LoadError{std::format("missing or non-string '{}'", key)});
-}
-
-// Reads an array of fixed-size numeric arrays, e.g. [[x, y], [x, y]].
-std::expected<std::vector<std::vector<float>>, LoadError> RequireTuples(const toml::table& table,
-                                                                        std::string_view key,
-                                                                        std::size_t arity) {
-    const toml::array* outer = table.at_path(key).as_array();
-    if (outer == nullptr) {
-        return std::unexpected(LoadError{std::format("missing array '{}'", key)});
-    }
-    std::vector<std::vector<float>> out;
-    for (const toml::node& item : *outer) {
-        const toml::array* inner = item.as_array();
-        if (inner == nullptr || inner->size() != arity) {
-            return std::unexpected(
-                LoadError{std::format("'{}' entries must be arrays of {} numbers", key, arity)});
-        }
-        std::vector<float> tuple;
-        for (const toml::node& n : *inner) {
-            const auto v = n.value<double>();
-            if (!v) {
-                return std::unexpected(LoadError{std::format("'{}' contains a non-number", key)});
-            }
-            tuple.push_back(static_cast<float>(*v));
-        }
-        out.push_back(std::move(tuple));
-    }
-    return out;
-}
-
-std::expected<std::vector<float>, LoadError> RequirePair(const toml::table& table,
-                                                         std::string_view key) {
-    const toml::array* array = table.at_path(key).as_array();
-    if (array == nullptr || array->size() != 2) {
-        return std::unexpected(LoadError{std::format("'{}' must be [x, y]", key)});
-    }
-    std::vector<float> out;
-    for (const toml::node& n : *array) {
-        const auto v = n.value<double>();
-        if (!v) {
-            return std::unexpected(LoadError{std::format("'{}' contains a non-number", key)});
-        }
-        out.push_back(static_cast<float>(*v));
-    }
-    return out;
-}
-
-// Iterates [[name]] tables; the callback returns an error to stop.
-template <typename Fn>
-std::expected<void, LoadError> ForEachTable(const toml::table& table, std::string_view key,
-                                            const Fn& fn) {
-    const toml::array* array = table.at_path(key).as_array();
-    if (array == nullptr) {
-        return {};  // absent is "none"
-    }
-    if (!array->is_array_of_tables()) {
-        return std::unexpected(LoadError{std::format("'{}' must be an array of tables", key)});
-    }
-    for (const toml::node& item : *array) {
-        if (auto result = fn(*item.as_table()); !result) {
-            return std::unexpected(result.error());
-        }
-    }
-    return {};
-}
-
-template <typename... Expected>
-std::optional<LoadError> FirstError(const Expected&... results) {
-    std::optional<LoadError> first;
-    auto check = [&](const auto& r) {
-        if (!first && !r) {
-            first = r.error();
-        }
-    };
-    (check(results), ...);
-    return first;
-}
-
-// ---- map
-// ------------------------------------------------------------------------------------------
+// ---- map ----------------------------------------------------------------------------------------
 
 std::expected<sim::MapData, LoadError> MapFromTable(const toml::table& table) {
     sim::MapData map;
@@ -212,21 +65,24 @@ std::expected<sim::MapData, LoadError> MapFromTable(const toml::table& table) {
     return map;
 }
 
-// ---- rules
-// ----------------------------------------------------------------------------------------
+// ---- rules --------------------------------------------------------------------------------------
 
 std::expected<sim::MovementRules, LoadError> RulesFromTable(const toml::table& table) {
     const auto speed = RequireFloat(table, "movement.max_speed_mps");
+    const auto body = RequireFloat(table, "movement.body_radius_m");
     const auto enter = RequireFloat(table, "aoi.enter_radius_m");
     const auto leave = RequireFloat(table, "aoi.leave_radius_m");
     const auto budget = RequireU32(table, "input.commands_per_tick_budget");
-    if (auto err = FirstError(speed, enter, leave, budget)) {
+    const auto queued = RequireU32(table, "input.max_queued_per_player");
+    if (auto err = FirstError(speed, body, enter, leave, budget, queued)) {
         return std::unexpected(*err);
     }
     const sim::MovementRules rules{.max_speed_mps = *speed,
+                                   .body_radius_m = *body,
                                    .aoi_enter_radius_m = *enter,
                                    .aoi_leave_radius_m = *leave,
-                                   .commands_per_tick_budget = *budget};
+                                   .commands_per_tick_budget = *budget,
+                                   .max_queued_per_player = *queued};
     if (auto valid = rules.Validate(); !valid) {
         return std::unexpected(LoadError{"invalid movement rules: " + valid.error()});
     }
@@ -236,18 +92,49 @@ std::expected<sim::MovementRules, LoadError> RulesFromTable(const toml::table& t
 std::expected<sim::CombatRules, LoadError> CombatFromTable(const toml::table& table) {
     const auto think = RequireU32(table, "combat.monster_think_hz");
     const auto respawn = RequireMs(table, "combat.player_respawn_ms");
-    if (auto err = FirstError(think, respawn)) {
+    const auto stall_timeout = RequireMs(table, "combat.monster_stall_timeout_ms");
+    const auto stall_distance = RequireFloat(table, "combat.monster_stall_distance_m");
+    const auto tolerance = RequireFloat(table, "combat.range_tolerance");
+    const auto arrive = RequireFloat(table, "combat.monster_home_arrive_m");
+    const auto ring = RequireFloat(table, "combat.monster_pack_ring_radius_m");
+    if (auto err =
+            FirstError(think, respawn, stall_timeout, stall_distance, tolerance, arrive, ring)) {
         return std::unexpected(*err);
     }
-    const sim::CombatRules rules{.monster_think_hz = *think, .player_respawn = *respawn};
+    const sim::CombatRules rules{.monster_think_hz = *think,
+                                 .player_respawn = *respawn,
+                                 .monster_stall_timeout = *stall_timeout,
+                                 .monster_stall_distance_m = *stall_distance,
+                                 .range_tolerance = *tolerance,
+                                 .monster_home_arrive_m = *arrive,
+                                 .monster_pack_ring_radius_m = *ring};
     if (auto valid = rules.Validate(); !valid) {
         return std::unexpected(LoadError{"invalid combat rules: " + valid.error()});
     }
     return rules;
 }
 
-// ---- content
-// ----------------------------------------------------------------------------------------
+std::expected<sim::EconomyRules, LoadError> EconomyFromTable(const toml::table& table) {
+    const auto capacity = RequireU32(table, "inventory.capacity");
+    const auto range = RequireFloat(table, "pickup.range_m");
+    const auto despawn = RequireMs(table, "pickup.despawn_ms");
+    const auto scatter = RequireFloat(table, "drops.scatter_radius_m");
+    const auto currency = RequireString(table, "currency.primary");
+    if (auto err = FirstError(capacity, range, despawn, scatter, currency)) {
+        return std::unexpected(*err);
+    }
+    sim::EconomyRules rules{.inventory_capacity = *capacity,
+                            .pickup_range_m = *range,
+                            .ground_item_despawn = *despawn,
+                            .drop_scatter_radius_m = *scatter,
+                            .primary_currency = *currency};
+    if (auto valid = rules.Validate(); !valid) {
+        return std::unexpected(LoadError{"invalid economy rules: " + valid.error()});
+    }
+    return rules;
+}
+
+// ---- content ------------------------------------------------------------------------------------
 
 std::expected<sim::SkillKind, LoadError> ParseSkillKind(std::string_view text) {
     if (text == "targeted") {
@@ -361,30 +248,89 @@ std::expected<void, LoadError> ParseMonsterTable(const toml::table& t, sim::Cont
     return {};
 }
 
-std::expected<sim::ContentBundle, LoadError> ContentFromTables(const toml::table& version,
-                                                               const toml::table& classes,
-                                                               const toml::table& skills,
-                                                               const toml::table& monsters) {
+std::expected<void, LoadError> ParseItemTable(const toml::table& t, sim::ContentBundle& bundle) {
+    const auto id = RequireU32(t, "id");
+    const auto name = RequireString(t, "name");
+    if (auto err = FirstError(id, name)) {
+        return std::unexpected(LoadError{"items: " + err->message});
+    }
+    // Optional, but a value that is not a boolean is a mistake, not "not stackable".
+    const toml::node_view stackable = t.at_path("stackable");
+    if (stackable && !stackable.is_boolean()) {
+        return std::unexpected(
+            LoadError{std::format("item {}: 'stackable' must be true or false", *id)});
+    }
+    const sim::ItemDefinition item{
+        .id = sim::ItemTemplateId{*id}, .name = *name, .stackable = stackable.value_or(false)};
+    if (!bundle.items.emplace(item.id, item).second) {
+        return std::unexpected(LoadError{std::format("duplicate item id {}", *id)});
+    }
+    return {};
+}
+
+std::expected<void, LoadError> ParseDropTable(const toml::table& t, sim::ContentBundle& bundle) {
+    const auto monster = RequireU32(t, "monster_template_id");
+    const auto gold = RequireInt(t, "gold");
+    if (auto err = FirstError(monster, gold)) {
+        return std::unexpected(LoadError{"drop_tables: " + err->message});
+    }
+    sim::DropTable table{.monster = sim::MonsterTemplateId{*monster}, .gold = *gold};
+    auto entries =
+        ForEachTable(t, "entries", [&](const toml::table& e) -> std::expected<void, LoadError> {
+            const auto item = RequireU32(e, "item_template_id");
+            const auto chance = RequireFloat(e, "chance");
+            if (auto err = FirstError(item, chance)) {
+                return std::unexpected(
+                    LoadError{std::format("drop_tables[{}]: {}", *monster, err->message)});
+            }
+            table.entries.push_back(
+                sim::DropEntry{.item = sim::ItemTemplateId{*item}, .chance = *chance});
+            return {};
+        });
+    if (!entries) {
+        return std::unexpected(entries.error());
+    }
+    if (!bundle.drops.emplace(table.monster, std::move(table)).second) {
+        return std::unexpected(
+            LoadError{std::format("duplicate drop table for monster {}", *monster)});
+    }
+    return {};
+}
+
+// Every content file, already parsed; the bundle is assembled and cross-validated from these.
+struct ContentTables {
+    const toml::table& version;
+    const toml::table& classes;
+    const toml::table& skills;
+    const toml::table& monsters;
+    const toml::table& items;
+    const toml::table& drops;
+};
+
+std::expected<sim::ContentBundle, LoadError> ContentFromTables(const ContentTables& tables) {
     sim::ContentBundle bundle;
-    const auto ver = RequireString(version, "content.version");
+    const auto ver = RequireString(tables.version, "content.version");
     if (!ver) {
         return std::unexpected(ver.error());
     }
     bundle.version = *ver;
     auto parse = [&bundle](const toml::table& t, auto parser) { return parser(t, bundle); };
-    if (auto r = ForEachTable(skills, "skills",
-                              [&](const toml::table& t) { return parse(t, ParseSkillTable); });
-        !r) {
+    const auto section = [&](const toml::table& table, std::string_view key, auto parser) {
+        return ForEachTable(table, key, [&](const toml::table& t) { return parse(t, parser); });
+    };
+    if (auto r = section(tables.skills, "skills", ParseSkillTable); !r) {
         return std::unexpected(r.error());
     }
-    if (auto r = ForEachTable(classes, "classes",
-                              [&](const toml::table& t) { return parse(t, ParseClassTable); });
-        !r) {
+    if (auto r = section(tables.classes, "classes", ParseClassTable); !r) {
         return std::unexpected(r.error());
     }
-    if (auto r = ForEachTable(monsters, "monsters",
-                              [&](const toml::table& t) { return parse(t, ParseMonsterTable); });
-        !r) {
+    if (auto r = section(tables.monsters, "monsters", ParseMonsterTable); !r) {
+        return std::unexpected(r.error());
+    }
+    if (auto r = section(tables.items, "items", ParseItemTable); !r) {
+        return std::unexpected(r.error());
+    }
+    if (auto r = section(tables.drops, "drop_tables", ParseDropTable); !r) {
         return std::unexpected(r.error());
     }
     if (auto valid = bundle.Validate(); !valid) {
@@ -395,8 +341,7 @@ std::expected<sim::ContentBundle, LoadError> ContentFromTables(const toml::table
 
 }  // namespace
 
-// ---- public API
-// --------------------------------------------------------------------------------------
+// ---- public API ---------------------------------------------------------------------------------
 
 std::expected<sim::MapData, LoadError> LoadMap(const std::filesystem::path& file) {
     auto table = ParseFile(file);
@@ -428,29 +373,50 @@ std::expected<sim::CombatRules, LoadError> ParseCombatRules(std::string_view tom
     return table ? CombatFromTable(*table) : std::unexpected(table.error());
 }
 
+std::expected<sim::EconomyRules, LoadError> LoadEconomyRules(const std::filesystem::path& file) {
+    auto table = ParseFile(file);
+    return table ? EconomyFromTable(*table) : std::unexpected(table.error());
+}
+
+std::expected<sim::EconomyRules, LoadError> ParseEconomyRules(std::string_view toml_text) {
+    auto table = ParseText(toml_text, "economy rules text");
+    return table ? EconomyFromTable(*table) : std::unexpected(table.error());
+}
+
 std::expected<sim::ContentBundle, LoadError> LoadContent(const std::filesystem::path& root) {
     auto version = ParseFile(root / "version.toml");
     auto classes = ParseFile(root / "classes" / "classes.toml");
     auto skills = ParseFile(root / "skills" / "skills.toml");
     auto monsters = ParseFile(root / "monsters" / "monsters.toml");
-    if (auto err = FirstError(version, classes, skills, monsters)) {
+    auto items = ParseFile(root / "items" / "items.toml");
+    auto drops = ParseFile(root / "drops" / "drops.toml");
+    if (auto err = FirstError(version, classes, skills, monsters, items, drops)) {
         return std::unexpected(*err);
     }
-    return ContentFromTables(*version, *classes, *skills, *monsters);
+    return ContentFromTables({.version = *version,
+                              .classes = *classes,
+                              .skills = *skills,
+                              .monsters = *monsters,
+                              .items = *items,
+                              .drops = *drops});
 }
 
-std::expected<sim::ContentBundle, LoadError> ParseContent(std::string_view version_toml,
-                                                          std::string_view classes_toml,
-                                                          std::string_view skills_toml,
-                                                          std::string_view monsters_toml) {
-    auto version = ParseText(version_toml, "version text");
-    auto classes = ParseText(classes_toml, "classes text");
-    auto skills = ParseText(skills_toml, "skills text");
-    auto monsters = ParseText(monsters_toml, "monsters text");
-    if (auto err = FirstError(version, classes, skills, monsters)) {
+std::expected<sim::ContentBundle, LoadError> ParseContent(const ContentTexts& texts) {
+    auto version = ParseText(texts.version, "version text");
+    auto classes = ParseText(texts.classes, "classes text");
+    auto skills = ParseText(texts.skills, "skills text");
+    auto monsters = ParseText(texts.monsters, "monsters text");
+    auto items = ParseText(texts.items, "items text");
+    auto drops = ParseText(texts.drops, "drops text");
+    if (auto err = FirstError(version, classes, skills, monsters, items, drops)) {
         return std::unexpected(*err);
     }
-    return ContentFromTables(*version, *classes, *skills, *monsters);
+    return ContentFromTables({.version = *version,
+                              .classes = *classes,
+                              .skills = *skills,
+                              .monsters = *monsters,
+                              .items = *items,
+                              .drops = *drops});
 }
 
 }  // namespace sa::zone::data

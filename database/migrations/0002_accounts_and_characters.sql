@@ -12,7 +12,7 @@ CREATE TABLE game.accounts (
 
 COMMENT ON COLUMN game.accounts.password_hash IS 'ASP.NET Core Identity PasswordHasher v3 format (PBKDF2-HMAC-SHA512).';
 
--- A world is the boundary of one economy (section 3). Rows are seeded, not created by players.
+-- A world is the boundary of one economy. Rows are seeded, not created by players.
 CREATE TABLE game.worlds (
     world_id   bigint PRIMARY KEY,
     name       text   NOT NULL,

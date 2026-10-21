@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 
 #include <string>
+#include <tuple>
 
 namespace sa::gateway {
 
@@ -28,6 +29,12 @@ void ZoneLink::Start() {
 void ZoneLink::Stop() {
     state_ = State::kStopped;
     backoff_timer_.cancel();
+    resolver_.cancel();
+    if (connecting_) {
+        std::error_code ignored;
+        std::ignore = connecting_->close(ignored);
+        connecting_.reset();
+    }
     if (connection_) {
         connection_->Close();
     }
@@ -49,18 +56,20 @@ void ZoneLink::Connect() {
                 return;
             }
             auto socket = std::make_shared<asio::ip::tcp::socket>(self->io_);
+            self->connecting_ = socket;
             asio::async_connect(
                 *socket, results,
                 [self, socket](const std::error_code& connect_ec, const asio::ip::tcp::endpoint&) {
                     if (self->state_ != State::kConnecting) {
                         return;
                     }
+                    self->connecting_.reset();
                     if (connect_ec) {
                         self->ScheduleReconnect("connect: " + connect_ec.message());
                         return;
                     }
                     self->connection_ = std::make_shared<common::FramedConnection>(
-                        std::move(*socket), self->config_.frame_limits);
+                        std::move(*socket), self->config_.frame_limits, self->config_.close_linger);
                     self->OnConnected();
                 });
         });
@@ -111,8 +120,7 @@ void ZoneLink::ScheduleReconnect(const std::string& why) {
     });
 }
 
-// ---- inbound
-// --------------------------------------------------------------------------------------
+// ---- inbound ------------------------------------------------------------------------------------
 
 void ZoneLink::OnFrame(std::span<const std::byte> payload) {
     ZoneToGateway message;
@@ -166,13 +174,16 @@ void ZoneLink::OnFrame(std::span<const std::byte> payload) {
     connection_->Abort();
 }
 
-// ---- outbound
-// -------------------------------------------------------------------------------------
+// ---- outbound -----------------------------------------------------------------------------------
 
 void ZoneLink::Send(const GatewayToZone& message) {
-    if (!connection_ || !connection_->Send(message)) {
-        spdlog::warn("zone {}: message dropped (link not open or frame too large)",
-                     config_.zone.value());
+    if (!connection_) {
+        spdlog::warn("zone {}: message dropped: link not connected", config_.zone.value());
+        return;
+    }
+    if (const auto sent = connection_->Send(message); !sent) {
+        spdlog::warn("zone {}: message dropped: {}", config_.zone.value(),
+                     common::Describe(sent.error()));
     }
 }
 

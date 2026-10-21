@@ -1,6 +1,7 @@
 #include "world_model.hpp"
 
 #include <algorithm>
+#include <cstdint>
 
 namespace sa::loadgen {
 namespace {
@@ -17,9 +18,21 @@ bot::SeenKind ToKind(game::v1::EntityKind kind) {
             return bot::SeenKind::kMonster;
         case game::v1::ENTITY_KIND_PROJECTILE:
             return bot::SeenKind::kProjectile;
+        case game::v1::ENTITY_KIND_DROPPED_ITEM:
+            return bot::SeenKind::kItem;
         default:
             return bot::SeenKind::kOther;
     }
+}
+
+// The counter a final verdict lands in. UNKNOWN is not a refusal: the zone could not learn the
+// outcome, and the same request may still succeed when asked again.
+std::uint64_t& VerdictCounter(game::v1::CommandStatus status, std::uint64_t& accepted,
+                              std::uint64_t& rejected, std::uint64_t& unknown) {
+    if (status == game::v1::COMMAND_STATUS_ACCEPTED) {
+        return accepted;
+    }
+    return status == game::v1::COMMAND_STATUS_UNKNOWN ? unknown : rejected;
 }
 
 }  // namespace
@@ -29,16 +42,26 @@ void WorldModel::OnWelcome(const game::v1::Welcome& welcome) {
     self_ = common::EntityId{welcome.entity_id()};
     map_size_ = ToVec(welcome.map_size());
     server_tick_ = welcome.server_tick();
+    simulation_hz_ = welcome.simulation_hz();
 }
 
 void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
     ++snapshots_;
+    if (!welcomed_) {
+        ++integrity_.snapshot_before_welcome;
+    }
+    if (snapshots_ > 1 && snapshot.server_tick() <= server_tick_) {
+        ++integrity_.server_tick_regressed;
+    }
     server_tick_ = snapshot.server_tick();
     if (snapshot.last_processed_input_seq() < last_acked_input_) {
         ++integrity_.input_seq_regressed;
     }
     last_acked_input_ = std::max(last_acked_input_, snapshot.last_processed_input_seq());
     if (snapshot.has_self()) {
+        if (welcomed_ && common::EntityId{snapshot.self().entity_id()} != self_) {
+            ++integrity_.self_mismatch;
+        }
         self_position_ = ToVec(snapshot.self().position());
     }
     if (snapshot.has_self_vitals()) {
@@ -74,15 +97,47 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
         }
     }
     max_visible_ = std::max(max_visible_, visible_.size());
+    const auto players = static_cast<std::size_t>(std::ranges::count_if(
+        visible_, [](const auto& entry) { return entry.second.kind == bot::SeenKind::kPlayer; }));
+    max_visible_players_ = std::max(max_visible_players_, players);
     cache_dirty_ = true;
 }
 
+void WorldModel::ExpectResult(common::RequestId request, RequestKind kind) {
+    awaiting_.insert_or_assign(request, kind);
+}
+
 void WorldModel::OnCommandResult(const game::v1::CommandResult& result) {
-    if (result.status() == game::v1::COMMAND_STATUS_ACCEPTED) {
-        ++combat_.casts_accepted;
-    } else {
-        ++combat_.casts_rejected;
+    const auto awaiting = awaiting_.find(common::RequestId{result.request_id()});
+    if (awaiting == awaiting_.end()) {
+        ++integrity_.result_of_unknown_request;
+        return;
     }
+    if (result.status() == game::v1::COMMAND_STATUS_PENDING) {
+        return;  // the Backend is still deciding; the final verdict follows
+    }
+    const RequestKind kind = awaiting->second;
+    awaiting_.erase(awaiting);
+    switch (kind) {
+        case RequestKind::kCast:
+            ++VerdictCounter(result.status(), combat_.casts_accepted, combat_.casts_rejected,
+                             combat_.casts_unknown);
+            return;
+        case RequestKind::kPickup:
+            ++VerdictCounter(result.status(), loot_.pickups_acquired, loot_.pickups_rejected,
+                             loot_.pickups_unknown);
+            return;
+    }
+}
+
+void WorldModel::OnInventoryUpdate(const game::v1::InventoryUpdate& update) {
+    if (update.version() < inventory_version_) {
+        ++integrity_.inventory_version_regressed;
+        return;  // an older state must not overwrite a newer one
+    }
+    inventory_version_ = update.version();
+    loot_.items_held = static_cast<std::uint32_t>(update.items_size());
+    loot_.gold = update.gold();
 }
 
 void WorldModel::OnCombatEvent(const game::v1::CombatEvent& event) {

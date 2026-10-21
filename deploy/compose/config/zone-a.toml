@@ -5,7 +5,7 @@ zone_id = 1
 simulation_hz = 20
 snapshot_hz = 10            # must divide simulation_hz
 max_catch_up_ticks = 5
-rng_seed = 0              # 0 = pick a random seed at start-up and log it
+# rng_seed = 1             # absent: a random seed is picked at start-up and logged
 stats_log_interval_sec = 10
 max_sessions = 2000
 
@@ -15,25 +15,40 @@ listen_address = "0.0.0.0"
 listen_port = 7801
 max_gateways = 8
 max_frame_bytes = 262144  # a SessionOutput wraps one client frame (<= 64 KiB) plus headers
+close_linger_ms = 1000     # bounds closing a link at shutdown when the gateway does not close its side
 
 [backend]
 address = "localhost:5101"
 rpc_timeout_ms = 2000
 lease_renew_interval_ms = 5000   # see README "소유권과 lease": heartbeat 5 s, lease 15 s
 lease_safety_margin_ms = 2000
+economy_call_attempts = 3        # each economy call repeats safely: kill id, request key, read
+retry_delay_ms = 500
 
 # Paths are relative to the working directory (repository root in development, /app in containers).
 [content]
 map_file = "game-data/maps/zone-1.toml"
 movement_rules_file = "game-data/rules/movement.toml"
+economy_rules_file = "game-data/rules/economy.toml"
 dir = "game-data"
 
 # In-process bots for simulation development. Keep 0 in any deployed configuration.
 [dev]
 local_bots = 0
+# Read only when local_bots > 0. The bots wander and dawdle a little at each destination so the
+# crowd does not move in lockstep.
+bot_class_id = 1
+
+[dev.wanderer]
+arrive_distance_m = 1.0
+retarget_after_ticks = 400
+idle_ticks_min = 0
+idle_ticks_max = 40
+margin_m = 2.0
 
 [shutdown]
-# Time allowed for evictions, detaches and final RPCs to leave the process on SIGTERM.
+# After SIGTERM evicts every session, the time eviction frames get before the gateway links close.
+# The process then exits once links have closed and economy calls (retries included) answered.
 grace_ms = 2000
 
 [logging]

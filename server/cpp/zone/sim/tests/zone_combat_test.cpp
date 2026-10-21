@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 namespace sa::zone::sim {
@@ -53,6 +54,17 @@ RejectReason CastAndTick(Zone& zone, EntityId player, std::uint64_t request, Ski
         throw std::logic_error{"expected exactly one command result"};
     }
     return results.front().reason;
+}
+
+TEST(ZoneCombat, AProjectileWithoutAUsableDirectionIsRejected) {
+    Zone zone = test::MakeZone(test::FieldWithSlime());
+    const EntityId p = test::Spawn(zone, 1, kFarFromSlime);
+
+    // Normalising an infinite vector yields zero: such a projectile would never travel or end.
+    EXPECT_EQ(
+        CastAndTick(zone, p, 1, test::kArrow, Vec2{std::numeric_limits<float>::infinity(), 0.0F}),
+        RejectReason::kInvalidTarget);
+    EXPECT_EQ(zone.stats().projectiles, 0U);
 }
 
 TEST(ZoneCombat, StrikeHitsAnAdjacentMonsterAndTellsTheAttacker) {
@@ -263,6 +275,81 @@ TEST(ZoneCombat, CombatIsDeterministicForTheSameSeedAndInputs) {
         return std::pair{test::VitalsOf(zone, p).hp, zone.stats().kills};
     };
     EXPECT_EQ(run(), run());
+}
+
+// Two archers 10 m either side of the slime (outside its aggro radius, so it never moves). An
+// arrow travels 2.5 m per tick at 10 Hz and both arrive on the fourth tick.
+constexpr Vec2 kSouthArcher{70.0F, 60.0F};
+constexpr Vec2 kNorthArcher{70.0F, 80.0F};
+constexpr int kArrowFlightTicks = 5;
+constexpr int kArrowCooldownTicks = 10;
+
+std::vector<KillRecord> KillsIn(const std::vector<HostRequest>& requests) {
+    std::vector<KillRecord> kills;
+    for (const HostRequest& request : requests) {
+        if (const auto* kill = std::get_if<KillRecord>(&request)) {
+            kills.push_back(*kill);
+        }
+    }
+    return kills;
+}
+
+// One arrow from each side: the slime (60 hp) is left with 10 hp, less than one arrow.
+void WoundSlime(Zone& zone, EntityId south, EntityId north) {
+    zone.Submit(CastCommand{.player = south,
+                            .request_id = RequestId{1},
+                            .skill = test::kArrow,
+                            .target = Vec2{0.0F, 1.0F}});
+    zone.Submit(CastCommand{.player = north,
+                            .request_id = RequestId{1},
+                            .skill = test::kArrow,
+                            .target = Vec2{0.0F, -1.0F}});
+    test::TickN(zone, kArrowCooldownTicks);
+}
+
+TEST(ZoneCombat, TwoArrowsKillingInOneTickRecordOneKillForTheOlderArrow) {
+    Zone zone = test::MakeZone(test::FieldWithSlime());
+    const EntityId south = test::Spawn(zone, 1, kSouthArcher);
+    const EntityId north = test::Spawn(zone, 2, kNorthArcher);
+    const EntityId slime = test::OnlyMonster(zone);
+    WoundSlime(zone, south, north);
+    ASSERT_EQ(test::VitalsOf(zone, slime).hp, 10);
+
+    // North fires first, so its arrow is the older entity; both land on the same tick.
+    zone.Submit(CastCommand{.player = north,
+                            .request_id = RequestId{2},
+                            .skill = test::kArrow,
+                            .target = Vec2{0.0F, -1.0F}});
+    zone.Submit(CastCommand{.player = south,
+                            .request_id = RequestId{2},
+                            .skill = test::kArrow,
+                            .target = Vec2{0.0F, 1.0F}});
+    test::TickN(zone, kArrowFlightTicks);
+
+    EXPECT_TRUE(zone.LiveMonsters().empty());
+    const auto kills = KillsIn(zone.DrainHostRequests());
+    ASSERT_EQ(kills.size(), 1U) << "death is processed once";
+    EXPECT_EQ(kills.front().killer, north) << "the older arrow lands first";
+    EXPECT_EQ(zone.stats().kills, 1U);
+}
+
+TEST(ZoneCombat, AnArrowWhoseArcherLeftKillsButEarnsNoKillRecord) {
+    Zone zone = test::MakeZone(test::FieldWithSlime());
+    const EntityId south = test::Spawn(zone, 1, kSouthArcher);
+    const EntityId north = test::Spawn(zone, 2, kNorthArcher);
+    WoundSlime(zone, south, north);
+
+    zone.Submit(CastCommand{.player = south,
+                            .request_id = RequestId{2},
+                            .skill = test::kArrow,
+                            .target = Vec2{0.0F, 1.0F}});
+    zone.Tick();  // the arrow is in flight
+    zone.DespawnPlayer(south);
+    test::TickN(zone, kArrowFlightTicks);
+
+    EXPECT_TRUE(zone.LiveMonsters().empty()) << "the arrow still lands";
+    EXPECT_TRUE(KillsIn(zone.DrainHostRequests()).empty())
+        << "no character to credit, so nothing for the Backend to record";
 }
 
 }  // namespace

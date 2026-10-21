@@ -3,17 +3,19 @@
 #include "sa/bot/observation.hpp"
 #include "sa/bot/wanderer.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 
 namespace sa::bot {
 
+// Every value comes from the load profile; there are no defaults to drift from it.
 struct FighterParams {
-    float engage_radius_m = 30.0F;  // notice monsters this far away
-    std::uint32_t attack_skill_id = 1;
-    float attack_range_m = 2.5F;               // stop here and swing
-    std::uint32_t attack_interval_ticks = 20;  // between casts; the zone enforces the real cooldown
-    WandererParams roam;                       // what to do when nothing is in sight
+    float engage_radius_m = 0.0F;  // notice monsters this far away
+    common::SkillId attack_skill;
+    float attack_range_m = 0.0F;                  // stop here and swing
+    std::chrono::milliseconds attack_interval{};  // between casts; the zone enforces the cooldown
+    WandererParams roam;                          // what to do when nothing is in sight
 };
 
 // Hunts monsters: walks to the nearest live one it can see, then casts its attack on a timer.
@@ -34,7 +36,7 @@ private:
     FighterParams params_;
     Wanderer roam_;
     std::optional<common::EntityId> target_;
-    std::uint64_t next_cast_tick_ = 0;
+    common::TickIndex next_cast_tick_;
     std::uint32_t casts_ = 0;
 };
 

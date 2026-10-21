@@ -5,13 +5,6 @@
 #include <cmath>
 
 namespace sa::zone::sim {
-namespace {
-
-// A monster slightly beyond nominal range still counts for a swing that started in range.
-constexpr float kRangeTolerance = 1.1F;
-
-}  // namespace
-
 // ---- casting ------------------------------------------------------------------------------------
 
 void Zone::ApplyCast(const CastCommand& command) {
@@ -22,10 +15,17 @@ void Zone::ApplyCast(const CastCommand& command) {
     Player& player = it->second;
     ++stats_.commands_applied;
 
+    // A request without an id cannot be told apart from the next one; it is never remembered.
+    if (command.request_id == common::RequestId{}) {
+        ++stats_.casts_rejected;
+        Deliver(command.player,
+                CommandResultEvent::Decided(command.request_id, RejectReason::kInvalidRequest));
+        return;
+    }
+
     // Step 1: a retried request answers exactly as before and changes nothing.
     if (const auto previous = player.recent_requests.Find(command.request_id)) {
-        Deliver(command.player,
-                CommandResultEvent{.request_id = command.request_id, .reason = *previous});
+        Deliver(command.player, *previous);
         return;
     }
 
@@ -33,8 +33,9 @@ void Zone::ApplyCast(const CastCommand& command) {
     const SkillDefinition* skill = skill_it == content_.skills.end() ? nullptr : &skill_it->second;
     const RejectReason reason = skill == nullptr ? RejectReason::kUnknownSkill
                                                  : ValidateCast(player, *skill, command.target);
-    player.recent_requests.Remember(command.request_id, reason);
-    Deliver(command.player, CommandResultEvent{.request_id = command.request_id, .reason = reason});
+    const auto result = CommandResultEvent::Decided(command.request_id, reason);
+    player.recent_requests.Remember(result);
+    Deliver(command.player, result);
     if (reason != RejectReason::kNone) {
         ++stats_.casts_rejected;
         return;
@@ -44,7 +45,7 @@ void Zone::ApplyCast(const CastCommand& command) {
     // Cost is paid when the cast starts so a second cast cannot spend the same MP; the cooldown
     // starts at activation so an interrupted cast does not lock the skill.
     player.vitals.mp -= skill->cost_mp;
-    player.vitals_changed_this_tick = true;
+    player.changed_at = tick_;
     if (skill->cast_time.count() == 0) {
         Activate(command.player, player, *skill, command.target);
         return;
@@ -83,14 +84,16 @@ RejectReason Zone::ValidateCast(const Player& player, const SkillDefinition& ski
             if (monster == monsters_.end() || !monster->second.vitals.IsAlive()) {
                 return RejectReason::kInvalidTarget;
             }
-            if (common::Distance(player.position, monster->second.position) > skill.range_m) {
+            if (!common::WithinDistance(player.position, monster->second.position, skill.range_m)) {
                 return RejectReason::kOutOfRange;
             }
             return RejectReason::kNone;
         }
         case SkillKind::kProjectile: {
+            // A direction without a usable unit vector (zero, NaN, infinite) would launch a
+            // projectile that never travels and never ends.
             const auto* direction = std::get_if<common::Vec2>(&target);
-            if (direction == nullptr || direction->IsZero()) {
+            if (direction == nullptr || direction->Normalized().IsZero()) {
                 return RejectReason::kInvalidTarget;
             }
             return RejectReason::kNone;
@@ -100,7 +103,9 @@ RejectReason Zone::ValidateCast(const Player& player, const SkillDefinition& ski
 }
 
 void Zone::ResolveCasts() {
-    for (auto& [id, player] : players_) {
+    IdsInOrder(players_, order_);
+    for (const common::EntityId id : order_) {
+        Player& player = players_.at(id);  // casts never remove players
         if (!player.cast || tick_ < player.cast->resolve_at) {
             continue;
         }
@@ -120,8 +125,8 @@ void Zone::Activate(common::EntityId caster, Player& player, const SkillDefiniti
             const auto target_id = std::get<common::EntityId>(target);
             const auto monster = monsters_.find(target_id);
             if (monster == monsters_.end() ||
-                common::Distance(player.position, monster->second.position) >
-                    skill.range_m * kRangeTolerance) {
+                !common::WithinDistance(player.position, monster->second.position,
+                                        skill.range_m * rules_.combat.range_tolerance)) {
                 return;
             }
             ApplyDamage(caster, target_id, skill.id, skill.damage);
@@ -142,8 +147,7 @@ void Zone::Activate(common::EntityId caster, Player& player, const SkillDefiniti
     }
 }
 
-// ---- projectiles
-// ------------------------------------------------------------------------------------
+// ---- projectiles --------------------------------------------------------------------------------
 
 namespace {
 
@@ -184,7 +188,9 @@ std::optional<common::EntityId> Zone::FirstMonsterAlong(common::Vec2 from, commo
 
 void Zone::UpdateProjectiles() {
     std::vector<common::EntityId> finished;
-    for (auto& [id, projectile] : projectiles_) {
+    IdsInOrder(projectiles_, order_);
+    for (const common::EntityId id : order_) {
+        Projectile& projectile = projectiles_.at(id);  // erased only after the loop
         const common::Vec2 from = projectile.position;
         const common::Vec2 next = from + projectile.velocity * dt_seconds_;
         projectile.travelled_m += common::Distance(from, next);
@@ -205,25 +211,24 @@ void Zone::UpdateProjectiles() {
     }
 }
 
-// ---- damage and death
-// ---------------------------------------------------------------------------------
+// ---- damage and death ---------------------------------------------------------------------------
 
 void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, SkillId skill,
                        std::int32_t damage) {
     Vitals* vitals = nullptr;
-    bool* changed = nullptr;
+    common::TickIndex* changed_at = nullptr;
     if (const auto m = monsters_.find(target); m != monsters_.end()) {
         vitals = &m->second.vitals;
-        changed = &m->second.vitals_changed_this_tick;
+        changed_at = &m->second.changed_at;
     } else if (const auto p = players_.find(target); p != players_.end()) {
         vitals = &p->second.vitals;
-        changed = &p->second.vitals_changed_this_tick;
+        changed_at = &p->second.changed_at;
     }
     if (vitals == nullptr || !vitals->IsAlive()) {
         return;  // death is processed exactly once per lifecycle
     }
     vitals->hp = std::max(0, vitals->hp - std::max(0, damage));
-    *changed = true;
+    *changed_at = tick_;
     ++stats_.hits;
     const bool killed = !vitals->IsAlive();
     const CombatEvent event{.attacker = attacker,
@@ -242,7 +247,7 @@ void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, Skill
     }
     ++stats_.kills;
     if (const auto m = monsters_.find(target); m != monsters_.end()) {
-        OnMonsterDeath(target);
+        OnMonsterDeath(target, attacker);
     } else if (const auto p = players_.find(target); p != players_.end()) {
         OnPlayerDeath(target, p->second);
     }
@@ -250,13 +255,15 @@ void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, Skill
 
 void Zone::OnPlayerDeath(common::EntityId /*id*/, Player& player) {
     player.cast.reset();
-    player.velocity = {};
+    SetVelocity(player.velocity, player.changed_at, {});
     player.desired_direction = {};
-    player.respawn_at = TicksFromNow(combat_.player_respawn);
+    player.respawn_at = TicksFromNow(rules_.combat.player_respawn);
 }
 
 void Zone::RespawnPlayers() {
-    for (auto& [id, player] : players_) {
+    IdsInOrder(players_, order_);
+    for (const common::EntityId id : order_) {
+        Player& player = players_.at(id);
         if (!player.respawn_at || tick_ < *player.respawn_at) {
             continue;
         }
@@ -265,8 +272,7 @@ void Zone::RespawnPlayers() {
         player.position = map_.spawn_points[index];
         player.vitals.hp = player.vitals.max_hp;
         player.vitals.mp = player.vitals.max_mp;
-        player.moved_this_tick = true;
-        player.vitals_changed_this_tick = true;
+        player.changed_at = tick_;
         grid_.Move(id, player.position);
     }
 }
@@ -281,7 +287,7 @@ void Zone::RegenerateMp() {
         if (whole > 0) {
             player.mp_regen_carry -= static_cast<float>(whole);
             player.vitals.mp = std::min(player.vitals.max_mp, player.vitals.mp + whole);
-            player.vitals_changed_this_tick = true;
+            player.changed_at = tick_;
         }
     }
 }

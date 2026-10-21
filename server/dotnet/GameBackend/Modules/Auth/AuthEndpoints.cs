@@ -6,13 +6,13 @@ namespace Sa.GameBackend.Modules.Auth;
 
 internal sealed record RegisterRequest(
     [property: Required, RegularExpression(AccountRules.UsernamePattern, ErrorMessage = AccountRules.UsernameRuleText)] string Username,
-    [property: Required, MaxLength(128)] string Password);
+    [property: Required, MaxLength(AccountRules.PasswordMaxLength)] string Password);
 
 internal sealed record RegisterResponse(long AccountId);
 
 internal sealed record LoginRequest(
-    [property: Required, MaxLength(24)] string Username,
-    [property: Required, MaxLength(128)] string Password);
+    [property: Required, MaxLength(AccountRules.UsernameMaxLength)] string Username,
+    [property: Required, MaxLength(AccountRules.PasswordMaxLength)] string Password);
 
 internal sealed record LoginResponse(string AccessToken, DateTimeOffset ExpiresAt);
 

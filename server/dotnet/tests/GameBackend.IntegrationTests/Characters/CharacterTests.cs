@@ -9,6 +9,7 @@ public sealed class CharacterTests(PostgresFixture postgres) : IDisposable
     private const long World = 1;
     private const long MissingWorld = 999;
     private const int MaxPerWorld = 3;
+    private const int UndefinedClass = 99;  // game-data defines classes 1-3
 
     private readonly BackendFactory _factory = new(postgres.ConnectionString, new BackendSettings(MaxCharactersPerWorld: MaxPerWorld));
 
@@ -73,6 +74,20 @@ public sealed class CharacterTests(PostgresFixture postgres) : IDisposable
         HttpResponseMessage response = await owner.CreateCharacterAsync(MissingWorld, name);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        long rows = await Db.ScalarAsync<long>(postgres.ConnectionString,
+            "SELECT count(*) FROM game.characters WHERE name = @name", new { name });
+        Assert.Equal(0, rows);
+    }
+
+    [Fact]
+    public async Task A_class_the_content_does_not_define_is_422_and_writes_nothing()
+    {
+        ApiClient owner = await Api.AsNewAccountAsync(Unique.Username());
+        string name = Unique.CharacterName();
+
+        HttpResponseMessage response = await owner.CreateCharacterAsync(World, name, classId: UndefinedClass);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         long rows = await Db.ScalarAsync<long>(postgres.ConnectionString,
             "SELECT count(*) FROM game.characters WHERE name = @name", new { name });
         Assert.Equal(0, rows);

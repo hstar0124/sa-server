@@ -19,13 +19,14 @@ export async function loadContracts() {
     KickReason: root.lookupEnum('sa.game.v1.KickReason'),
     RejectCode: root.lookupEnum('sa.game.v1.RejectCode'),
     EntityKind: root.lookupEnum('sa.game.v1.EntityKind'),
+    CommandStatus: root.lookupEnum('sa.game.v1.CommandStatus'),
   };
 }
 
 export class GatewayLink {
   constructor(contracts, handlers) {
     this.contracts = contracts;
-    this.handlers = handlers;  // { onWelcome, onSnapshot, onPong, onKick, onClose }
+    this.handlers = handlers;  // { onWelcome, onSnapshot, onPong, onKick, onCommandResult, onCombatEvent, onInventoryUpdate, onClose }
     this.socket = null;
     this.inputSeq = 0;
     this.requestId = 0;
@@ -62,6 +63,14 @@ export class GatewayLink {
     return this.requestId;
   }
 
+  // Asks the zone for a ground item by its entity id. Returns the request id; the result may
+  // arrive as PENDING first and as the final verdict once the Backend has committed.
+  sendPickup(itemEntityId) {
+    this.requestId += 1;
+    this.#send({ pickup_item: { request_id: this.requestId, item_entity_id: itemEntityId } });
+    return this.requestId;
+  }
+
   #send(body) {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
     const message = this.contracts.ClientMessage.create(body);
@@ -77,6 +86,7 @@ export class GatewayLink {
       case 'kick': this.handlers.onKick?.(this.contracts.KickReason.valuesById[message.kick.reason]); break;
       case 'command_result': this.handlers.onCommandResult?.(message.command_result, this.contracts.RejectCode.valuesById[message.command_result.reject_code]); break;
       case 'combat_event': this.handlers.onCombatEvent?.(message.combat_event); break;
+      case 'inventory_update': this.handlers.onInventoryUpdate?.(message.inventory_update); break;
       default: break;
     }
   }

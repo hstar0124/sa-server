@@ -7,7 +7,9 @@
 
 #include <asio/ip/tcp.hpp>
 
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -19,10 +21,13 @@ namespace sa::common {
 class WebSocketConnection final : public MessageConnection,
                                   public std::enable_shared_from_this<WebSocketConnection> {
 public:
-    WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits);
+    // `close_linger`: see TcpByteStream.
+    WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits,
+                        std::optional<std::chrono::milliseconds> close_linger);
 
     void Start(Callbacks callbacks) override;
-    bool Send(const google::protobuf::MessageLite& message) override;
+    [[nodiscard]] std::expected<void, SendError> Send(
+        const google::protobuf::MessageLite& message) override;
     void Close() override;
     void Abort() override { stream_->Abort(); }
     [[nodiscard]] bool is_open() const override {
@@ -32,9 +37,14 @@ public:
 
 private:
     enum class State : std::uint8_t { kHandshaking, kOpen, kClosing, kClosed };
+    enum class HandshakeProgress : std::uint8_t {
+        kComplete,    // upgraded; the buffer holds only bytes after the request
+        kIncomplete,  // the request has not fully arrived
+        kRejected,    // refused and closing
+    };
 
     void OnBytes(std::span<const std::byte> bytes);
-    bool TryCompleteHandshake();
+    [[nodiscard]] HandshakeProgress TryCompleteHandshake();
     void DrainFrames();
     void OnFrame(websocket::Frame frame);
     void WriteText(std::string_view text);

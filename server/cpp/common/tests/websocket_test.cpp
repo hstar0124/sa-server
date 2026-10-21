@@ -122,6 +122,12 @@ TEST(FrameDecoder, RejectsUnmaskedReservedOversizedAndLongControlFrames) {
     EXPECT_EQ(unknown.TryPop().error(), FrameError::kUnknownOpcode);
 }
 
+TEST(FrameDecoder, RejectsFragmentedControlFrames) {
+    FrameDecoder decoder{16};
+    decoder.Feed(Bytes({0x09, 0x80, 0, 0, 0, 0}));  // ping, FIN clear, empty, zero mask
+    EXPECT_EQ(decoder.TryPop().error(), FrameError::kFragmentedControlFrame);
+}
+
 TEST(EncodeFrame, ProducesUnmaskedServerFramesWithTheRightLengthForm) {
     std::vector<std::byte> out;
     EncodeFrame(Opcode::kBinary, AsBytes("Hello"), out);

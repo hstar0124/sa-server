@@ -32,6 +32,10 @@ internal sealed class AuthOptions
     [Range(1, 100_000)]
     public int CredentialAttemptsPerMinutePerAddress { get; init; } = 10;
 
+    /// <summary>How far a token's issue and expiry times may be off the server clock and still be accepted.</summary>
+    [Range(typeof(TimeSpan), "00:00:00", "00:05:00")]
+    public TimeSpan TokenClockSkew { get; init; } = TimeSpan.FromSeconds(30);
+
     public byte[] DecodedSigningKey() => Convert.FromBase64String(SigningKey);
 }
 

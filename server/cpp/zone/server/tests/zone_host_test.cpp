@@ -1,104 +1,19 @@
-#include "zone_host.hpp"
-
-#include "sa/common/instance_id.hpp"
-#include "sa/zone/sim/zone.hpp"
+#include "zone_host_test_support.hpp"
 
 #include <gtest/gtest.h>
 
-#include <chrono>
-#include <stdexcept>
-#include <vector>
+#include <limits>
 
 namespace sa::zone {
 namespace {
 
 using internal::v1::ZoneToGateway;
-
-class FakeSink final : public LinkSink {
-public:
-    void Send(const ZoneToGateway& message) override { sent.push_back(message); }
-
-    [[nodiscard]] std::vector<ZoneToGateway> OfCase(ZoneToGateway::BodyCase c) const {
-        std::vector<ZoneToGateway> out;
-        for (const auto& m : sent) {
-            if (m.body_case() == c) {
-                out.push_back(m);
-            }
-        }
-        return out;
-    }
-
-    std::vector<ZoneToGateway> sent;
-};
-
-sim::ContentBundle TestContent() {
-    sim::ContentBundle c;
-    c.version = "test";
-    c.skills[sim::SkillId{1}] = sim::SkillDefinition{.id = sim::SkillId{1},
-                                                     .name = "strike",
-                                                     .kind = sim::SkillKind::kTargeted,
-                                                     .cooldown = std::chrono::milliseconds{500},
-                                                     .range_m = 2.5F,
-                                                     .damage = 20};
-    c.classes[sim::ClassId{1}] = sim::ClassDefinition{.id = sim::ClassId{1},
-                                                      .name = "w",
-                                                      .max_hp = 100,
-                                                      .max_mp = 10,
-                                                      .skills = {sim::SkillId{1}}};
-    return c;
-}
-
-sim::Zone MakeZone() {
-    auto zone = sim::Zone::Create(
-        sim::ZoneConfig{.world_id = common::WorldId{1},
-                        .zone_id = common::ZoneId{1},
-                        .simulation_rate = sim::TickRate{.hz = 10}},
-        sim::MapData{.size = {100.0F, 100.0F},
-                     .cell_size = 10.0F,
-                     .obstacles = {},
-                     .spawn_points = {{50.0F, 50.0F}}},
-        sim::MovementRules{.max_speed_mps = 10.0F,
-                           .aoi_enter_radius_m = 20.0F,
-                           .aoi_leave_radius_m = 25.0F,
-                           .commands_per_tick_budget = 100},
-        sim::CombatRules{.monster_think_hz = 5, .player_respawn = std::chrono::seconds{1}},
-        TestContent(), sim::Rng{1});
-    if (!zone) {
-        throw std::logic_error{zone.error()};
-    }
-    return std::move(*zone);
-}
-
-ZoneHost::Identity Identity(std::uint32_t max_sessions = 10) {
-    return ZoneHost::Identity{.zone_instance = common::InstanceId::Generate(),
-                              .simulation_hz = 10,
-                              .ticks_per_snapshot = 2,
-                              .max_sessions = max_sessions};
-}
-
-internal::v1::SessionAttach AttachFor(const std::string& session, std::uint64_t character) {
-    internal::v1::SessionAttach a;
-    a.set_gateway_session_id(session);
-    a.set_character_id(character);
-    a.set_class_id(1);
-    a.set_owner_epoch(1);
-    return a;
-}
-
-// The one message of the given case sent to the sink; anything else is a test bug.
-const ZoneToGateway& Only(const FakeSink& sink, ZoneToGateway::BodyCase c) {
-    const auto matches = sink.OfCase(c);
-    if (matches.size() != 1) {
-        throw std::logic_error{"expected exactly one message of that case"};
-    }
-    static ZoneToGateway copy;
-    copy = matches.front();
-    return copy;
-}
+using namespace host_fixture;  // NOLINT(google-build-using-namespace): test fixtures only
 
 TEST(ZoneHost, AttachSpawnsAPlayerAndAcknowledgesTheSession) {
     sim::Zone zone = MakeZone();
-    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
     FakeSink sink;
 
     host.Attach(sink, AttachFor("s1", 42));
@@ -106,12 +21,13 @@ TEST(ZoneHost, AttachSpawnsAPlayerAndAcknowledgesTheSession) {
     EXPECT_EQ(host.session_count(), 1U);
     EXPECT_EQ(zone.stats().players, 1U);
     EXPECT_EQ(Only(sink, ZoneToGateway::kSessionAttached).session_attached().gateway_session_id(),
-              "s1");
+              SessionWire("s1"));
 }
 
 TEST(ZoneHost, AttachWelcomesTheClientWithItsOwnEntityId) {
     sim::Zone zone = MakeZone();
-    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
     FakeSink sink;
 
     host.Attach(sink, AttachFor("s1", 42));
@@ -127,7 +43,8 @@ TEST(ZoneHost, AttachWelcomesTheClientWithItsOwnEntityId) {
 TEST(ZoneHost, RefusesDuplicatesFullZoneAndWhenNotAuthoritative) {
     sim::Zone zone = MakeZone();
     bool authoritative = true;
-    ZoneHost host{zone, Identity(1), [&] { return authoritative; }};
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(1), economy, [&] { return authoritative; }};
     FakeSink sink;
 
     host.Attach(sink, AttachFor("s1", 1));
@@ -149,7 +66,8 @@ TEST(ZoneHost, RefusesDuplicatesFullZoneAndWhenNotAuthoritative) {
 TEST(ZoneHost, RefusesACharacterWhoseClassIsNotInTheContent) {
     constexpr std::uint32_t kClassNotInContent = 999;
     sim::Zone zone = MakeZone();
-    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
     FakeSink sink;
 
     auto attach = AttachFor("s1", 1);
@@ -165,13 +83,14 @@ TEST(ZoneHost, RefusesACharacterWhoseClassIsNotInTheContent) {
 
 TEST(ZoneHost, InputReachesTheSimulationAndSnapshotsFollowCadence) {
     sim::Zone zone = MakeZone();
-    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
     FakeSink sink;
     host.Attach(sink, AttachFor("s1", 1));
     sink.sent.clear();
 
     internal::v1::SessionInput input;
-    input.set_gateway_session_id("s1");
+    input.set_gateway_session_id(SessionWire("s1"));
     input.mutable_message()->mutable_move_input()->set_input_seq(1);
     input.mutable_message()->mutable_move_input()->mutable_direction()->set_x(1.0F);
     host.Input(input);
@@ -208,7 +127,8 @@ void TickAndSnapshot(sim::Zone& zone, ZoneHost& host) {
 
 TEST(ZoneHost, SessionsOnDifferentGatewaysSeeEachOther) {
     sim::Zone zone = MakeZone();
-    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
     FakeSink gateway_a;
     FakeSink gateway_b;
     host.Attach(gateway_a, AttachFor("a", 1));
@@ -217,12 +137,17 @@ TEST(ZoneHost, SessionsOnDifferentGatewaysSeeEachOther) {
 
     TickAndSnapshot(zone, host);
 
-    EXPECT_EQ(FirstSnapshotTo(gateway_a).spawned_size(), 1) << "a sees b";
+    const game::v1::WorldSnapshot& first = FirstSnapshotTo(gateway_a);
+    EXPECT_EQ(first.spawned_size(), 2) << "a sees b and the rat";
+    EXPECT_TRUE(std::ranges::any_of(first.spawned(), [](const game::v1::EntitySpawn& e) {
+        return e.kind() == game::v1::ENTITY_KIND_PLAYER;
+    })) << "a sees b";
 }
 
 TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     sim::Zone zone = MakeZone();
-    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
     FakeSink gateway_a;
     FakeSink gateway_b;
     host.Attach(gateway_a, AttachFor("a", 1));
@@ -230,7 +155,7 @@ TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     TickAndSnapshot(zone, host);
 
     internal::v1::SessionDetach detach;
-    detach.set_gateway_session_id("b");
+    detach.set_gateway_session_id(SessionWire("b"));
     host.Detach(detach);
     gateway_a.sent.clear();
     TickAndSnapshot(zone, host);
@@ -240,15 +165,50 @@ TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     EXPECT_EQ(host.stats().detaches, 1U);
 }
 
+TEST(ZoneHost, AnAttachWhoseSessionIdIsNotAnIdIsCountedAndIgnored) {
+    sim::Zone zone = MakeZone();
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeSink sink;
+    internal::v1::SessionAttach attach = AttachFor("s1", 1);
+    attach.set_gateway_session_id("short");  // ids are 16 bytes on the wire
+    host.Attach(sink, attach);
+
+    EXPECT_EQ(host.session_count(), 0U);
+    EXPECT_EQ(host.stats().bad_inputs, 1U);
+    EXPECT_TRUE(sink.sent.empty());
+}
+
+TEST(ZoneHost, ANonFiniteInputIsCountedAndNeverSubmitted) {
+    sim::Zone zone = MakeZone();
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeSink sink;
+    host.Attach(sink, AttachFor("s1", 1));
+
+    internal::v1::SessionInput input;
+    input.set_gateway_session_id(SessionWire("s1"));
+    input.mutable_message()->mutable_move_input()->set_input_seq(1);
+    input.mutable_message()->mutable_move_input()->mutable_direction()->set_x(
+        std::numeric_limits<float>::infinity());
+    host.Input(input);
+    zone.Tick();
+
+    EXPECT_EQ(host.stats().bad_inputs, 1U);
+    EXPECT_EQ(host.stats().inputs, 0U);
+    EXPECT_EQ(zone.stats().commands_applied, 0U);
+}
+
 TEST(ZoneHost, CastSkillYieldsACommandResultOnTheNextTick) {
     sim::Zone zone = MakeZone();
-    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
     FakeSink sink;
     host.Attach(sink, AttachFor("s1", 1));
     sink.sent.clear();
 
     internal::v1::SessionInput input;
-    input.set_gateway_session_id("s1");
+    input.set_gateway_session_id(SessionWire("s1"));
     input.mutable_message()->mutable_cast_skill()->set_request_id(1);
     input.mutable_message()->mutable_cast_skill()->set_skill_id(1);
     input.mutable_message()->mutable_cast_skill()->set_target_entity_id(4242);  // no such monster
@@ -266,7 +226,8 @@ TEST(ZoneHost, CastSkillYieldsACommandResultOnTheNextTick) {
 
 TEST(ZoneHost, LinkClosureAndEvictionRemoveEveryoneOnThatLink) {
     sim::Zone zone = MakeZone();
-    ZoneHost host{zone, Identity(), [] { return true; }};
+    FakeEconomy economy;
+    ZoneHost host{zone, Identity(), economy, [] { return true; }};
     FakeSink gateway_a;
     FakeSink gateway_b;
     host.Attach(gateway_a, AttachFor("a1", 1));

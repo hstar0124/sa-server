@@ -57,12 +57,13 @@ TEST(EntryTicketVerifier, EnforcesTheValidityWindowWithSkewTolerance) {
     const auto verifier = test::Verifier();
     const std::string wire = test::SignedTicket(test::TicketFields{});
 
-    EXPECT_TRUE(verifier.Verify(Bytes(wire), test::kNow + 30'000 + test::kSkewMs - 1).has_value());
-    EXPECT_EQ(verifier.Verify(Bytes(wire), test::kNow + 30'000 + test::kSkewMs).error(),
-              TicketError::kExpired);
-    EXPECT_TRUE(verifier.Verify(Bytes(wire), test::kNow - 1'000 - test::kSkewMs).has_value());
-    EXPECT_EQ(verifier.Verify(Bytes(wire), test::kNow - 1'000 - test::kSkewMs - 1).error(),
-              TicketError::kNotYetValid);
+    constexpr std::chrono::milliseconds kTick{1};
+    const auto expiry = test::kNow + test::kLifetime + test::kSkew;
+    const auto issue = test::kNow - test::kIssuedAgo - test::kSkew;
+    EXPECT_TRUE(verifier.Verify(Bytes(wire), expiry - kTick).has_value());
+    EXPECT_EQ(verifier.Verify(Bytes(wire), expiry).error(), TicketError::kExpired);
+    EXPECT_TRUE(verifier.Verify(Bytes(wire), issue).has_value());
+    EXPECT_EQ(verifier.Verify(Bytes(wire), issue - kTick).error(), TicketError::kNotYetValid);
 }
 
 TEST(EntryTicketVerifier, RejectsGarbage) {

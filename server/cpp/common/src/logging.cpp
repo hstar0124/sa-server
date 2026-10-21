@@ -9,7 +9,11 @@ namespace sa::common {
 
 std::expected<LoggingConfig, ConfigError> LoggingConfig::FromConfig(const ConfigSource& config) {
     LoggingConfig out;
-    out.level = config.GetOr<std::string>("logging.level", out.level);
+    const auto level = config.GetOr<std::string>("logging.level", out.level);
+    if (!level) {
+        return std::unexpected(level.error());
+    }
+    out.level = *level;
     if (spdlog::level::from_str(out.level) == spdlog::level::off && out.level != "off") {
         return std::unexpected(
             ConfigError{"logging.level '" + out.level + "' is not a known level"});

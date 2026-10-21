@@ -13,6 +13,10 @@
 | [007](007-bare-design-section-numbers-left-in-comments.md) | 해결 | 14 전투 시뮬레이션 | 지워진 설계 문서의 절 번호가 주석 다섯 곳에 숫자로만 남음 |
 | [008](008-version-bump-invalidates-the-ci-dependency-cache.md) | 해결 | 17 CI 의존성 캐시 | 릴리스 버전 한 줄이 CI 의존성 캐시를 무효로 만든다 |
 | [009](009-actions-minutes-exhausted-on-a-private-repo.md) | 해결 | 17 CI 의존성 캐시 | 비공개 저장소의 Actions 무료 시간이 바닥나 CI 잡이 시작되지 않음 |
+| [010](010-main-branch-deleted-after-the-back-merge.md) | 해결 | 0.2.0 릴리스 | 되돌리기 PR을 병합한 직후 main 브랜치가 지워짐 |
+| [011](011-backend-content-dir-resolved-inside-its-own-directory.md) | 해결 | 22 Backend 경제 모듈 | 로컬 스크립트가 Backend에 엉뚱한 game-data 경로를 넘겨 기동 실패 |
+| [012](012-pickup-request-key-collides-across-sessions.md) | 해결 | 23 Zone 드롭과 획득 | 획득 요청 키가 세션을 넘어 겹쳐 정상 요청이 거절됨 |
+| [013](013-redeem-assigns-a-dead-zone-instance-after-restart.md) | 해결(26) | 23 Zone 드롭과 획득 | Zone을 재시작한 직후 입장하면 죽은 Zone 인스턴스가 소유자로 배정됨 |
 
 ## 형식
 

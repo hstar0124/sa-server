@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sa/common/opaque_id.hpp"
 #include "sa/common/strong_id.hpp"
 
 #include <cstdint>
@@ -18,10 +19,22 @@ using SessionId = StrongId<struct SessionIdTag>;
 // Monotonic ownership generation for a character; it fences off stale owners. Higher wins.
 using OwnerEpoch = StrongId<struct OwnerEpochTag>;
 
+// Content ids from game-data that cross processes: a character's class comes from the Backend,
+// and a client names the skill it casts.
+using ClassId = StrongId<struct ClassIdTag, std::uint32_t>;
+using SkillId = StrongId<struct SkillIdTag, std::uint32_t>;
+
 // Simulation tick counter of one zone process lifetime.
 using TickIndex = StrongId<struct TickIndexTag>;
 
 // Client-side monotonic request key within one session (contracts/game).
 using RequestId = StrongId<struct RequestIdTag>;
+
+// Minted identities that outlive a process (see README "자산과 멱등성"): an item keeps its id from
+// drop to inventory to trade; a kill id names one monster lifecycle's grant.
+using ItemInstanceId = OpaqueId<struct ItemInstanceIdTag>;
+using KillId = OpaqueId<struct KillIdTag>;
+// Idempotency key the Backend stores for one zone-originated command (e.g. a pickup).
+using RequestKey = OpaqueId<struct RequestKeyTag>;
 
 }  // namespace sa::common

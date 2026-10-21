@@ -2,30 +2,14 @@
 #include "sa/zone/sim/zone.hpp"
 
 #include <algorithm>
-#include <cmath>
-#include <numbers>
 
 namespace sa::zone::sim {
-namespace {
-
-// Monsters sharing a home stand on a ring around it so they do not stack.
-constexpr float kPackRingRadiusM = 1.5F;
-// Close enough to the home to count as returned.
-constexpr float kArriveDistanceM = 0.5F;
-
-}  // namespace
-
 void Zone::PopulateMonsterSlots() {
     for (const MonsterSpawn& spawn : map_.monster_spawns) {
         const MonsterDefinition& def = content_.monsters.at(spawn.template_id);
-        for (std::uint32_t i = 0; i < spawn.count; ++i) {
-            const float angle = 2.0F * std::numbers::pi_v<float> * static_cast<float>(i) /
-                                static_cast<float>(spawn.count);
-            const common::Vec2 offset =
-                spawn.count == 1
-                    ? common::Vec2{}
-                    : common::Vec2{std::cos(angle), std::sin(angle)} * kPackRingRadiusM;
-            monster_slots_.push_back(MonsterSlot{.def = &def, .home = spawn.position + offset});
+        for (const common::Vec2 home :
+             MapData::HomesOf(spawn, rules_.combat.monster_pack_ring_radius_m)) {
+            monster_slots_.push_back(MonsterSlot{.def = &def, .home = home});
         }
     }
     for (std::size_t i = 0; i < monster_slots_.size(); ++i) {
@@ -37,7 +21,7 @@ void Zone::SpawnMonster(std::size_t slot_index) {
     MonsterSlot& slot = monster_slots_[slot_index];
     const common::EntityId id = AllocateEntityId();
     const std::uint32_t think_period =
-        std::max(1U, config_.simulation_rate.hz / combat_.monster_think_hz);
+        std::max(1U, config_.simulation_rate.hz / rules_.combat.monster_think_hz);
     Monster monster{.def = slot.def, .slot = slot_index, .home = slot.home, .position = slot.home};
     monster.vitals = Vitals{.hp = slot.def->max_hp, .max_hp = slot.def->max_hp};
     // Stagger decisions across slots so they do not all think on the same tick.
@@ -50,10 +34,14 @@ void Zone::SpawnMonster(std::size_t slot_index) {
     slot.respawn_at.reset();
 }
 
-void Zone::OnMonsterDeath(common::EntityId id) {
+void Zone::OnMonsterDeath(common::EntityId id, common::EntityId killer) {
     const auto it = monsters_.find(id);
     if (it == monsters_.end()) {
         return;
+    }
+    // Only a player earns the kill; a killer that already left the zone earns nothing.
+    if (const auto player = players_.find(killer); player != players_.end()) {
+        RollDrops(killer, player->second, it->second);
     }
     MonsterSlot& slot = monster_slots_[it->second.slot];
     slot.live.reset();
@@ -73,8 +61,7 @@ void Zone::RespawnMonsters() {
     }
 }
 
-// ---- AI
-// -------------------------------------------------------------------------------------------------
+// ---- AI -----------------------------------------------------------------------------------------
 
 std::optional<common::EntityId> Zone::NearestLivePlayerWithin(common::Vec2 center,
                                                               float radius) const {
@@ -98,8 +85,10 @@ std::optional<common::EntityId> Zone::NearestLivePlayerWithin(common::Vec2 cente
 
 void Zone::UpdateMonsters() {
     const std::uint32_t think_period =
-        std::max(1U, config_.simulation_rate.hz / combat_.monster_think_hz);
-    for (auto& [id, monster] : monsters_) {
+        std::max(1U, config_.simulation_rate.hz / rules_.combat.monster_think_hz);
+    IdsInOrder(monsters_, order_);
+    for (const common::EntityId id : order_) {
+        Monster& monster = monsters_.at(id);  // monsters attack players; none dies in this loop
         if (tick_ >= monster.next_think) {
             Think(id, monster);
             monster.next_think = common::TickIndex{tick_.value() + think_period};
@@ -112,24 +101,26 @@ void Zone::Think(common::EntityId id, Monster& monster) {
     const MonsterDefinition& def = *monster.def;
     const auto target = players_.find(monster.target);
     const bool target_alive = target != players_.end() && target->second.vitals.IsAlive();
-    const float to_target =
-        target_alive ? common::Distance(monster.position, target->second.position) : 0.0F;
-    const bool leashed = common::Distance(monster.home, monster.position) > def.leash_radius_m;
+    const bool in_attack_range =
+        target_alive &&
+        common::WithinDistance(monster.position, target->second.position, def.attack_range_m);
+    const bool leashed =
+        !common::WithinDistance(monster.home, monster.position, def.leash_radius_m);
 
     switch (monster.state) {
         case AiState::kIdle:
             if (const auto found = NearestLivePlayerWithin(monster.position, def.aggro_radius_m)) {
                 monster.target = *found;
                 monster.state = AiState::kChase;
+                StartHeadway(monster);
             }
             return;
         case AiState::kChase:
-            if (!target_alive || leashed) {
-                monster.state = AiState::kReturn;
-                monster.goal = monster.home;
+            if (!target_alive || leashed || Stalled(monster)) {
+                ReturnHome(monster);
                 return;
             }
-            if (to_target <= def.attack_range_m) {
+            if (in_attack_range) {
                 monster.state = AiState::kAttack;
                 monster.goal.reset();
                 return;
@@ -138,48 +129,82 @@ void Zone::Think(common::EntityId id, Monster& monster) {
             return;
         case AiState::kAttack:
             if (!target_alive || leashed) {
-                monster.state = AiState::kReturn;
-                monster.goal = monster.home;
+                ReturnHome(monster);
                 return;
             }
-            if (to_target > def.attack_range_m) {
+            if (!in_attack_range) {
                 monster.state = AiState::kChase;
                 monster.goal = target->second.position;
+                StartHeadway(monster);
                 return;
             }
             if (tick_ >= monster.attack_ready_at) {
                 monster.attack_ready_at = TicksFromNow(def.attack_cooldown);
-                ApplyDamage(id, monster.target, SkillId{}, def.attack_damage);
+                ApplyDamage(id, monster.target, kMonsterBasicAttack, def.attack_damage);
             }
             return;
         case AiState::kReturn:
-            if (common::Distance(monster.position, monster.home) <= kArriveDistanceM) {
-                monster.state = AiState::kIdle;
-                monster.goal.reset();
-                monster.target = {};
-                // Returning restores full health: a leash cannot be used to whittle a monster down.
-                if (monster.vitals.hp != monster.vitals.max_hp) {
-                    monster.vitals.hp = monster.vitals.max_hp;
-                    monster.vitals_changed_this_tick = true;
-                }
+            if (common::WithinDistance(monster.position, monster.home,
+                                       rules_.combat.monster_home_arrive_m)) {
+                SettleAtHome(monster);
+            } else if (Stalled(monster)) {
+                // Held by a wall on the way home: put it back rather than leave it out of place.
+                monster.position = monster.home;
+                monster.changed_at = tick_;
+                grid_.Move(id, monster.home);
+                SettleAtHome(monster);
             }
             return;
     }
 }
 
+void Zone::ReturnHome(Monster& monster) {
+    monster.state = AiState::kReturn;
+    monster.goal = monster.home;
+    StartHeadway(monster);
+}
+
+void Zone::SettleAtHome(Monster& monster) {
+    monster.state = AiState::kIdle;
+    monster.goal.reset();
+    monster.target = {};
+    // Returning restores full health: a leash cannot be used to whittle a monster down.
+    if (monster.vitals.hp != monster.vitals.max_hp) {
+        monster.vitals.hp = monster.vitals.max_hp;
+        monster.changed_at = tick_;
+    }
+}
+
+void Zone::StartHeadway(Monster& monster) {
+    monster.headway_from = monster.position;
+    monster.stall_deadline = TicksFromNow(rules_.combat.monster_stall_timeout);
+}
+
+// Judged by the monster's own movement, not by the distance to its goal: a monster that keeps
+// running after a faster player is chasing, not stuck, and the leash ends that chase.
+bool Zone::Stalled(Monster& monster) {
+    if (!common::WithinDistance(monster.position, monster.headway_from,
+                                rules_.combat.monster_stall_distance_m)) {
+        StartHeadway(monster);
+        return false;
+    }
+    return tick_ >= monster.stall_deadline;
+}
+
 void Zone::MoveMonster(common::EntityId id, Monster& monster) {
     if (!monster.goal) {
-        monster.velocity = {};
+        SetVelocity(monster.velocity, monster.changed_at, {});
         return;
     }
     const common::Vec2 next = StepTowards(monster.position, *monster.goal, monster.def->speed_mps);
     if (next == monster.position) {
-        monster.velocity = {};
+        SetVelocity(monster.velocity, monster.changed_at, {});
         return;
     }
-    monster.velocity = (next - monster.position) * (1.0F / dt_seconds_);
+    SetVelocity(monster.velocity, monster.changed_at,
+                (next - monster.position) * (1.0F / dt_seconds_));
     monster.position = next;
-    monster.moved_this_tick = true;
+    monster.changed_at = tick_;
     grid_.Move(id, next);
 }
 

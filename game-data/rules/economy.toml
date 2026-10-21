@@ -1,0 +1,18 @@
+# Economy rules shared by the zone and the Backend.
+[inventory]
+capacity = 20
+
+[pickup]
+# A character must be within this distance of an item on the ground to pick it up.
+range_m = 2.0
+# How long a dropped item stays on the ground before the zone removes it (stage 5: zone-local).
+despawn_ms = 60000
+
+[drops]
+# Rolled items land on a ring of this radius around the corpse so several drops do not overlap.
+# Keep it well inside pickup.range_m so a player standing at the corpse reaches every drop.
+scatter_radius_m = 0.6
+
+[currency]
+# The only currency in the first version; stored as integer units.
+primary = "gold"

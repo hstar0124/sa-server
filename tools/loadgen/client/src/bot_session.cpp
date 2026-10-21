@@ -10,6 +10,7 @@
 #include <game/client_messages.pb.h>
 
 #include <string>
+#include <tuple>
 
 namespace sa::loadgen {
 
@@ -54,8 +55,9 @@ void BotSession::Start() {
                         self->Fail("connect: " + cec.message());
                         return;
                     }
+                    // No close linger: the gateway closes its side as soon as it sees ours.
                     self->connection_ = std::make_shared<common::FramedConnection>(
-                        std::move(*socket), common::FrameLimits{});
+                        std::move(*socket), common::FrameLimits{}, std::nullopt);
                     self->OnConnected();
                 });
         });
@@ -92,7 +94,9 @@ void BotSession::OnConnected() {
     game::v1::ClientMessage hello;
     hello.mutable_hello()->set_protocol_version(common::protocol::kCurrentVersion);
     hello.mutable_hello()->set_entry_ticket(common::ToWireString(target_.signed_ticket));
-    connection_->Send(hello);
+    if (const auto sent = connection_->Send(hello); !sent) {
+        Fail(std::string{"hello not sent: "} + std::string{common::Describe(sent.error())});
+    }
 }
 
 void BotSession::OnFrame(std::span<const std::byte> payload) {
@@ -117,6 +121,7 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
             world_.OnSnapshot(message.world_snapshot());
             report_.snapshots = world_.snapshots();
             report_.max_visible = world_.max_visible();
+            report_.max_visible_players = world_.max_visible_players();
             report_.last_acked_input = world_.last_acked_input();
             report_.integrity = world_.integrity();
             return;
@@ -135,10 +140,17 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
         case ServerMessage::kCommandResult:
             world_.OnCommandResult(message.command_result());
             report_.combat = world_.combat();
+            report_.loot = world_.loot();
+            report_.integrity = world_.integrity();
             return;
         case ServerMessage::kCombatEvent:
             world_.OnCombatEvent(message.combat_event());
             report_.combat = world_.combat();
+            return;
+        case ServerMessage::kInventoryUpdate:
+            world_.OnInventoryUpdate(message.inventory_update());
+            report_.loot = world_.loot();
+            report_.integrity = world_.integrity();
             return;
         case ServerMessage::BODY_NOT_SET:
             Fail("empty server message");
@@ -172,7 +184,8 @@ void BotSession::Tick() {
                                        .self_hp = world_.self_hp(),
                                        .self_max_hp = world_.self_max_hp(),
                                        .visible = world_.Visible(),
-                                       .tick = world_.server_tick()};
+                                       .tick = common::TickIndex{world_.server_tick()},
+                                       .tick_hz = world_.simulation_hz()};
     const bot::Intent intent = brain_->Decide(observation);
     game::v1::ClientMessage move;
     auto* input = move.mutable_move_input();
@@ -180,14 +193,15 @@ void BotSession::Tick() {
     input->mutable_direction()->set_x(intent.direction.x);
     input->mutable_direction()->set_y(intent.direction.y);
     input->set_client_tick(static_cast<std::uint32_t>(world_.server_tick()));
-    if (connection_->Send(move)) {
+    if (connection_->Send(move).has_value()) {
         ++report_.inputs_sent;
     }
     if (intent.cast) {
         game::v1::ClientMessage cast;
         auto* skill = cast.mutable_cast_skill();
-        skill->set_request_id(++next_request_id_);
-        skill->set_skill_id(intent.cast->skill_id);
+        const common::RequestId request{++next_request_id_};
+        skill->set_request_id(request.value());
+        skill->set_skill_id(intent.cast->skill.value());
         if (const auto* entity = std::get_if<common::EntityId>(&intent.cast->target)) {
             skill->set_target_entity_id(entity->value());
         } else {
@@ -195,8 +209,20 @@ void BotSession::Tick() {
             skill->mutable_direction()->set_x(direction.x);
             skill->mutable_direction()->set_y(direction.y);
         }
-        if (connection_->Send(cast)) {
+        world_.ExpectResult(request, RequestKind::kCast);
+        if (connection_->Send(cast).has_value()) {
             ++report_.casts_sent;
+        }
+    }
+    if (intent.pickup) {
+        game::v1::ClientMessage pickup;
+        auto* item = pickup.mutable_pickup_item();
+        const common::RequestId request{++next_request_id_};
+        item->set_request_id(request.value());
+        item->set_item_entity_id(intent.pickup->value());
+        world_.ExpectResult(request, RequestKind::kPickup);
+        if (connection_->Send(pickup).has_value()) {
+            ++report_.pickups_sent;
         }
     }
 }
@@ -215,9 +241,10 @@ void BotSession::SchedulePing() {
 void BotSession::Ping() {
     game::v1::ClientMessage ping;
     ping.mutable_ping()->set_nonce(++ping_nonce_);
-    ping.mutable_ping()->set_client_time_ms(common::UnixMillisNow());
+    ping.mutable_ping()->set_client_time_ms(common::ToUnixMillis(common::WallNow()));
     ping_sent_at_ = std::chrono::steady_clock::now();
-    connection_->Send(ping);
+    // A closing connection drops the ping; no pong is expected from it then.
+    std::ignore = connection_->Send(ping);
 }
 
 }  // namespace sa::loadgen

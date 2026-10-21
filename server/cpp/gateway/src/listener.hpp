@@ -35,6 +35,7 @@ public:
 
     void Forget(const ClientSession& session);
     [[nodiscard]] std::size_t open_sessions() const noexcept { return sessions_.size(); }
+    [[nodiscard]] std::uint16_t local_port() const { return acceptor_.local_endpoint().port(); }
 
 private:
     void Accept();

@@ -11,14 +11,16 @@ using game::v1::ServerMessage;
 
 namespace {
 
-constexpr std::uint64_t kRateWindowMs = 1000;
+// The window the rate limit counts in: SessionProtocolConfig::max_messages_per_second is a count
+// per second by definition.
+constexpr std::chrono::seconds kRateWindow{1};
 
-ServerMessage Pong(const game::v1::Ping& ping, std::uint64_t server_time_ms) {
+ServerMessage Pong(const game::v1::Ping& ping, common::WallTime server_time) {
     ServerMessage reply;
     auto* pong = reply.mutable_pong();
     pong->set_nonce(ping.nonce());
     pong->set_client_time_ms(ping.client_time_ms());
-    pong->set_server_time_ms(server_time_ms);
+    pong->set_server_time_ms(common::ToUnixMillis(server_time));
     return reply;
 }
 
@@ -44,21 +46,21 @@ SessionProtocol::SessionProtocol(const EntryTicketVerifier& verifier, SessionPro
 // ---- client -> gateway ----------------------------------------------------------------------
 
 SessionProtocol::Reaction SessionProtocol::OnClientMessage(const ClientMessage& message,
-                                                           std::uint64_t now_ms) {
+                                                           ArrivalTime now) {
     if (state_ == State::kClosed) {
         return Reaction{.close = true};
     }
-    if (!WithinRateLimit(now_ms)) {
+    if (!WithinRateLimit(now.monotonic)) {
         return Kick(game::v1::KICK_REASON_RATE_LIMITED);
     }
     switch (message.body_case()) {
         case ClientMessage::kPing:
-            return Reaction{.replies = {Pong(message.ping(), now_ms)}};
+            return Reaction{.replies = {Pong(message.ping(), now.wall)}};
         case ClientMessage::kHello:
             if (state_ != State::kAwaitingHello) {
                 return Kick(game::v1::KICK_REASON_PROTOCOL_ERROR);
             }
-            return OnHello(message.hello(), now_ms);
+            return OnHello(message.hello(), now.wall);
         case ClientMessage::kMoveInput:
         case ClientMessage::kCastSkill:
         case ClientMessage::kPickupItem:
@@ -74,22 +76,23 @@ SessionProtocol::Reaction SessionProtocol::OnClientMessage(const ClientMessage& 
 }
 
 SessionProtocol::Reaction SessionProtocol::OnHello(const game::v1::Hello& hello,
-                                                   std::uint64_t now_ms) {
+                                                   common::WallTime now) {
     if (hello.protocol_version() != common::protocol::kCurrentVersion) {
         return Kick(game::v1::KICK_REASON_PROTOCOL_VERSION);
     }
-    auto ticket = verifier_.Verify(std::as_bytes(std::span{hello.entry_ticket()}), now_ms);
+    auto ticket = verifier_.Verify(std::as_bytes(std::span{hello.entry_ticket()}), now);
     if (!ticket) {
         return Kick(game::v1::KICK_REASON_INVALID_TICKET);
     }
     ticket_ = *ticket;
     state_ = State::kRedeeming;
+    redeem_in_flight_ = true;
     return Reaction{.effects = {RedeemTicket{.ticket = *ticket}}};
 }
 
-bool SessionProtocol::WithinRateLimit(std::uint64_t now_ms) {
-    if (now_ms - window_start_ms_ >= kRateWindowMs) {
-        window_start_ms_ = now_ms;
+bool SessionProtocol::WithinRateLimit(std::chrono::steady_clock::time_point now) {
+    if (now - window_start_ >= kRateWindow) {
+        window_start_ = now;
         messages_in_window_ = 0;
     }
     return ++messages_in_window_ <= config_.max_messages_per_second;
@@ -99,10 +102,17 @@ bool SessionProtocol::WithinRateLimit(std::uint64_t now_ms) {
 
 SessionProtocol::Reaction SessionProtocol::OnRedeemResult(
     const backend::v1::RedeemEntryTicketResponse& response) {
-    if (state_ != State::kRedeeming || !ticket_) {
+    if (!std::exchange(redeem_in_flight_, false)) {
         return {};
     }
-    if (response.outcome() != backend::v1::REDEEM_OUTCOME_GRANTED) {
+    const bool granted = response.outcome() == backend::v1::REDEEM_OUTCOME_GRANTED;
+    if (state_ != State::kRedeeming || !ticket_) {
+        // The client left while the Backend decided. A granted session would otherwise stay live
+        // and refuse this character everywhere until this gateway's lease ends.
+        return granted ? Reaction{.effects = {EndSession{.reason = "closed_during_redeem"}}}
+                       : Reaction{};
+    }
+    if (!granted) {
         return Kick(KickFor(response.outcome()));
     }
     session_granted_ = true;
@@ -120,10 +130,15 @@ SessionProtocol::Reaction SessionProtocol::OnRedeemResult(
 }
 
 SessionProtocol::Reaction SessionProtocol::OnRedeemFailed() {
-    if (state_ != State::kRedeeming) {
+    if (!std::exchange(redeem_in_flight_, false)) {
         return {};
     }
-    return Kick(game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
+    // The Backend may have committed before the deadline passed. Ending a session that was never
+    // created is harmless, so end it either way.
+    Reaction reaction =
+        state_ == State::kRedeeming ? Kick(game::v1::KICK_REASON_SERVICE_UNAVAILABLE) : Reaction{};
+    reaction.effects.emplace_back(EndSession{.reason = "redeem_outcome_unknown"});
+    return reaction;
 }
 
 // ---- zone -------------------------------------------------------------------------------------
@@ -179,14 +194,28 @@ SessionProtocol::Reaction SessionProtocol::OnClientDisconnected() {
     return reaction;
 }
 
-SessionProtocol::Reaction SessionProtocol::Kick(game::v1::KickReason reason) {
+SessionProtocol::Reaction SessionProtocol::OnHelloDeadline() {
+    if (state_ != State::kAwaitingHello) {
+        return {};
+    }
+    return Kick(game::v1::KICK_REASON_PROTOCOL_ERROR);
+}
+
+SessionProtocol::Reaction SessionProtocol::OnServerClose(game::v1::KickReason reason) {
+    if (state_ == State::kClosed) {
+        return {};
+    }
+    return Kick(reason, internal::v1::DETACH_REASON_GATEWAY_SHUTDOWN);
+}
+
+SessionProtocol::Reaction SessionProtocol::Kick(game::v1::KickReason reason,
+                                                internal::v1::DetachReason detach_reason) {
     Reaction reaction;
     ServerMessage reply;
     reply.mutable_kick()->set_reason(reason);
     reaction.replies.push_back(std::move(reply));
     reaction.close = true;
-    Teardown(reaction, internal::v1::DETACH_REASON_PROTOCOL_ERROR,
-             "kick:" + game::v1::KickReason_Name(reason));
+    Teardown(reaction, detach_reason, "kick:" + game::v1::KickReason_Name(reason));
     return reaction;
 }
 

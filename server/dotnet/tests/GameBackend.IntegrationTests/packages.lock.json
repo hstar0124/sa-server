@@ -73,6 +73,12 @@
           "Testcontainers": "4.16.0"
         }
       },
+      "Tomlyn": {
+        "type": "Direct",
+        "requested": "[2.10.1, )",
+        "resolved": "2.10.1",
+        "contentHash": "ykjOY3IpYmC4SpPcAZRTl/w2jTmhPMDydHq8xcV7tTBAQ22nKBsOkPqauIrZlMjHm03cmKfV23UOPscKp+J4Og=="
+      },
       "xunit": {
         "type": "Direct",
         "requested": "[2.9.3, )",
@@ -612,7 +618,8 @@
           "Dapper": "[2.1.89, )",
           "Grpc.AspNetCore": "[2.84.0, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.12, )",
-          "Npgsql": "[10.0.3, )"
+          "Npgsql": "[10.0.3, )",
+          "Tomlyn": "[2.10.1, )"
         }
       },
       "Google.Protobuf": {

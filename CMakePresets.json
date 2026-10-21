@@ -33,8 +33,11 @@
     { "name": "tidy", "configurePreset": "tidy" }
   ],
   "testPresets": [
-    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
-    { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true } },
-    { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true } }
+    { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" } },
+    { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" } },
+    { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" } }
   ]
 }

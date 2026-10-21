@@ -20,6 +20,7 @@
     <PackageReference Include="dbup-postgresql" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Dapper" />
+    <PackageReference Include="Tomlyn" />
   </ItemGroup>
 
   <ItemGroup>

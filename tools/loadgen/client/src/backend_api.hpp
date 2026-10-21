@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sa/common/ids.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -17,10 +19,15 @@ struct GatewayEndpoint {
     std::uint16_t port = 0;
 };
 
+// A bot's account session and character, ready to ask for an entry ticket.
+struct BotAccount {
+    std::string token;
+    common::CharacterId character;
+};
+
 struct EntryGrant {
     std::vector<std::byte> signed_ticket;
     GatewayEndpoint gateway;
-    std::uint64_t character_id = 0;
 };
 
 // Blocking REST client for the Backend's public API. Used only during provisioning, before the
@@ -30,19 +37,26 @@ class BackendApi {
 public:
     explicit BackendApi(std::string base_url);
 
-    [[nodiscard]] std::expected<EntryGrant, ApiError> ProvisionAndEnter(
-        const std::string& username, const std::string& password, std::uint64_t world_id,
-        const std::string& character_name, std::uint32_t class_id) const;
+    // Account and character (both reused when a previous run with the same seed made them). The
+    // slow part (password hashing on register and login) happens here, before any ticket exists.
+    [[nodiscard]] std::expected<BotAccount, ApiError> Provision(const std::string& username,
+                                                                const std::string& password,
+                                                                common::WorldId world,
+                                                                const std::string& character_name,
+                                                                common::ClassId class_id) const;
+    // A fresh entry ticket. Tickets are short-lived, so ask right before connecting.
+    [[nodiscard]] std::expected<EntryGrant, ApiError> Enter(const BotAccount& account,
+                                                            common::WorldId world) const;
 
 private:
     [[nodiscard]] std::expected<std::string, ApiError> Login(const std::string& username,
                                                              const std::string& password) const;
     // Creates the character, or finds it when a previous run with the same seed already did.
-    [[nodiscard]] std::expected<std::uint64_t, ApiError> EnsureCharacter(
-        const std::string& token, std::uint64_t world_id, const std::string& name,
-        std::uint32_t class_id) const;
-    [[nodiscard]] std::expected<std::uint64_t, ApiError> FindCharacter(
-        const std::string& token, std::uint64_t world_id, const std::string& name) const;
+    [[nodiscard]] std::expected<common::CharacterId, ApiError> EnsureCharacter(
+        const std::string& token, common::WorldId world, const std::string& name,
+        common::ClassId class_id) const;
+    [[nodiscard]] std::expected<common::CharacterId, ApiError> FindCharacter(
+        const std::string& token, common::WorldId world, const std::string& name) const;
 
     std::string base_url_;
 };

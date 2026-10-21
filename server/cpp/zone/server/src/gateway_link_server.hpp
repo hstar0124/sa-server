@@ -7,6 +7,7 @@
 #include <asio/io_context.hpp>
 #include <asio/ip/tcp.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -19,6 +20,7 @@ struct GatewayLinkServerConfig {
     std::uint16_t listen_port = 0;
     std::uint32_t max_gateways = 0;
     common::FrameLimits frame_limits;
+    std::chrono::milliseconds close_linger{};  // bounds closing a link at shutdown
 };
 
 // Accepts gateway connections and keeps the live links so shutdown can close them.

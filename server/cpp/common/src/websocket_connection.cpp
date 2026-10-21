@@ -10,8 +10,9 @@ namespace sa::common {
 
 using websocket::Opcode;
 
-WebSocketConnection::WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits)
-    : stream_(std::make_shared<TcpByteStream>(std::move(socket))),
+WebSocketConnection::WebSocketConnection(asio::ip::tcp::socket socket, FrameLimits limits,
+                                         std::optional<std::chrono::milliseconds> close_linger)
+    : stream_(std::make_shared<TcpByteStream>(std::move(socket), close_linger)),
       limits_(limits),
       decoder_(limits.max_payload_bytes) {}
 
@@ -34,7 +35,7 @@ void WebSocketConnection::Start(Callbacks callbacks) {
 void WebSocketConnection::OnBytes(std::span<const std::byte> bytes) {
     if (state_ == State::kHandshaking) {
         handshake_buffer_ += ToWireString(bytes);
-        if (!TryCompleteHandshake()) {
+        if (TryCompleteHandshake() != HandshakeProgress::kComplete) {
             return;  // still reading the request, or it was rejected
         }
         // Bytes after the header terminator belong to the first frame.
@@ -47,22 +48,24 @@ void WebSocketConnection::OnBytes(std::span<const std::byte> bytes) {
 }
 
 // Parses the buffered request. On success the buffer holds only bytes after the request.
-bool WebSocketConnection::TryCompleteHandshake() {
+WebSocketConnection::HandshakeProgress WebSocketConnection::TryCompleteHandshake() {
     const auto request = websocket::ParseHandshake(handshake_buffer_);
     if (!request) {
-        if (request.error() != websocket::HandshakeError::kIncomplete) {
-            spdlog::debug("websocket {}: handshake rejected ({})", PeerAddress(),
-                          static_cast<int>(request.error()));
-            WriteText(websocket::RejectionResponse());
-            stream_->Close();
+        if (request.error() == websocket::HandshakeError::kIncomplete) {
+            return HandshakeProgress::kIncomplete;
         }
-        return false;
+        spdlog::debug("websocket {}: handshake rejected ({})", PeerAddress(),
+                      static_cast<int>(request.error()));
+        WriteText(websocket::RejectionResponse());
+        stream_->Close();
+        return HandshakeProgress::kRejected;
     }
     WriteText(websocket::HandshakeResponse(websocket::AcceptKey(request->key)));
     state_ = State::kOpen;
-    const std::size_t header_end = handshake_buffer_.find("\r\n\r\n") + 4;
+    const std::size_t header_end =
+        handshake_buffer_.find(websocket::kHandshakeEnd) + websocket::kHandshakeEnd.size();
     handshake_buffer_.erase(0, header_end);
-    return true;
+    return HandshakeProgress::kComplete;
 }
 
 void WebSocketConnection::DrainFrames() {
@@ -94,7 +97,11 @@ void WebSocketConnection::OnFrame(websocket::Frame frame) {
                     websocket::CloseStatus::kUnsupportedData);  // fragmentation is not used
                 return;
             }
-            callbacks_.on_message(frame.payload);
+            {
+                // A copy: the handler may close this connection, which clears callbacks_.
+                const auto on_message = callbacks_.on_message;
+                on_message(frame.payload);
+            }
             return;
         case Opcode::kPing:
             WriteFrame(Opcode::kPong, frame.payload);
@@ -130,15 +137,19 @@ void WebSocketConnection::WriteFrame(Opcode opcode, std::span<const std::byte> p
     stream_->Write(std::move(frame));
 }
 
-bool WebSocketConnection::Send(const google::protobuf::MessageLite& message) {
-    if (state_ != State::kOpen || !message.SerializeToString(&serialize_scratch_)) {
-        return false;
+std::expected<void, SendError> WebSocketConnection::Send(
+    const google::protobuf::MessageLite& message) {
+    if (state_ != State::kOpen) {
+        return std::unexpected(SendError::kClosed);
+    }
+    if (!message.SerializeToString(&serialize_scratch_)) {
+        return std::unexpected(SendError::kSerializeFailed);
     }
     if (serialize_scratch_.size() > limits_.max_payload_bytes) {
-        return false;
+        return std::unexpected(SendError::kTooLarge);
     }
     WriteFrame(Opcode::kBinary, AsBytes(serialize_scratch_));
-    return true;
+    return {};
 }
 
 void WebSocketConnection::Close() {

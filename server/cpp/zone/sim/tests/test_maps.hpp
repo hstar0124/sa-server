@@ -19,6 +19,8 @@ constexpr SkillId kHeavyBlow{2};  // targeted, 600 ms cast, 15 mp, 60 dmg
 constexpr SkillId kArrow{3};      // projectile, instant, 5 mp, 25 dmg, 30 m
 constexpr SkillId kUnlearned{4};  // exists, not on the warrior
 constexpr MonsterTemplateId kSlime{101};
+constexpr ItemTemplateId kGel{2001};    // always dropped by the slime
+constexpr ItemTemplateId kSword{2101};  // never dropped (chance 0)
 
 inline ContentBundle Content() {
     ContentBundle c;
@@ -71,6 +73,12 @@ inline ContentBundle Content() {
                                           .max_mp = 50,
                                           .mp_regen_per_sec = 10.0F,
                                           .skills = {kStrike, kHeavyBlow, kArrow}};
+    c.items[kGel] = ItemDefinition{.id = kGel, .name = "gel"};
+    c.items[kSword] = ItemDefinition{.id = kSword, .name = "sword"};
+    c.drops[kSlime] = DropTable{.monster = kSlime,
+                                .gold = 3,
+                                .entries = {DropEntry{.item = kGel, .chance = 1.0F},
+                                            DropEntry{.item = kSword, .chance = 0.0F}}};
     c.monsters[kSlime] = MonsterDefinition{.id = kSlime,
                                            .name = "slime",
                                            .max_hp = 60,
@@ -106,24 +114,47 @@ inline MapData FieldWithSlime(common::Vec2 at = {70.0F, 70.0F}) {
 
 inline MovementRules Rules() {
     return MovementRules{.max_speed_mps = 10.0F,
+                         .body_radius_m = 0.4F,
                          .aoi_enter_radius_m = 20.0F,
                          .aoi_leave_radius_m = 25.0F,
-                         .commands_per_tick_budget = 1024};
+                         .commands_per_tick_budget = 1024,
+                         .max_queued_per_player = 8};
 }
 
 inline CombatRules Combat() {
-    return CombatRules{.monster_think_hz = 5, .player_respawn = 1000ms};
+    return CombatRules{.monster_think_hz = 5,
+                       .player_respawn = 1000ms,
+                       .monster_stall_timeout = 1000ms,
+                       .monster_stall_distance_m = 1.0F,
+                       .range_tolerance = 1.1F,
+                       .monster_home_arrive_m = 0.5F,
+                       .monster_pack_ring_radius_m = 1.5F};
 }
+
+inline EconomyRules Economy() {
+    return EconomyRules{.inventory_capacity = 20,
+                        .pickup_range_m = 2.0F,
+                        .ground_item_despawn = 3000ms,
+                        .primary_currency = "gold"};
+}
+
+inline ZoneRules AllRules(MovementRules movement = Rules()) {
+    return ZoneRules{.movement = movement, .combat = Combat(), .economy = Economy()};
+}
+
+// Small on purpose, so tests can push results out of the retry window with a handful of requests.
+inline constexpr std::size_t kTestRetryWindow = 4;
 
 inline ZoneConfig Config(std::uint32_t hz = 10) {
     return ZoneConfig{.world_id = common::WorldId{1},
                       .zone_id = common::ZoneId{1},
-                      .simulation_rate = TickRate{.hz = hz}};
+                      .simulation_rate = TickRate{.hz = hz},
+                      .command_retry_window = kTestRetryWindow};
 }
 
 inline Zone MakeZone(MapData map = OpenField(), MovementRules rules = Rules(),
                      std::uint64_t seed = 1) {
-    auto zone = Zone::Create(Config(), std::move(map), rules, Combat(), Content(), Rng{seed});
+    auto zone = Zone::Create(Config(), std::move(map), AllRules(rules), Content(), Rng{seed});
     if (!zone) {
         throw std::logic_error{"test zone could not be created: " + zone.error()};
     }

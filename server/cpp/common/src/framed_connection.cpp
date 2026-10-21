@@ -4,8 +4,9 @@
 
 namespace sa::common {
 
-FramedConnection::FramedConnection(asio::ip::tcp::socket socket, FrameLimits limits)
-    : stream_(std::make_shared<TcpByteStream>(std::move(socket))),
+FramedConnection::FramedConnection(asio::ip::tcp::socket socket, FrameLimits limits,
+                                   std::optional<std::chrono::milliseconds> close_linger)
+    : stream_(std::make_shared<TcpByteStream>(std::move(socket), close_linger)),
       limits_(limits),
       decoder_(limits) {}
 
@@ -35,20 +36,26 @@ void FramedConnection::OnBytes(std::span<const std::byte> bytes) {
         if (!*popped) {
             return;
         }
-        callbacks_.on_message(**popped);
+        // A copy: the handler may close this connection, which clears callbacks_ while it runs.
+        const auto on_message = callbacks_.on_message;
+        on_message(**popped);
     }
 }
 
-bool FramedConnection::Send(const google::protobuf::MessageLite& message) {
-    if (!stream_->is_open() || !message.SerializeToString(&serialize_scratch_)) {
-        return false;
+std::expected<void, SendError> FramedConnection::Send(
+    const google::protobuf::MessageLite& message) {
+    if (!stream_->is_open()) {
+        return std::unexpected(SendError::kClosed);
+    }
+    if (!message.SerializeToString(&serialize_scratch_)) {
+        return std::unexpected(SendError::kSerializeFailed);
     }
     std::vector<std::byte> frame;
     if (!EncodeFrame(std::as_bytes(std::span{serialize_scratch_}), limits_, frame)) {
-        return false;
+        return std::unexpected(SendError::kTooLarge);
     }
     stream_->Write(std::move(frame));
-    return true;
+    return {};
 }
 
 }  // namespace sa::common

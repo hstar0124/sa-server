@@ -6,15 +6,16 @@
 
 namespace sa::gateway {
 
-EntryTicketVerifier::EntryTicketVerifier(std::vector<Key> keys, std::uint64_t max_clock_skew_ms)
-    : max_clock_skew_ms_(max_clock_skew_ms) {
+EntryTicketVerifier::EntryTicketVerifier(std::vector<Key> keys,
+                                         std::chrono::milliseconds max_clock_skew)
+    : max_clock_skew_(max_clock_skew) {
     for (Key& key : keys) {
         keys_.insert_or_assign(key.id, std::move(key.secret));
     }
 }
 
 std::expected<VerifiedTicket, TicketError> EntryTicketVerifier::Verify(
-    std::span<const std::byte> signed_ticket, std::uint64_t now_ms) const {
+    std::span<const std::byte> signed_ticket, common::WallTime now) const {
     backend::v1::SignedEntryTicket envelope;
     if (!envelope.ParseFromArray(signed_ticket.data(), static_cast<int>(signed_ticket.size()))) {
         return std::unexpected(TicketError::kMalformed);
@@ -28,7 +29,7 @@ std::expected<VerifiedTicket, TicketError> EntryTicketVerifier::Verify(
         return std::unexpected(TicketError::kMalformed);
     }
 
-    const auto key = keys_.find(ticket.key_id());
+    const auto key = keys_.find(TicketKeyId{ticket.key_id()});
     if (key == keys_.end()) {
         return std::unexpected(TicketError::kUnknownKey);
     }
@@ -39,10 +40,12 @@ std::expected<VerifiedTicket, TicketError> EntryTicketVerifier::Verify(
     }
 
     // Issued by another machine's clock: tolerate skew in both directions.
-    if (ticket.issued_at_ms() > now_ms + max_clock_skew_ms_) {
+    const common::WallTime issued_at = common::FromUnixMillis(ticket.issued_at_ms());
+    const common::WallTime expires_at = common::FromUnixMillis(ticket.expires_at_ms());
+    if (issued_at > now + max_clock_skew_) {
         return std::unexpected(TicketError::kNotYetValid);
     }
-    if (ticket.expires_at_ms() + max_clock_skew_ms_ <= now_ms) {
+    if (expires_at + max_clock_skew_ <= now) {
         return std::unexpected(TicketError::kExpired);
     }
 
@@ -50,7 +53,7 @@ std::expected<VerifiedTicket, TicketError> EntryTicketVerifier::Verify(
                           .account = common::AccountId{ticket.account_id()},
                           .character = common::CharacterId{ticket.character_id()},
                           .world = common::WorldId{ticket.world_id()},
-                          .expires_at_ms = ticket.expires_at_ms()};
+                          .expires_at = expires_at};
 }
 
 }  // namespace sa::gateway

@@ -31,6 +31,10 @@ internal sealed partial class AuthService(
     // Hashing needs an instance for the generic hasher API; the value is never read.
     private static readonly Account HashSubject = new(default, string.Empty, string.Empty);
 
+    // Verified against when the username is unknown, so that path costs one verification like a real
+    // account does. Made on first use with the configured hasher; a race only computes it twice.
+    private static string? _dummyHash;
+
     public int MinPasswordLength => options.Value.MinPasswordLength;
 
     public async Task<RegisterResult> RegisterAsync(string username, string password, CancellationToken cancellationToken)
@@ -51,8 +55,9 @@ internal sealed partial class AuthService(
         Account? account = await accounts.FindByUsernameAsync(username, cancellationToken);
         if (account is null)
         {
-            // Same outcome and comparable timing for unknown users: hash anyway.
-            hasher.VerifyHashedPassword(HashSubject, hasher.HashPassword(HashSubject, password), password);
+            // Same outcome and the same work for unknown users: one verification, as for a real account.
+            string dummy = _dummyHash ??= hasher.HashPassword(HashSubject, Guid.NewGuid().ToString());
+            hasher.VerifyHashedPassword(HashSubject, dummy, password);
             return new LoginResult(LoginOutcome.InvalidCredentials, null);
         }
 

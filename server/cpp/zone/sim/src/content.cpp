@@ -1,11 +1,15 @@
 #include "sa/zone/sim/content.hpp"
 
+#include <cmath>
 #include <format>
 
 namespace sa::zone::sim {
 namespace {
 
 std::expected<void, std::string> ValidateSkill(const SkillDefinition& skill) {
+    if (skill.id == kMonsterBasicAttack) {
+        return std::unexpected("skill id 0 is reserved for a monster's basic attack");
+    }
     if (skill.damage < 0 || skill.cost_mp < 0 || skill.range_m <= 0.0F) {
         return std::unexpected(std::format(
             "skill {} has a non-positive range or negative cost/damage", skill.id.value()));
@@ -51,6 +55,32 @@ std::expected<void, std::string> ValidateMonster(const MonsterDefinition& monste
     return {};
 }
 
+std::expected<void, std::string> ValidateDrops(
+    const DropTable& table,
+    const std::unordered_map<MonsterTemplateId, MonsterDefinition>& monsters,
+    const std::unordered_map<ItemTemplateId, ItemDefinition>& items) {
+    if (!monsters.contains(table.monster)) {
+        return std::unexpected(
+            std::format("drop table references unknown monster {}", table.monster.value()));
+    }
+    if (table.gold < 0) {
+        return std::unexpected(
+            std::format("drop table for monster {} has negative gold", table.monster.value()));
+    }
+    for (const DropEntry& entry : table.entries) {
+        if (!items.contains(entry.item)) {
+            return std::unexpected(
+                std::format("drop table for monster {} references unknown item {}",
+                            table.monster.value(), entry.item.value()));
+        }
+        if (entry.chance < 0.0F || entry.chance > 1.0F) {
+            return std::unexpected(
+                std::format("drop chance for item {} is outside [0, 1]", entry.item.value()));
+        }
+    }
+    return {};
+}
+
 }  // namespace
 
 std::expected<void, std::string> ContentBundle::Validate() const {
@@ -72,6 +102,31 @@ std::expected<void, std::string> ContentBundle::Validate() const {
             return result;
         }
     }
+    for (const auto& [id, table] : drops) {
+        if (auto result = ValidateDrops(table, monsters, items); !result) {
+            return result;
+        }
+    }
+    return {};
+}
+
+std::expected<void, std::string> EconomyRules::Validate() const {
+    if (inventory_capacity == 0) {
+        return std::unexpected("inventory.capacity must be positive");
+    }
+    if (pickup_range_m <= 0.0F) {
+        return std::unexpected("pickup.range_m must be positive");
+    }
+    if (ground_item_despawn.count() <= 0) {
+        return std::unexpected("pickup.despawn_ms must be positive");
+    }
+    if (std::isnan(drop_scatter_radius_m) || drop_scatter_radius_m < 0.0F ||
+        drop_scatter_radius_m >= pickup_range_m) {
+        return std::unexpected("drops.scatter_radius_m must be in [0, pickup.range_m)");
+    }
+    if (primary_currency.empty()) {
+        return std::unexpected("currency.primary must be set");
+    }
     return {};
 }
 
@@ -81,6 +136,16 @@ std::expected<void, std::string> CombatRules::Validate() const {
     }
     if (player_respawn.count() < 0) {
         return std::unexpected("combat.player_respawn_ms must not be negative");
+    }
+    if (monster_stall_timeout.count() <= 0 || monster_stall_distance_m <= 0.0F) {
+        return std::unexpected(
+            "combat.monster_stall_timeout_ms and combat.monster_stall_distance_m must be positive");
+    }
+    if (range_tolerance < 1.0F || monster_home_arrive_m <= 0.0F ||
+        monster_pack_ring_radius_m < 0.0F) {
+        return std::unexpected(
+            "combat.range_tolerance must be at least 1, combat.monster_home_arrive_m positive and "
+            "combat.monster_pack_ring_radius_m not negative");
     }
     return {};
 }

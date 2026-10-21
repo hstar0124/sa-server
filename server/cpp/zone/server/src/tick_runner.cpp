@@ -8,18 +8,19 @@
 namespace sa::zone {
 
 TickRunner::TickRunner(asio::io_context& io, sim::Zone& zone, sim::FixedStepScheduler scheduler,
-                       std::chrono::seconds stats_log_interval, AfterTick after_tick)
+                       std::chrono::seconds stats_log_interval, AfterTick after_tick, Clock clock)
     : timer_(io),
       zone_(zone),
       scheduler_(scheduler),
       stats_log_interval_(stats_log_interval),
-      after_tick_(std::move(after_tick)) {}
+      after_tick_(std::move(after_tick)),
+      clock_(std::move(clock)) {}
 
 void TickRunner::Start() {
     running_ = true;
-    last_wake_ = std::chrono::steady_clock::now();
+    last_wake_ = clock_();
     next_stats_ = last_wake_ + stats_log_interval_;
-    timer_.expires_at(last_wake_);
+    timer_.expires_at(std::chrono::steady_clock::now());
     ScheduleNext();
 }
 
@@ -41,7 +42,7 @@ void TickRunner::ScheduleNext() {
 }
 
 void TickRunner::OnTimer() {
-    const auto now = std::chrono::steady_clock::now();
+    const auto now = clock_();
     const std::uint32_t due = scheduler_.Advance(now - last_wake_);
     last_wake_ = now;
     for (std::uint32_t i = 0; i < due; ++i) {
@@ -61,10 +62,13 @@ void TickRunner::LogStatsIfDue(std::chrono::steady_clock::time_point now) {
     }
     const std::uint64_t dropped = scheduler_.dropped_ticks() - dropped_at_last_stats_;
     const sim::ZoneStats& zs = zone_.stats();
-    spdlog::info("tick={} ran={} dropped={} lag_us={} players={} cmds={} deferred={} stale={}",
-                 zone_.current_tick().value(), ticks_since_stats_, dropped,
-                 std::chrono::duration_cast<std::chrono::microseconds>(scheduler_.lag()).count(),
-                 zs.players, zs.commands_applied, zs.commands_deferred, zs.stale_inputs_dropped);
+    spdlog::info(
+        "tick={} ran={} dropped={} lag_us={} players={} cmds={} deferred={} refused={} "
+        "superseded={} stale={}",
+        zone_.current_tick().value(), ticks_since_stats_, dropped,
+        std::chrono::duration_cast<std::chrono::microseconds>(scheduler_.lag()).count(), zs.players,
+        zs.commands_applied, zs.commands_deferred, zs.commands_dropped, zs.moves_superseded,
+        zs.stale_inputs_dropped);
     ticks_since_stats_ = 0;
     dropped_at_last_stats_ = scheduler_.dropped_ticks();
     next_stats_ = now + stats_log_interval_;

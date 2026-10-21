@@ -4,9 +4,9 @@
 base_url = "http://localhost:5100"
 
 # Optional override of the gateway address the Backend hands out (e.g. port-forwarded).
-[gateway]
-host = ""
-port = 0
+# [gateway]
+# host = "127.0.0.1"
+# port = 7777
 
 [world]
 id = 1
@@ -15,6 +15,7 @@ class_id = 1
 [bots]
 wanderers = 5
 fighters = 0
+looters = 0
 seed = 1
 account_prefix = "bot"
 password = "bots-walk-around-2026"
@@ -24,6 +25,7 @@ duration_sec = 10
 # Bots start at four corners of a 200 m map and walk at 6 m/s; in 10 s not everyone meets.
 min_bots_seeing_others = 2
 min_kills = 0
+min_pickups = 0
 
 [client]
 tick_hz = 20
@@ -42,6 +44,11 @@ engage_radius_m = 30.0
 attack_skill_id = 1
 attack_range_m = 2.5
 attack_interval_ms = 900
+
+[looter]
+loot_radius_m = 20.0
+pickup_range_m = 1.5
+pickup_retry_ms = 2000
 
 [logging]
 level = "info"

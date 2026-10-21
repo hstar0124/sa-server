@@ -19,6 +19,9 @@ public:
     void Add(const common::InstanceId& session_id, std::weak_ptr<ClientSession> session);
     void Remove(const common::InstanceId& session_id);
     [[nodiscard]] std::size_t size() const noexcept { return sessions_.size(); }
+    // Ends every session from the gateway's side, e.g. when its lease is lost and the Backend
+    // will hand its characters to other gateways.
+    void CloseAll(game::v1::KickReason reason);
 
     // ZoneLink::Handler
     void OnZoneReady(common::ZoneId zone, const internal::v1::LinkWelcome& welcome) override;

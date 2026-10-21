@@ -6,7 +6,9 @@
 
 #include <asio/ip/tcp.hpp>
 
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace sa::common {
@@ -16,10 +18,13 @@ namespace sa::common {
 class FramedConnection final : public MessageConnection,
                                public std::enable_shared_from_this<FramedConnection> {
 public:
-    FramedConnection(asio::ip::tcp::socket socket, FrameLimits limits);
+    // `close_linger`: see TcpByteStream.
+    FramedConnection(asio::ip::tcp::socket socket, FrameLimits limits,
+                     std::optional<std::chrono::milliseconds> close_linger);
 
     void Start(Callbacks callbacks) override;
-    bool Send(const google::protobuf::MessageLite& message) override;
+    [[nodiscard]] std::expected<void, SendError> Send(
+        const google::protobuf::MessageLite& message) override;
     void Close() override { stream_->Close(); }
     void Abort() override { stream_->Abort(); }
     [[nodiscard]] bool is_open() const override { return stream_->is_open(); }

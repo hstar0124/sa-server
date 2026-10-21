@@ -1,5 +1,12 @@
 #include "codec.hpp"
 
+#include "sa/common/bytes.hpp"
+#include "sa/common/hmac.hpp"
+
+#include <array>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <variant>
 
 namespace sa::zone::codec {
@@ -66,27 +73,68 @@ game::v1::RejectCode ToProto(sim::RejectReason reason) {
             return game::v1::REJECT_CODE_INVALID_TARGET;
         case sim::RejectReason::kOutOfRange:
             return game::v1::REJECT_CODE_OUT_OF_RANGE;
+        case sim::RejectReason::kInvalidRequest:
+            return game::v1::REJECT_CODE_INVALID_REQUEST;
+        case sim::RejectReason::kItemNotFound:
+            return game::v1::REJECT_CODE_ITEM_NOT_FOUND;
+        case sim::RejectReason::kItemReserved:
+            return game::v1::REJECT_CODE_ITEM_RESERVED;
+        case sim::RejectReason::kInventoryFull:
+            return game::v1::REJECT_CODE_INVENTORY_FULL;
+        case sim::RejectReason::kServiceUnavailable:
+            return game::v1::REJECT_CODE_SERVICE_UNAVAILABLE;
+        case sim::RejectReason::kNotOwner:
+            return game::v1::REJECT_CODE_NOT_OWNER;
     }
     return game::v1::REJECT_CODE_UNSPECIFIED;
 }
 
-sim::MoveCommand ToMoveCommand(common::EntityId player, const game::v1::MoveInput& input) {
-    return sim::MoveCommand{.player = player,
-                            .input_seq = input.input_seq(),
-                            .direction = {input.direction().x(), input.direction().y()}};
+game::v1::CommandStatus ToProto(sim::CommandStatus status) {
+    switch (status) {
+        case sim::CommandStatus::kAccepted:
+            return game::v1::COMMAND_STATUS_ACCEPTED;
+        case sim::CommandStatus::kRejected:
+            return game::v1::COMMAND_STATUS_REJECTED;
+        case sim::CommandStatus::kPending:
+            return game::v1::COMMAND_STATUS_PENDING;
+        case sim::CommandStatus::kUnknown:
+            return game::v1::COMMAND_STATUS_UNKNOWN;
+    }
+    return game::v1::COMMAND_STATUS_UNSPECIFIED;
 }
 
-sim::CastCommand ToCastCommand(common::EntityId player, const game::v1::CastSkill& cast) {
+std::expected<sim::MoveCommand, InputError> ToMoveCommand(common::EntityId player,
+                                                          const game::v1::MoveInput& input) {
+    const common::Vec2 direction{input.direction().x(), input.direction().y()};
+    if (!direction.IsFinite()) {
+        return std::unexpected(InputError::kNonFiniteVector);
+    }
+    return sim::MoveCommand{
+        .player = player, .input_seq = input.input_seq(), .direction = direction};
+}
+
+std::expected<sim::CastCommand, InputError> ToCastCommand(common::EntityId player,
+                                                          const game::v1::CastSkill& cast) {
     sim::SkillTarget target = common::EntityId{};  // an absent target is rejected by the zone
     if (cast.has_target_entity_id()) {
         target = common::EntityId{cast.target_entity_id()};
     } else if (cast.has_direction()) {
-        target = common::Vec2{cast.direction().x(), cast.direction().y()};
+        const common::Vec2 direction{cast.direction().x(), cast.direction().y()};
+        if (!direction.IsFinite()) {
+            return std::unexpected(InputError::kNonFiniteVector);
+        }
+        target = direction;
     }
     return sim::CastCommand{.player = player,
                             .request_id = common::RequestId{cast.request_id()},
                             .skill = sim::SkillId{cast.skill_id()},
                             .target = target};
+}
+
+sim::PickupCommand ToPickupCommand(common::EntityId player, const game::v1::PickupItem& pickup) {
+    return sim::PickupCommand{.player = player,
+                              .request_id = common::RequestId{pickup.request_id()},
+                              .item = common::EntityId{pickup.item_entity_id()}};
 }
 
 game::v1::WorldSnapshot ToWorldSnapshot(const sim::PlayerView& view, common::TickIndex tick) {
@@ -114,8 +162,7 @@ game::v1::WorldSnapshot ToWorldSnapshot(const sim::PlayerView& view, common::Tic
 game::v1::CommandResult ToCommandResult(const sim::CommandResultEvent& event) {
     game::v1::CommandResult out;
     out.set_request_id(event.request_id.value());
-    out.set_status(event.accepted() ? game::v1::COMMAND_STATUS_ACCEPTED
-                                    : game::v1::COMMAND_STATUS_REJECTED);
+    out.set_status(ToProto(event.status));
     out.set_reject_code(ToProto(event.reason));
     return out;
 }
@@ -153,6 +200,158 @@ game::v1::Welcome ToWelcome(const WelcomeInfo& info) {
     out.set_server_tick(info.tick.value());
     out.set_entity_id(info.entity.value());
     Fill(*out.mutable_map_size(), info.map_size);
+    return out;
+}
+
+// ---- zone <-> backend (Economy) ---------------------------------------------------------------
+
+namespace {
+
+void Fill(backend::v1::ZoneAuthority& out, const ZoneAuthority& authority) {
+    out.set_zone_instance_id(authority.zone_instance.ToWire());
+    out.set_owner_epoch(authority.epoch.value());
+}
+
+}  // namespace
+
+backend::v1::RecordKillRequest ToRecordKillRequest(const sim::KillRecord& kill,
+                                                   common::KillId kill_id, common::WorldId world,
+                                                   const ZoneAuthority& authority,
+                                                   std::string_view content_version) {
+    backend::v1::RecordKillRequest out;
+    out.set_kill_id(kill_id.ToWire());
+    out.set_world_id(world.value());
+    out.set_killer_character_id(kill.killer_character.value());
+    Fill(*out.mutable_authority(), authority);
+    out.set_monster_template_id(kill.monster.value());
+    out.set_content_version(std::string{content_version});
+    for (const sim::DropRoll& roll : kill.rolls) {
+        auto* drop = out.add_drops();
+        drop->set_item_template_id(roll.item.value());
+        drop->mutable_position()->set_x(roll.position.x);
+        drop->mutable_position()->set_y(roll.position.y);
+    }
+    return out;
+}
+
+std::vector<sim::GroundItem> ToGroundItems(const backend::v1::RecordKillResponse& response) {
+    std::vector<sim::GroundItem> items;
+    items.reserve(static_cast<std::size_t>(response.items_size()));
+    for (const backend::v1::DroppedItem& dropped : response.items()) {
+        const auto instance = common::ItemInstanceId::FromString(dropped.item_instance_id());
+        if (!instance) {
+            continue;
+        }
+        items.push_back(
+            sim::GroundItem{.instance = *instance,
+                            .item = sim::ItemTemplateId{dropped.item_template_id()},
+                            .position = {dropped.position().x(), dropped.position().y()}});
+    }
+    return items;
+}
+
+backend::v1::PickupItemRequest ToPickupItemRequest(const sim::PickupReservation& pickup,
+                                                   common::WorldId world,
+                                                   const ZoneAuthority& authority) {
+    backend::v1::PickupItemRequest out;
+    out.set_request_id(PickupRequestKey(pickup, authority.epoch));
+    out.set_world_id(world.value());
+    out.set_character_id(pickup.character.value());
+    Fill(*out.mutable_authority(), authority);
+    out.set_item_instance_id(pickup.instance.ToWire());
+    return out;
+}
+
+std::string PickupRequestKey(const sim::PickupReservation& pickup, common::OwnerEpoch epoch) {
+    // The client's request id is unique only within one session; the ownership epoch changes on
+    // every entry, so (character, epoch, request) names one command for the character's lifetime.
+    // A retry within the session reproduces the same key; a new session cannot collide with an
+    // old one even when its counter restarts at the same number.
+    std::array<std::byte, sizeof(std::uint64_t) * 3> material{};
+    std::size_t offset = 0;
+    for (const std::uint64_t value :
+         {pickup.character.value(), epoch.value(), pickup.request_id.value()}) {
+        for (std::size_t i = 0; i < sizeof value; ++i) {
+            material.at(offset++) = static_cast<std::byte>((value >> (8 * i)) & 0xFFU);
+        }
+    }
+    static constexpr std::string_view kDomain = "pickup-request";
+    const common::HmacSha256Digest digest = common::HmacSha256(common::AsBytes(kDomain), material);
+    return common::RequestKey::FromExact(std::span{digest}.first<common::RequestKey::kBytes>())
+        .ToWire();
+}
+
+common::KillId KillIdFor(common::InstanceId zone_instance, std::uint64_t sequence) {
+    // Unique without asking the OS for randomness on every kill: the instance id is random per
+    // process start and the sequence never repeats within it. No exception path in the tick.
+    std::array<std::byte, sizeof sequence> counter{};
+    for (std::size_t i = 0; i < sizeof sequence; ++i) {
+        counter.at(i) = static_cast<std::byte>((sequence >> (8 * i)) & 0xFFU);
+    }
+    const common::HmacSha256Digest digest = common::HmacSha256(zone_instance.bytes(), counter);
+    return common::KillId::FromExact(std::span{digest}.first<common::KillId::kBytes>());
+}
+
+sim::PickupOutcome ToPickupOutcome(backend::v1::PickupOutcome outcome) {
+    switch (outcome) {
+        case backend::v1::PICKUP_OUTCOME_ACQUIRED:
+            return sim::PickupOutcome::kAcquired;
+        case backend::v1::PICKUP_OUTCOME_ALREADY_TAKEN:
+            return sim::PickupOutcome::kAlreadyTaken;
+        case backend::v1::PICKUP_OUTCOME_INVENTORY_FULL:
+            return sim::PickupOutcome::kInventoryFull;
+        case backend::v1::PICKUP_OUTCOME_UNKNOWN_ITEM:
+            return sim::PickupOutcome::kUnknownItem;
+        case backend::v1::PICKUP_OUTCOME_STALE_AUTHORITY:
+            // Final: this zone no longer owns the character, so a retry here cannot succeed.
+            return sim::PickupOutcome::kNotOwner;
+        case backend::v1::PICKUP_OUTCOME_REQUEST_MISMATCH:
+            return sim::PickupOutcome::kRequestMismatch;
+        case backend::v1::PICKUP_OUTCOME_UNSPECIFIED:
+        default:
+            // Not a verdict on the item: the reservation is released and the client may retry.
+            return sim::PickupOutcome::kUnavailable;
+    }
+}
+
+std::optional<InventoryEntry> ToInventoryEntry(const backend::v1::InventoryItem& item) {
+    const auto instance = common::ItemInstanceId::FromString(item.item_instance_id());
+    if (!instance) {
+        return std::nullopt;
+    }
+    return InventoryEntry{.instance = *instance,
+                          .item = sim::ItemTemplateId{item.item_template_id()},
+                          .slot = item.slot_no()};
+}
+
+CharacterAssets ToAssets(const backend::v1::GetCharacterAssetsResponse& response,
+                         std::string_view primary_currency) {
+    CharacterAssets assets{.capacity = response.inventory_capacity(),
+                           .version = response.inventory_version()};
+    for (const backend::v1::InventoryItem& item : response.items()) {
+        if (const auto entry = ToInventoryEntry(item)) {
+            assets.items.push_back(*entry);
+        }
+    }
+    for (const backend::v1::WalletEntry& entry : response.wallet()) {
+        if (entry.currency() == primary_currency) {
+            assets.gold = entry.balance();
+        }
+    }
+    return assets;
+}
+
+game::v1::InventoryUpdate ToInventoryUpdate(const CharacterAssets& assets) {
+    game::v1::InventoryUpdate out;
+    for (const InventoryEntry& entry : assets.items) {
+        auto* item = out.add_items();
+        item->set_item_instance_id(entry.instance.ToWire());
+        item->set_item_template_id(entry.item.value());
+        item->set_slot_no(entry.slot);
+    }
+    out.set_capacity(assets.capacity);
+    out.set_version(assets.version);
+    out.set_gold(assets.gold);
     return out;
 }
 

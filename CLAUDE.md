@@ -41,6 +41,7 @@ docker compose -f deploy/compose/docker-compose.yml up -d
 - 코드를 쓰기 전에 어느 모듈에 어떤 타입이 생기는지 먼저 정리한다.
 - 설계 결정(기술 선택, 경계 변경, 프로토콜 변경)은 ADR 먼저, 코드 다음.
 - "왜 이렇게 만들었나"를 설명하는 토론·비교·수치 추정은 `docs/design-notes/`에 노트로 남기고 README에서 링크한다. 개발 절차가 아닌 어필 내용이 들어가는 곳이다.
+- 문서 역할: README는 개요·구성·다이어그램·빌드 방법으로 **지금까지 만든 것의 큰 그림**을 주는 곳이다. 진행 상태 절은 두지 않고, 측정치는 그 단계에서 잰 것만 "성능과 개선"에 적는다. 설계 노트는 **그 문서만으로** 이해되어야 한다. 서두에 배경(프로젝트, 등장 구성 요소, 용어)을 2~4문장으로 두고, 다른 문서의 내용은 그 자리에 요지를 다시 적는다. 다른 문서의 절 번호나 CLAUDE.md 규칙 번호로 설명을 떠넘기지 않는다.
 - Git: gitflow. `feature/*` → `develop`(`--no-ff`) → `release/x.y.z` → `main`(태그). 커밋은 컴포넌트·단계별로 나누고 메시지는 변경 사항만 쓴다. 공동 작업 표기(Co-Authored-By 등)는 넣지 않는다.
 - 문서의 "제안값"은 측정 전까지 config 기본값일 뿐이다. 측정 결과는 `docs/reports/`.
 - 테스트 없는 정합성 코드는 미완성이다. `tests/integration/README.md`의 표가 통합 테스트 목록이다.
@@ -49,5 +50,5 @@ docker compose -f deploy/compose/docker-compose.yml up -d
 `Auth:SigningKey`(base64 32바이트 이상)와 DB 비밀번호는 user-secrets 또는 환경 변수로만 준다. appsettings.json에는 빈 값만 있다.
 
 ## 단계 (ADR-0002)
-완료: 0 골격·툴체인(저장소 도구, ADR-0001~0008, 설계 노트 01~05), 1 Backend 인증·캐릭터·WorldDirectory, 2 Zone 시뮬레이션·서버 호스트, 3 입장 경로(Gateway·네트워크 봇·`scripts/e2e-local.sh`), 3b WebSocket 전송·브라우저 뷰어(`tools/viewer`, `scripts/dev-stack.sh`), 4 전투(game-data 클래스·스킬·몬스터, 시뮬레이션의 스킬 검증·시전·투사체·몬스터 AI, 호스트의 결과·이벤트 전달, Fighter 봇, 뷰어 전투, 설계 노트 06).
-다음: 5 자산·멱등성 → 6 Outbox·Kafka(+K3s 도입) → 7 Redis → 8 두 번째 Zone·이전 → 9 거래 → 10 부하·장애·백업·보고서
+완료: 0 골격·툴체인(저장소 도구, ADR-0001~0008, 설계 노트 01~05), 1 Backend 인증·캐릭터·WorldDirectory, 2 Zone 시뮬레이션·서버 호스트, 3 입장 경로(Gateway·네트워크 봇·`scripts/e2e-local.sh`), 3b WebSocket 전송·브라우저 뷰어(`tools/viewer`, `scripts/dev-stack.sh`), 4 전투(game-data 클래스·스킬·몬스터, 시뮬레이션의 스킬 검증·시전·투사체·몬스터 AI, 호스트의 결과·이벤트 전달, Fighter 봇, 뷰어 전투, 설계 노트 06), 5 자산·멱등성(items·drops·economy 데이터, 경제 스키마, Backend `Modules/Economy`: 처치 기록·획득·자산 조회, Zone 드롭 굴림·바닥 아이템·획득 예약과 정산, Looter 봇·`looters.toml`, 뷰어 획득, 설계 노트 07).
+다음: 6 Outbox·Kafka(+K3s 도입) → 7 Redis → 8 두 번째 Zone·이전 → 9 거래 → 10 부하·장애·백업·보고서

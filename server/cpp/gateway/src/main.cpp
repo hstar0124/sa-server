@@ -19,6 +19,7 @@
 #include <grpcpp/create_channel.h>
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <exception>
@@ -95,7 +96,8 @@ int Run(int argc, char** argv) {
                                         .address = endpoint.address,
                                         .port = endpoint.port,
                                         .frame_limits = config->zone_link_frame_limits,
-                                        .reconnect_backoff = config->zone_link_reconnect_backoff},
+                                        .reconnect_backoff = config->zone_link_reconnect_backoff,
+                                        .close_linger = config->zone_link_close_linger},
             gateway_instance, registry));
     }
 
@@ -103,13 +105,15 @@ int Run(int argc, char** argv) {
     const sa::gateway::EntryTicketVerifier verifier{
         {sa::gateway::EntryTicketVerifier::Key{.id = config->ticket_key_id,
                                                .secret = config->ticket_key}},
-        config->ticket_max_clock_skew_ms};
-    const sa::gateway::SessionProtocolConfig protocol{.max_messages_per_second =
-                                                          config->max_messages_per_second};
+        config->ticket_max_clock_skew};
+    const sa::gateway::SessionProtocolConfig protocol{
+        .max_messages_per_second = config->max_messages_per_second,
+        .hello_timeout = config->hello_timeout};
 
     // One session factory, two transports: the listener hands over a socket, the transport wraps
     // it.
-    const sa::gateway::ClientSession::Dependencies deps{.verifier = verifier,
+    const sa::gateway::ClientSession::Dependencies deps{.io = io,
+                                                        .verifier = verifier,
                                                         .protocol = protocol,
                                                         .directory = directory,
                                                         .zones = zones,
@@ -118,6 +122,7 @@ int Run(int argc, char** argv) {
         return std::make_shared<sa::gateway::ClientSession>(std::move(connection), deps);
     };
     const sa::common::FrameLimits limits = config->frame_limits;
+    const std::chrono::milliseconds linger = config->client_close_linger;
 
     sa::gateway::Listener tcp_listener{
         io,
@@ -125,9 +130,9 @@ int Run(int argc, char** argv) {
                                     .address = config->listen_address,
                                     .port = config->listen_port,
                                     .max_connections = config->max_connections},
-        [&, limits](asio::ip::tcp::socket socket) {
+        [&, limits, linger](asio::ip::tcp::socket socket) {
             return make_session(
-                std::make_shared<sa::common::FramedConnection>(std::move(socket), limits));
+                std::make_shared<sa::common::FramedConnection>(std::move(socket), limits, linger));
         }};
     std::optional<sa::gateway::Listener> websocket_listener;
     if (config->websocket_enabled) {
@@ -137,14 +142,17 @@ int Run(int argc, char** argv) {
                                         .address = config->websocket_address,
                                         .port = config->websocket_port,
                                         .max_connections = config->max_connections},
-            [&, limits](asio::ip::tcp::socket socket) {
-                return make_session(
-                    std::make_shared<sa::common::WebSocketConnection>(std::move(socket), limits));
+            [&, limits, linger](asio::ip::tcp::socket socket) {
+                return make_session(std::make_shared<sa::common::WebSocketConnection>(
+                    std::move(socket), limits, linger));
             });
     }
 
-    // Shutdown: stop accepting, kick every session, then let pending writes and EndSession RPCs
-    // drain for the grace period before the io_context is stopped .
+    // Shutdown: stop accepting, kick every session, wait the grace period for detaches and
+    // EndSession calls, then close the zone links. The io_context is not stopped: io.run()
+    // returns once every connection has closed (each close is bounded by a linger) and every
+    // in-flight RPC has delivered its result (each bounded by its deadline), so no late result
+    // can be posted into a destroyed io_context.
     asio::steady_timer drain_deadline{io};
     asio::signal_set signals{io, SIGINT, SIGTERM};
     signals.async_wait([&](const std::error_code&, int signal) {
@@ -156,12 +164,14 @@ int Run(int argc, char** argv) {
         }
         lease.Stop();
         drain_deadline.expires_after(config->shutdown_grace);
-        drain_deadline.async_wait([&](const std::error_code&) {
-            zones.StopAll();
-            io.stop();
-        });
+        drain_deadline.async_wait([&](const std::error_code&) { zones.StopAll(); });
     });
 
+    // Once our lease lapses the Backend reaps our sessions and may admit the same characters
+    // through another gateway; nothing here may keep driving them. The local view of the lease
+    // ends a safety margin before the Backend's, so this runs first.
+    lease.set_on_lost(
+        [&registry] { registry.CloseAll(sa::game::v1::KICK_REASON_SERVICE_UNAVAILABLE); });
     lease.Start();
     zones.StartAll();
     tcp_listener.Start();
