@@ -44,14 +44,9 @@ Intent Fighter::Decide(const Observation& observation) {
     if (observation.tick_hz == 0 || observation.tick < next_cast_tick_) {
         return Intent{};  // in range, waiting for the next swing (or for the server's tick rate)
     }
-    // The interval is wall time; convert it with the rate of the tick it is compared against,
-    // rounding up so the bot never swings early.
-    const std::chrono::nanoseconds tick_period =
-        std::chrono::nanoseconds{std::chrono::seconds{1}} / observation.tick_hz;
-    const auto interval_ticks =
-        static_cast<std::uint64_t>((std::chrono::nanoseconds{params_.attack_interval} +
-                                    tick_period - std::chrono::nanoseconds{1}) /
-                                   tick_period);
+    // The interval is wall time; convert it with the rate of the tick it is compared against.
+    const std::uint64_t interval_ticks =
+        TicksCovering(params_.attack_interval, observation.tick_hz);
     next_cast_tick_ =
         common::TickIndex{observation.tick.value() + std::max<std::uint64_t>(1, interval_ticks)};
     ++casts_;

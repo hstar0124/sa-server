@@ -3,6 +3,7 @@
 #include "sa/common/geometry.hpp"
 #include "sa/common/ids.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -10,7 +11,7 @@
 
 namespace sa::bot {
 
-enum class SeenKind : std::uint8_t { kPlayer, kMonster, kProjectile, kOther };
+enum class SeenKind : std::uint8_t { kPlayer, kMonster, kProjectile, kItem, kOther };
 
 // What a bot knows about one nearby entity. Deliberately not the simulation's own type: the
 // network bot fills this from protobuf snapshots.
@@ -32,6 +33,17 @@ struct Observation {
     std::uint32_t tick_hz = 0;  // rate of `tick`, i.e. the server's simulation rate; 0 until known
 };
 
+// A wall-time interval in ticks of the given rate, rounded up so a bot never acts early. Profiles
+// give intervals in wall time; brains compare them against the server's ticks.
+[[nodiscard]] inline std::uint64_t TicksCovering(std::chrono::milliseconds interval,
+                                                 std::uint32_t tick_hz) {
+    const std::chrono::nanoseconds tick_period =
+        std::chrono::nanoseconds{std::chrono::seconds{1}} / tick_hz;
+    return static_cast<std::uint64_t>(
+        (std::chrono::nanoseconds{interval} + tick_period - std::chrono::nanoseconds{1}) /
+        tick_period);
+}
+
 // A skill use: targeted at an entity, or aimed along a direction.
 struct CastIntent {
     common::SkillId skill;
@@ -42,10 +54,11 @@ struct CastIntent {
 struct Intent {
     common::Vec2 direction;
     std::optional<CastIntent> cast;
+    std::optional<common::EntityId> pickup;  // a ground item to ask the zone for
 };
 
-// A decision maker. Two live today: Wanderer and Fighter; the network client picks one per bot
-// from its profile, so the abstraction has two real implementations.
+// A decision maker. Three live today: Wanderer, Fighter and Looter; the network client picks one
+// per bot from its profile, so the abstraction has real alternatives.
 class Brain {
 public:
     virtual ~Brain() = default;
