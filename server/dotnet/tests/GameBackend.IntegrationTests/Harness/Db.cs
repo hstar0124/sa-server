@@ -21,6 +21,22 @@ internal static class Db
         await connection.ExecuteAsync(sql, parameters);
     }
 
+    public static async Task<IReadOnlyList<T>> QueryAsync<T>(string connectionString, string sql, object? parameters = null)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        return (await connection.QueryAsync<T>(sql, parameters)).ToList();
+    }
+
+    /// <summary>The outbox rows of one character aggregate in sequence order.</summary>
+    public static Task<IReadOnlyList<OutboxRow>> OutboxOfCharacterAsync(string connectionString, long worldId, long characterId)
+        => QueryAsync<OutboxRow>(connectionString, """
+            SELECT event_id AS "EventId", aggregate_seq AS "AggregateSeq", event_type AS "EventType", request_id AS "RequestId", payload AS "Payload"
+            FROM game.outbox_events WHERE world_id = @worldId AND aggregate_type = 'character' AND aggregate_id = @characterId
+            ORDER BY aggregate_seq
+            """, new { worldId, characterId });
+
+    public sealed record OutboxRow(byte[] EventId, long AggregateSeq, string EventType, byte[]? RequestId, byte[] Payload);
+
     private static readonly TimeSpan LockWaitPoll = TimeSpan.FromMilliseconds(20);
     private static readonly TimeSpan LockWaitTimeout = TimeSpan.FromSeconds(10);
 
