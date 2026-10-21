@@ -43,6 +43,9 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
         return (await response.Content.ReadFromJsonAsync<List<CharacterResponse>>(Json))!;
     }
 
+    public Task<HttpResponseMessage> GetStatsAsync(long worldId, long characterId)
+        => SendAsync(HttpMethod.Get, $"/api/v1/worlds/{worldId}/characters/{characterId}/stats", body: null);
+
     public Task<HttpResponseMessage> EnterAsync(long worldId, long characterId)
         => SendAsync(HttpMethod.Post, $"/api/v1/worlds/{worldId}/characters/{characterId}/enter", body: null);
 
@@ -96,4 +99,6 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
     public sealed record GatewayEndpoint(string Host, int Port, int WebSocketPort);
 
     public sealed record EnterResponse(string EntryTicket, GatewayEndpoint Gateway, DateTimeOffset ExpiresAt);
+
+    public sealed record StatsResponse(long Kills, long ItemsAcquired, long GoldEarned, long AsOfEventSeq);
 }
