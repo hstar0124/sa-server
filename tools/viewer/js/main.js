@@ -29,7 +29,8 @@ let pingTimer = null;
 let pingSentAt = 0;
 let lastDirection = { x: 0, y: 1 };
 const keys = new Set();
-const pendingCasts = new Map();  // request id -> skill name, until the result arrives
+const pendingRequests = new Map();  // request id -> what was asked, until the final result arrives
+let pickupRangeM = 0;  // from game-data/rules/economy.toml; the zone refuses anything farther
 
 async function loadMapObstacles() {
   // The viewer draws the same map the zone loads; a tiny TOML subset is enough here.
@@ -37,6 +38,14 @@ async function loadMapObstacles() {
   const match = text.match(/obstacles\s*=\s*\[([\s\S]*?)\n\]/);
   if (!match) return [];
   return [...match[1].matchAll(/\[\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\s*\]/g)].map(m => m.slice(1, 5).map(Number));
+}
+
+async function loadPickupRange() {
+  // Same tiny TOML subset as the map: the zone reads [pickup] range_m from this file.
+  const text = await (await fetch('/game-data/rules/economy.toml')).text();
+  const match = text.match(/\[pickup\][\s\S]*?\nrange_m\s*=\s*([\d.]+)/);
+  if (!match) throw new Error('economy.toml has no [pickup] range_m');
+  return Number(match[1]);
 }
 
 async function refreshCharacters() {
@@ -70,11 +79,15 @@ async function enter(characterId) {
       onSnapshot: (snapshot) => world.applySnapshot(snapshot, performance.now(), Number($('loss-pct').value) / 100),
       onPong: () => { rtt = Math.round(performance.now() - pingSentAt); },
       onCommandResult: (result, rejectCode) => {
-        const name = pendingCasts.get(result.request_id) ?? `request ${result.request_id}`;
-        pendingCasts.delete(result.request_id);
-        const accepted = result.status === contracts.CommandStatus.values.COMMAND_STATUS_ACCEPTED;
-        world.note(accepted ? `${name}: accepted` : `${name}: ${rejectCode}`);
+        const statuses = contracts.CommandStatus.values;
+        const name = pendingRequests.get(result.request_id) ?? `request ${result.request_id}`;
+        if (result.status === statuses.COMMAND_STATUS_PENDING) { world.note(`${name}: waiting for the backend`); return; }
+        pendingRequests.delete(result.request_id);
+        if (result.status === statuses.COMMAND_STATUS_ACCEPTED) world.note(`${name}: accepted`);
+        else if (result.status === statuses.COMMAND_STATUS_UNKNOWN) world.note(`${name}: outcome unknown, try again`);
+        else world.note(`${name}: ${rejectCode}`);
       },
+      onInventoryUpdate: (update) => world.applyInventory(update),
       onCombatEvent: (e) => {
         const who = String(e.attacker_id) === world.selfId ? 'you' : `#${e.attacker_id}`;
         const whom = String(e.target_id) === world.selfId ? 'you' : `#${e.target_id}`;
@@ -103,9 +116,16 @@ function startLoops() {
 
 function cast(skillId, name) {
   if (!link) return;
-  const target = world.nearestMonster(STRIKE_RANGE_M * 1.5, contracts.EntityKind.values.ENTITY_KIND_MONSTER);
+  const target = world.nearest(STRIKE_RANGE_M * 1.5, contracts.EntityKind.values.ENTITY_KIND_MONSTER, true);
   if (target === null) { world.note(`${name}: no monster in reach`); return; }
-  pendingCasts.set(link.sendCast(skillId, Number(target)), name);
+  pendingRequests.set(link.sendCast(skillId, Number(target)), name);
+}
+
+function pickup() {
+  if (!link) return;
+  const item = world.nearest(pickupRangeM, contracts.EntityKind.values.ENTITY_KIND_DROPPED_ITEM, false);
+  if (item === null) { world.note('pickup: nothing within reach'); return; }
+  pendingRequests.set(link.sendPickup(Number(item)), `pickup #${item}`);
 }
 
 function stopLoops() {
@@ -128,6 +148,8 @@ function frame() {
     'ping rtt': rtt === null ? '-' : `${rtt} ms`,
     'self': `${world.self.x.toFixed(1)}, ${world.self.y.toFixed(1)}`,
     'hp / mp': `${world.vitals.hp}/${world.vitals.maxHp}  ${world.vitals.mp}/${world.vitals.maxMp}`,
+    'inventory': `${world.inventory.items.length}/${world.inventory.capacity} (v${world.inventory.version})  gold ${world.inventory.gold}`,
+    'items': world.inventory.items.map(i => `#${i.item_template_id}@${i.slot_no}`).join(' ') || '-',
     'log': world.log.join('<br>'),
   };
   $('stats').innerHTML = Object.entries(stats).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
@@ -138,6 +160,7 @@ async function main() {
   contracts = await loadContracts();
   renderer.useKinds(contracts.EntityKind.values);
   obstacles = await loadMapObstacles();
+  pickupRangeM = await loadPickupRange();
   $('btn-register').onclick = async () => {
     api = new BackendApi($('backend-url').value);
     try { await api.register($('username').value, $('password').value); status('registered', 'ok'); }
@@ -160,6 +183,7 @@ async function main() {
   window.addEventListener('keydown', (e) => {
     if (e.key === ' ') { e.preventDefault(); cast(SKILL_STRIKE, 'strike'); return; }
     if (e.key.toLowerCase() === 'e') { cast(SKILL_HEAVY_BLOW, 'heavy blow'); return; }
+    if (e.key.toLowerCase() === 'f') { pickup(); return; }
     keys.add(e.key.toLowerCase());
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));

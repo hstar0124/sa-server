@@ -13,6 +13,7 @@ export class World {
     this.mapSize = { x: 0, y: 0 };
     this.entities = new Map();  // id -> { kind, templateId, hp, maxHp, samples: [{ t, x, y, vx, vy }] }
     this.vitals = { hp: 0, maxHp: 0, mp: 0, maxMp: 0 };
+    this.inventory = { items: [], capacity: 0, version: 0, gold: 0 };  // full state from the last InventoryUpdate
     this.log = [];              // last combat lines, newest first
     this.serverTick = 0;
     this.lastAckedInput = 0;
@@ -63,11 +64,17 @@ export class World {
     }
   }
 
-  // Nearest live monster to self within `range`, for the default attack target.
-  nearestMonster(range, monsterKind) {
+  // Every update carries the whole inventory; an older version must not overwrite a newer one.
+  applyInventory(update) {
+    if (update.version < this.inventory.version) { this.integrityErrors += 1; return; }
+    this.inventory = { items: update.items ?? [], capacity: update.capacity, version: update.version, gold: Number(update.gold) };
+  }
+
+  // Nearest entity of `kind` to self within `range`; `aliveOnly` skips corpses (monsters).
+  nearest(range, kind, aliveOnly) {
     let best = null, bestSq = range * range;
     for (const [id, entity] of this.entities) {
-      if (entity.kind !== monsterKind || entity.hp <= 0) continue;
+      if (entity.kind !== kind || (aliveOnly && entity.hp <= 0)) continue;
       const last = entity.samples[entity.samples.length - 1];
       const dSq = (last.x - this.self.x) ** 2 + (last.y - this.self.y) ** 2;
       if (dSq < bestSq) { best = id; bestSq = dSq; }
