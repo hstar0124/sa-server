@@ -15,7 +15,10 @@ target_compile_options(sa_warnings INTERFACE
   -Woverloaded-virtual
   -Wconversion
   -Wsign-conversion
-  -Wnull-dereference
+  # GCC's null-dereference analysis depends on optimisation: at -O2 it reports paths inside
+  # inlined library code (asio's io_context) that it cannot prove safe, even from a system header.
+  # The Debug presets (dev, asan, tidy) keep it; issue 015.
+  $<$<CONFIG:Debug>:-Wnull-dereference>
   -Wdouble-promotion
   -Wformat=2
   -Wimplicit-fallthrough

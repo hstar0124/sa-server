@@ -18,6 +18,7 @@
 | [012](012-pickup-request-key-collides-across-sessions.md) | 해결 | 23 Zone 드롭과 획득 | 획득 요청 키가 세션을 넘어 겹쳐 정상 요청이 거절됨 |
 | [013](013-redeem-assigns-a-dead-zone-instance-after-restart.md) | 해결(26) | 23 Zone 드롭과 획득 | Zone을 재시작한 직후 입장하면 죽은 Zone 인스턴스가 소유자로 배정됨 |
 | [014](014-release-tag-pushed-from-the-old-repository.md) | 해결 | 0.3.0 릴리스 | 릴리스 태그 v0.3.0이 이전 저장소의 커밋으로 올라감 |
+| [015](015-release-preset-never-compiled.md) | 해결 | 37 컨테이너 이미지 | release 프리셋이 한 번도 컴파일되지 않음 |
 
 ## 형식
 

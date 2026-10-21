@@ -449,7 +449,7 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 
 ## 빌드
 
-지금은 미니 PC 한 대에서 PostgreSQL과 Kafka를 compose로 띄우고 나머지는 호스트 프로세스로 돌린다.
+지금은 미니 PC 한 대에서 PostgreSQL과 Kafka를 compose로 띄우고 나머지는 호스트 프로세스로 돌린다. 프로세스마다 컨테이너 이미지도 있다(`deploy/docker/`). C++ 셋은 개발 장비와 같은 Rocky Linux 9·gcc-toolset-14·vcpkg baseline에서 release 프리셋으로 빌드하고, 고정 uid의 비루트로 실행한다. .NET 셋은 잠금 파일로 복원해 공식 런타임 이미지에 올린다. 설정과 비밀 값은 이미지에 넣지 않는다.
 
 C++ 프로세스(Zone, Gateway, 봇)의 설정은 TOML과 환경 변수로 읽고 시작할 때 검증한다. 기본값은 키가 없을 때만 쓴다. 타입이 틀린 값, 잘못된 환경 변수, 0이 되면 안 되는 한도와 간격은 시작을 막는다. Backend는 설정 파일에 연결 문자열과 서명 키를 두지 않는다. 환경 변수나 user-secrets로 주고, 빠지면 시작하지 않는다. 내부 gRPC(입장·lease·경제)는 호출자 인증이 아직 없어서 기본으로 127.0.0.1에서만 듣는다. Zone·Gateway가 다른 호스트에 있는 배포는 `Kestrel__Endpoints__Grpc__Url`로 바꾼다.
 
@@ -499,6 +499,9 @@ scripts/e2e-local.sh tools/loadgen/client/profiles/looters.toml
 scripts/dev-stack.sh up && scripts/viewer.sh
 scripts/dev-stack.sh down
 
+# 컨테이너 이미지 6개(sa/zone, gateway, loadgen, backend, eventworker, migrator :dev)
+scripts/build-images.sh
+
 # 시뮬레이션만 돌려보기: 네트워크 없이 프로세스 안에서 봇 200개
 SA_ZONE__DEV__LOCAL_BOTS=200 build/dev/server/cpp/zone/server/zone_server --config deploy/compose/config/zone-a.toml
 ```
@@ -512,6 +515,7 @@ server/dotnet/     Contracts, GameBackend, EventWorker, Migrator, tests
 database/          SQL 마이그레이션
 game-data/         맵·이동·전투·경제 규칙, 클래스·스킬·몬스터, 아이템·드롭, 콘텐츠 버전
 deploy/compose/    로컬 PostgreSQL·Kafka와 프로세스 설정
+deploy/docker/     프로세스별 컨테이너 이미지(C++ 셋, .NET 셋)
 tools/loadgen/     봇 두뇌(bot/)와 네트워크 봇 클라이언트(client/, 프로필)
 scripts/           end-to-end, 대화형 스택(dev-stack), 뷰어 정적 서버, 형식 검사
 tools/viewer/      브라우저 2D 뷰어
