@@ -26,11 +26,12 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const auto link_frame = source.Require<std::size_t>("zone_link.max_frame_bytes");
     const auto backoff = source.Require<std::uint32_t>("zone_link.reconnect_backoff_ms");
     const auto link_linger = source.Require<std::uint32_t>("zone_link.close_linger_ms");
+    const auto establish = source.Require<std::uint32_t>("zone_link.establish_timeout_ms");
     const auto shutdown_grace = source.Require<std::uint32_t>("shutdown.grace_ms");
     if (auto err = common::FirstConfigError(address, port, max_connections, max_msgs, client_linger,
                                             hello_timeout, key_b64, key_id, skew, backend_address,
                                             rpc_timeout, renew, margin, link_frame, backoff,
-                                            link_linger, shutdown_grace)) {
+                                            link_linger, establish, shutdown_grace)) {
         return std::unexpected(*err);
     }
     auto logging = common::LoggingConfig::FromConfig(source);
@@ -49,10 +50,11 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
                         common::kHmacSha256Bytes)});
     }
     if (*max_msgs == 0 || *rpc_timeout == 0 || *renew == 0 || *client_linger == 0 ||
-        *link_linger == 0 || *hello_timeout == 0 || *backoff == 0 || *max_connections == 0) {
+        *link_linger == 0 || *hello_timeout == 0 || *backoff == 0 || *establish == 0 ||
+        *max_connections == 0) {
         return std::unexpected(common::ConfigError{
-            "rates, intervals, zone_link.reconnect_backoff_ms and listen.max_connections must be "
-            "positive"});
+            "rates, intervals, zone_link.reconnect_backoff_ms, zone_link.establish_timeout_ms and "
+            "listen.max_connections must be positive"});
     }
     if (*shutdown_grace <= *rpc_timeout) {
         return std::unexpected(common::ConfigError{
@@ -104,6 +106,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     out.zone_link_frame_limits.max_payload_bytes = *link_frame;
     out.zone_link_reconnect_backoff = std::chrono::milliseconds{*backoff};
     out.zone_link_close_linger = std::chrono::milliseconds{*link_linger};
+    out.zone_link_establish_timeout = std::chrono::milliseconds{*establish};
     out.shutdown_grace = std::chrono::milliseconds{*shutdown_grace};
     out.logging = *logging;
 

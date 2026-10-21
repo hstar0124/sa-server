@@ -51,7 +51,8 @@ struct GatewayConfig {
     // [zone_link] + [[zones]]
     common::FrameLimits zone_link_frame_limits;
     std::chrono::milliseconds zone_link_reconnect_backoff{};
-    std::chrono::milliseconds zone_link_close_linger{};  // bounds closing a link at shutdown
+    std::chrono::milliseconds zone_link_close_linger{};       // bounds closing a link at shutdown
+    std::chrono::milliseconds zone_link_establish_timeout{};  // connect plus LinkWelcome
     std::vector<ZoneEndpoint> zones;
     // How long shutdown waits after kicking every session before it closes the zone links, so
     // detaches reach the zones and EndSession calls are answered. Longer than the RPC timeout.
