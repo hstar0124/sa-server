@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs the whole stack locally (PostgreSQL in compose, everything else as host processes) and
-# drives it with the loadgen smoke profile. Exit code is the loadgen verdict.
+# Runs the whole stack locally (PostgreSQL and Kafka in compose, everything else as host processes) and
+# drives it with the loadgen smoke profile. Exit code is the verdict of the bots and of the checks
+# that follow them in the database.
 #
 #   scripts/e2e-local.sh [profile.toml]
 #
@@ -45,7 +46,7 @@ done
 
 pids=()
 # Orderly shutdown in reverse start order: gateway first (it ends sessions at the Backend), then
-# zone, then backend. Each pid is recorded as soon as it starts, so a failed start still cleans up.
+# zone, then backend, then the EventWorker. Each pid is recorded as soon as it starts, so a failed start still cleans up.
 cleanup() {
   for pid in "${pids[@]:-}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
 }
@@ -53,6 +54,15 @@ trap cleanup EXIT
 
 docker compose -f deploy/compose/docker-compose.yml up -d --wait >/dev/null
 dotnet run --project server/dotnet/Migrator --no-build -- --connection "$CONN" --scripts database/migrations >"$RUN_DIR/migrator.log" 2>&1
+
+# Started first and stopped last, so it publishes what the run leaves behind.
+(
+  cd server/dotnet/EventWorker
+  Database__ConnectionString="$CONN" exec bin/Debug/net10.0/EventWorker
+) >"$RUN_DIR/eventworker.log" 2>&1 &
+pids=("$!" "${pids[@]}")
+wait_for "the event publisher" grep -q "outbox publisher active" "$RUN_DIR/eventworker.log" \
+  || { cat "$RUN_DIR/eventworker.log"; exit 1; }
 
 (
   cd server/dotnet/GameBackend
@@ -99,5 +109,14 @@ if [ "$recorded" -lt "$MIN_KILLS" ]; then echo "FAIL: kills were not recorded by
 acquired=$(psql_value "SELECT count(*) FROM game.economy_ledger WHERE kind = 'item_acquired' AND created_at >= '$run_started'")
 echo "items acquired in the ledger: $acquired (required $MIN_PICKUPS)"
 if [ "$acquired" -lt "$MIN_PICKUPS" ]; then echo "FAIL: pickups were not recorded by the backend"; verdict=1; fi
+# Every event this run's transactions wrote must reach Kafka. The publisher polls, so allow it a
+# few intervals.
+unpublished_after_run() { [ "$(psql_value "SELECT count(*) FROM game.outbox_events WHERE occurred_at >= '$run_started' AND published_at IS NULL")" = 0 ]; }
+written=$(psql_value "SELECT count(*) FROM game.outbox_events WHERE occurred_at >= '$run_started'")
+if wait_for "the outbox to drain" unpublished_after_run; then
+  echo "events written and published: $written"
+else
+  echo "FAIL: events of this run were not published (see $RUN_DIR/eventworker.log)"; verdict=1
+fi
 echo "logs: $RUN_DIR"
 exit $verdict
