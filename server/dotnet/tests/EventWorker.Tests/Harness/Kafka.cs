@@ -20,6 +20,7 @@ internal static class Kafka
         {
             BootstrapServers = bootstrapServers,
             CharacterEvents = new TopicOptions { Name = $"test.character-events.{suffix}", Partitions = 3 },
+            FailedEvents = new TopicOptions { Name = $"test.failed-events.{suffix}", Partitions = 1 },
         });
     }
 

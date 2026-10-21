@@ -60,6 +60,19 @@ internal static class Outbox
             """, OutboxRepository.LockKey);
     }
 
+    /// <summary>An envelope as the publisher would build it, for tests that skip the Outbox.</summary>
+    public static EventEnvelope Envelope(long characterId, ulong seq, IMessage payload) => new()
+    {
+        EventId = ByteString.CopyFrom(Guid.NewGuid().ToByteArray()),
+        EventType = payload.Descriptor.Name,
+        SchemaVersion = 1,
+        WorldId = World,
+        AggregateType = TopicRouting.CharacterAggregate,
+        AggregateId = (ulong)characterId,
+        AggregateSeq = seq,
+        Payload = payload.ToByteString(),
+    };
+
     public static KillRecorded Kill(long characterId, ulong gold) => new()
     {
         CharacterId = (ulong)characterId,
