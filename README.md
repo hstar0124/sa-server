@@ -433,6 +433,8 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 
 **획득 end-to-end**: `looters.toml` 프로필은 획득 봇 5개와 배회 봇 1개를 40초 동안 돌린다. 처치와 함께 정해진 수 이상의 획득이 원장에 기록되고, 획득 결과가 요청마다 한 번씩만 오며, 인벤토리 버전이 뒤로 가지 않아야 통과한다.
 
+**K3s end-to-end**: `scripts/e2e-k3s.sh`는 K3s에 올린 스택에 같은 봇 프로필을 돌리고, 위와 같은 DB 검사(남은 세션, 처치·획득 기록, 이벤트 발행·적용)를 클러스터 안의 PostgreSQL에서 한다. 검사는 `scripts/lib/e2e.sh` 하나를 두 스크립트가 함께 쓴다.
+
 **정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭·표보다 많은 드롭 거절, 만료 티켓 거절, 유니크 인덱스에서 진 Redeem도 티켓은 소비, 같은 획득 요청 두 개가 동시에 와도 효과는 한 번, 재입장 뒤 처치 재시도는 반향, lease가 끝난 Zone의 지급 거절, 재시작한 Zone이 옛 인스턴스를 대신함.
 
 ## 기술 선택
@@ -474,6 +476,33 @@ flowchart LR
     ZA --> BE
 ```
 
+같은 이미지로 단일 노드 K3s에도 올린다(`deploy/k3s/`, 시연과 장애 연습용). 데이터 저장소와 게임 프로세스는 네임스페이스로 나누고, 마이그레이션 Job이 끝난 뒤에 서비스를 띄운다. 클라이언트가 닿는 것은 Backend HTTP와 Gateway의 NodePort뿐이다. 호출자 인증이 아직 없는 Backend의 내부 gRPC는 NetworkPolicy로 같은 네임스페이스의 파드에만 연다. Zone·Gateway는 compose와 같은 TOML을 쓰고 주소만 환경 변수로 바꾼다. 비밀 값은 배포 스크립트가 Secret으로 만든다. 게임 파드는 비루트, 읽기 전용 루트 파일 시스템, capability 없음으로 돈다.
+
+```mermaid
+flowchart LR
+    C["봇 / 뷰어 (노드 밖)"]
+    subgraph data["namespace data (game에서만 접근)"]
+        KPG[("postgres StatefulSet")]
+        KKF[("kafka StatefulSet")]
+    end
+    subgraph game["namespace game"]
+        KMG["migrator Job"]
+        KBE["backend<br/>NodePort 30500 · gRPC는 game 안에서만"]
+        KEW["eventworker"]
+        KZA["zone-a (Recreate)"]
+        KGW["gateway (Recreate)<br/>NodePort 30777 · 30778"]
+    end
+    C -->|HTTP| KBE
+    C -->|TCP / WebSocket| KGW
+    KGW --> KZA
+    KGW -->|gRPC| KBE
+    KZA -->|gRPC| KBE
+    KBE --> KPG
+    KEW --> KPG
+    KEW --> KKF
+    KMG --> KPG
+```
+
 ```bash
 export VCPKG_ROOT=/opt/vcpkg
 scl enable gcc-toolset-14 -- cmake --preset dev     # 프리셋: dev / release / asan / tsan / tidy
@@ -502,6 +531,11 @@ scripts/dev-stack.sh down
 # 컨테이너 이미지 6개(sa/zone, gateway, loadgen, backend, eventworker, migrator :dev)
 scripts/build-images.sh
 
+# 단일 노드 K3s에 배포하고 같은 검사로 확인 (설치와 순서: deploy/k3s/README.md)
+scripts/k3s-stack.sh import && scripts/k3s-stack.sh up
+scripts/e2e-k3s.sh tools/loadgen/client/profiles/looters.toml
+scripts/k3s-stack.sh down
+
 # 시뮬레이션만 돌려보기: 네트워크 없이 프로세스 안에서 봇 200개
 SA_ZONE__DEV__LOCAL_BOTS=200 build/dev/server/cpp/zone/server/zone_server --config deploy/compose/config/zone-a.toml
 ```
@@ -516,6 +550,7 @@ database/          SQL 마이그레이션
 game-data/         맵·이동·전투·경제 규칙, 클래스·스킬·몬스터, 아이템·드롭, 콘텐츠 버전
 deploy/compose/    로컬 PostgreSQL·Kafka와 프로세스 설정
 deploy/docker/     프로세스별 컨테이너 이미지(C++ 셋, .NET 셋)
+deploy/k3s/        단일 노드 K3s 매니페스트(kustomize: data, migrate, game)
 tools/loadgen/     봇 두뇌(bot/)와 네트워크 봇 클라이언트(client/, 프로필)
 scripts/           end-to-end, 대화형 스택(dev-stack), 뷰어 정적 서버, 형식 검사
 tools/viewer/      브라우저 2D 뷰어

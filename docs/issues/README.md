@@ -19,6 +19,8 @@
 | [013](013-redeem-assigns-a-dead-zone-instance-after-restart.md) | 해결(26) | 23 Zone 드롭과 획득 | Zone을 재시작한 직후 입장하면 죽은 Zone 인스턴스가 소유자로 배정됨 |
 | [014](014-release-tag-pushed-from-the-old-repository.md) | 해결 | 0.3.0 릴리스 | 릴리스 태그 v0.3.0이 이전 저장소의 커밋으로 올라감 |
 | [015](015-release-preset-never-compiled.md) | 해결 | 37 컨테이너 이미지 | release 프리셋이 한 번도 컴파일되지 않음 |
+| [016](016-k3s-pods-unreachable-and-images-collected.md) | 해결 | 38 K3s 배포 | K3s에서 파드끼리 닿지 않고, 반입한 이미지가 지워짐 |
+| [017](017-gateway-zone-link-connect-without-a-deadline.md) | 해결 | 38 K3s 배포 | Gateway의 Zone 링크 연결에 기한이 없어 2분 넘게 멈춤 |
 
 ## 형식
 
