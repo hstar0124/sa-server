@@ -1,0 +1,43 @@
+# Applies database/migrations once per deploy; the Migrator journals applied scripts, so a rerun
+# is a no-op. scripts/k3s-stack.sh waits for completion before starting the services.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrator
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrator
+          image: sa/migrator:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MIGRATOR_connection
+              valueFrom:
+                secretKeyRef:
+                  name: sa-database
+                  key: connection-string
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

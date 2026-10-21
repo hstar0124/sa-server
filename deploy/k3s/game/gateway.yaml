@@ -1,0 +1,84 @@
+# Gateway: the only game process clients reach, through explicit L4 NodePorts (the game protocol is
+# raw TCP and WebSocket, not HTTP routing). The ticket key is shared with the Backend through the
+# sa-keys Secret.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+spec:
+  type: NodePort
+  selector:
+    app: gateway
+  ports:
+    - name: tcp
+      port: 7777
+      nodePort: 30777
+    - name: websocket
+      port: 7778
+      nodePort: 30778
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      # Longer than the gateway's [shutdown] grace, so it ends its sessions at the Backend.
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: sa/gateway:dev
+          imagePullPolicy: IfNotPresent
+          args: ["--config", "/etc/sa/gateway.toml"]
+          env:
+            - name: SA_GATEWAY__BACKEND__ADDRESS
+              value: backend.game.svc:5101
+            - name: SA_GATEWAY__ZONES__0__ADDRESS  # [[zones]] zone_id = 1
+              value: zone-a.game.svc
+            - name: SA_GATEWAY__TICKET__SIGNING_KEY_BASE64
+              valueFrom:
+                secretKeyRef:
+                  name: sa-keys
+                  key: ticket-signing-key
+          ports:
+            - name: tcp
+              containerPort: 7777
+            - name: websocket
+              containerPort: 7778
+          readinessProbe:
+            tcpSocket:
+              port: tcp
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sa
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: gateway-config

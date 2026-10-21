@@ -1,0 +1,12 @@
+# The whole stack, for rendering and review:
+#   kubectl kustomize --load-restrictor LoadRestrictionsNone deploy/k3s
+# The game part reads the process TOML from deploy/compose/config, outside this directory, hence
+# the flag. scripts/k3s-stack.sh applies the parts in order (data, migrate, game) because the
+# migration must finish before the services start.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml
+  - data
+  - migrate
+  - game

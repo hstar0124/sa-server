@@ -1,0 +1,14 @@
+# Only the game namespace reaches the data stores. Neither has a password-free path, but nothing
+# else in the cluster needs them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: data-from-game-only
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: game

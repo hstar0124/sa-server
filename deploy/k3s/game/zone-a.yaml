@@ -1,0 +1,69 @@
+# Zone A: one simulation process, never two (Recreate). A restart is a new instance id; ownership
+# moves to it through the Backend, never by Kubernetes alone.
+apiVersion: v1
+kind: Service
+metadata:
+  name: zone-a
+spec:
+  selector:
+    app: zone-a
+  ports:
+    - name: link
+      port: 7801
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zone-a
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: zone-a
+  template:
+    metadata:
+      labels:
+        app: zone-a
+    spec:
+      # Longer than the zone's [shutdown] grace, so it evicts its sessions before being killed.
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: zone
+          image: sa/zone:dev
+          imagePullPolicy: IfNotPresent
+          args: ["--config", "/etc/sa/zone.toml"]
+          env:
+            - name: SA_ZONE__BACKEND__ADDRESS
+              value: backend.game.svc:5101
+          ports:
+            - name: link
+              containerPort: 7801
+          readinessProbe:
+            tcpSocket:
+              port: link
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sa
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: zone-a-config
