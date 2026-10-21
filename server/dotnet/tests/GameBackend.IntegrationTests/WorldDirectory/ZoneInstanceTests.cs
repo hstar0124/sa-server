@@ -65,9 +65,9 @@ public sealed class ZoneInstanceTests(PostgresFixture postgres) : IDisposable
 
         WorldDirectoryRepository repository = _factory.Services.GetRequiredService<WorldDirectoryRepository>();
         ZoneLeaseRenewal superseded = await repository.RenewZoneLeaseAsync(
-            new InstanceId(before), new WorldId(World), (int)Zone, TimeSpan.FromSeconds(15), CancellationToken.None);
+            new InstanceId(before), new WorldId(World), new ZoneId((int)Zone), TimeSpan.FromSeconds(15), CancellationToken.None);
         ZoneLeaseRenewal elsewhere = await repository.RenewZoneLeaseAsync(
-            new InstanceId(before), new WorldId(World), (int)Zone + 1, TimeSpan.FromSeconds(15), CancellationToken.None);
+            new InstanceId(before), new WorldId(World), new ZoneId((int)Zone + 1), TimeSpan.FromSeconds(15), CancellationToken.None);
 
         Assert.Equal(ZoneLeaseOutcome.Superseded, superseded.Outcome);
         Assert.Equal(ZoneLeaseOutcome.IdentityMismatch, elsewhere.Outcome);

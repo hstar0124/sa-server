@@ -68,7 +68,7 @@ internal sealed class CharacterRepository(NpgsqlDataSource dataSource)
     }
 
     public async Task<CreateCharacterResult> CreateAsync(
-        AccountId accountId, WorldId worldId, string name, int classId, int maxPerWorld, CancellationToken cancellationToken)
+        AccountId accountId, WorldId worldId, string name, ClassId classId, int maxPerWorld, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using NpgsqlTransaction transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);

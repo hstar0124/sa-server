@@ -1,4 +1,5 @@
 using Google.Protobuf;
+using Grpc.Core;
 using Sa.Backend.V1;
 using Sa.GameBackend.IntegrationTests.Harness;
 
@@ -96,6 +97,23 @@ public sealed class RecordKillTests(PostgresFixture postgres) : IDisposable
         Assert.Equal(KillOutcome.UnknownTemplate, unknownMonster.Outcome);
         Assert.Equal(KillOutcome.UnknownTemplate, foreignDrop.Outcome);
         long receipts = await Db.ScalarAsync<long>(postgres.ConnectionString, "SELECT count(*) FROM game.kill_receipts WHERE killer_character_id = @c", new { c = killer.CharacterId });
+        Assert.Equal(0, receipts);
+    }
+
+    [Fact]
+    public async Task A_drop_without_a_position_is_an_invalid_request_not_the_map_origin()
+    {
+        using DirectoryClient directory = Directory;
+        using EconomyClient economy = Economy;
+        (byte[] gateway, _) = await WorldEntry.LiveInfrastructureAsync(directory, World, Zone);
+        EnteredCharacter killer = await WorldEntry.EnterAsync(Api, directory, gateway, World);
+        RecordKillRequest kill = EconomyClient.KillRequest(World, killer.CharacterId, killer.Authority, Slime, ContentVersion, SlimeGel);
+        kill.Drops[0].Position = null;
+
+        RpcException refused = await Assert.ThrowsAsync<RpcException>(() => economy.RecordKillAsync(kill));
+
+        Assert.Equal(StatusCode.InvalidArgument, refused.StatusCode);
+        long receipts = await Db.ScalarAsync<long>(postgres.ConnectionString, "SELECT count(*) FROM game.kill_receipts WHERE kill_id = @id", new { id = kill.KillId.ToByteArray() });
         Assert.Equal(0, receipts);
     }
 

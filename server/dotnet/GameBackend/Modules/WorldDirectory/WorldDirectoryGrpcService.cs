@@ -32,15 +32,15 @@ internal sealed partial class WorldDirectoryGrpcService(
             response.Zone = new ZoneInstanceRef
             {
                 WorldId = (ulong)zone.WorldId.Value,
-                ZoneId = (uint)zone.ZoneId,
+                ZoneId = (uint)zone.ZoneId.Value,
                 ZoneInstanceId = ByteString.CopyFrom(zone.ZoneInstanceId.Bytes),
             };
-            response.OwnerEpoch = (ulong)zone.OwnerEpoch;
+            response.OwnerEpoch = (ulong)zone.OwnerEpoch.Value;
             response.Character = new Sa.Backend.V1.CharacterProfile
             {
                 CharacterId = (ulong)character.Id.Value,
                 Name = character.Name,
-                ClassId = (uint)character.ClassId,
+                ClassId = (uint)character.ClassId.Value,
             };
         }
 
@@ -66,7 +66,7 @@ internal sealed partial class WorldDirectoryGrpcService(
         }
 
         ZoneLeaseRenewal renewal = await repository.RenewZoneLeaseAsync(
-            instanceId, new WorldId((long)request.Zone.WorldId), (int)request.Zone.ZoneId, options.Value.ZoneLeaseDuration, context.CancellationToken);
+            instanceId, new WorldId((long)request.Zone.WorldId), new ZoneId((int)request.Zone.ZoneId), options.Value.ZoneLeaseDuration, context.CancellationToken);
         if (renewal.Outcome != ZoneLeaseOutcome.Renewed)
         {
             LogZoneLeaseRefused(instanceId, request.Zone.ZoneId, renewal.Outcome);

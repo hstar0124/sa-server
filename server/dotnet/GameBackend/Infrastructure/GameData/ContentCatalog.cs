@@ -1,3 +1,4 @@
+using Sa.GameBackend.Common;
 using Tomlyn;
 using Tomlyn.Serialization;
 
@@ -8,12 +9,12 @@ namespace Sa.GameBackend.Infrastructure.GameData;
 /// entries name it. The zone rolls every entry once per kill, so no kill yields more of an item than
 /// the table has entries for it.
 /// </summary>
-internal sealed record DropTable(int MonsterTemplateId, long Gold, IReadOnlyDictionary<int, int> EntriesPerItem)
+internal sealed record DropTable(MonsterTemplateId MonsterTemplateId, long Gold, IReadOnlyDictionary<ItemTemplateId, int> EntriesPerItem)
 {
     /// <summary>True when every rolled template is in the table and none appears more often than its entries.</summary>
-    public bool Accepts(IEnumerable<int> rolledItemTemplateIds)
+    public bool Accepts(IEnumerable<ItemTemplateId> rolledItemTemplateIds)
     {
-        foreach (IGrouping<int, int> rolled in rolledItemTemplateIds.GroupBy(id => id))
+        foreach (IGrouping<ItemTemplateId, ItemTemplateId> rolled in rolledItemTemplateIds.GroupBy(id => id))
         {
             if (!EntriesPerItem.TryGetValue(rolled.Key, out int entries) || rolled.Count() > entries)
             {
@@ -33,10 +34,10 @@ internal sealed record DropTable(int MonsterTemplateId, long Gold, IReadOnlyDict
 /// </summary>
 internal sealed class ContentCatalog
 {
-    private readonly IReadOnlySet<int> _classes;
-    private readonly IReadOnlyDictionary<int, DropTable> _drops;
+    private readonly IReadOnlySet<ClassId> _classes;
+    private readonly IReadOnlyDictionary<MonsterTemplateId, DropTable> _drops;
 
-    private ContentCatalog(string version, int inventoryCapacity, string primaryCurrency, IReadOnlySet<int> classes, IReadOnlyDictionary<int, DropTable> drops)
+    private ContentCatalog(string version, int inventoryCapacity, string primaryCurrency, IReadOnlySet<ClassId> classes, IReadOnlyDictionary<MonsterTemplateId, DropTable> drops)
     {
         Version = version;
         InventoryCapacity = inventoryCapacity;
@@ -51,9 +52,9 @@ internal sealed class ContentCatalog
 
     public string PrimaryCurrency { get; }
 
-    public bool KnowsClass(int classId) => _classes.Contains(classId);
+    public bool KnowsClass(ClassId classId) => _classes.Contains(classId);
 
-    public DropTable? DropTableFor(int monsterTemplateId) => _drops.GetValueOrDefault(monsterTemplateId);
+    public DropTable? DropTableFor(MonsterTemplateId monsterTemplateId) => _drops.GetValueOrDefault(monsterTemplateId);
 
     /// <summary>Reads and cross-validates the content tree; a malformed tree is a deployment error and throws.</summary>
     public static ContentCatalog Load(string contentDir)
@@ -72,7 +73,7 @@ internal sealed class ContentCatalog
 
         HashSet<int> itemIds = items.Items.Select(i => i.Id).ToHashSet();
         HashSet<int> monsterIds = monsters.Monsters.Select(m => m.TemplateId).ToHashSet();
-        var dropTables = new Dictionary<int, DropTable>();
+        var dropTables = new Dictionary<MonsterTemplateId, DropTable>();
         foreach (DropTableFile table in drops.DropTables)
         {
             if (!monsterIds.Contains(table.MonsterTemplateId))
@@ -80,7 +81,7 @@ internal sealed class ContentCatalog
                 throw Invalid($"drop table references unknown monster {table.MonsterTemplateId}");
             }
 
-            var entriesPerItem = new Dictionary<int, int>();
+            var entriesPerItem = new Dictionary<ItemTemplateId, int>();
             foreach (DropEntryFile entry in table.Entries)
             {
                 if (!itemIds.Contains(entry.ItemTemplateId))
@@ -88,10 +89,12 @@ internal sealed class ContentCatalog
                     throw Invalid($"drop table for monster {table.MonsterTemplateId} references unknown item {entry.ItemTemplateId}");
                 }
 
-                entriesPerItem[entry.ItemTemplateId] = entriesPerItem.GetValueOrDefault(entry.ItemTemplateId) + 1;
+                var item = new ItemTemplateId(entry.ItemTemplateId);
+                entriesPerItem[item] = entriesPerItem.GetValueOrDefault(item) + 1;
             }
 
-            if (table.Gold < 0 || !dropTables.TryAdd(table.MonsterTemplateId, new DropTable(table.MonsterTemplateId, table.Gold, entriesPerItem)))
+            var monster = new MonsterTemplateId(table.MonsterTemplateId);
+            if (table.Gold < 0 || !dropTables.TryAdd(monster, new DropTable(monster, table.Gold, entriesPerItem)))
             {
                 throw Invalid($"drop table for monster {table.MonsterTemplateId} is duplicated or has negative gold");
             }
@@ -108,7 +111,8 @@ internal sealed class ContentCatalog
             throw Invalid("classes must be present, unique and have positive ids");
         }
 
-        return new ContentCatalog(version.Content.Version, economy.Inventory.Capacity, economy.Currency.Primary, classIds, dropTables);
+        return new ContentCatalog(version.Content.Version, economy.Inventory.Capacity, economy.Currency.Primary,
+            classIds.Select(id => new ClassId(id)).ToHashSet(), dropTables);
     }
 
     private static T Read<T>(string dir, string relative)

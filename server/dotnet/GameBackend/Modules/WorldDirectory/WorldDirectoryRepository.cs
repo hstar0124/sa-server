@@ -32,9 +32,9 @@ internal enum EndSessionOutcome
     NotLive,  // unknown or already ended; ending it again is harmless
 }
 
-internal sealed record ZoneAssignment(WorldId WorldId, int ZoneId, InstanceId ZoneInstanceId, long OwnerEpoch);
+internal sealed record ZoneAssignment(WorldId WorldId, ZoneId ZoneId, InstanceId ZoneInstanceId, OwnerEpoch OwnerEpoch);
 
-internal sealed record CharacterProfile(CharacterId Id, string Name, int ClassId);
+internal sealed record CharacterProfile(CharacterId Id, string Name, ClassId ClassId);
 
 internal sealed record RedeemResult(RedeemOutcome Outcome, ZoneAssignment? Zone, CharacterProfile? Character);
 
@@ -106,7 +106,7 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
         """;
 
     /// <summary>Renews or creates the lease, or says why the instance may not hold it.</summary>
-    public async Task<ZoneLeaseRenewal> RenewZoneLeaseAsync(InstanceId instanceId, WorldId worldId, int zoneId, TimeSpan duration, CancellationToken cancellationToken)
+    public async Task<ZoneLeaseRenewal> RenewZoneLeaseAsync(InstanceId instanceId, WorldId worldId, ZoneId zoneId, TimeSpan duration, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using NpgsqlTransaction tx = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
@@ -217,7 +217,7 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
 
     private const string UpsertOwnershipSql = """
         INSERT INTO game.character_ownership (world_id, character_id, zone_id, zone_instance_id, owner_epoch, state)
-        VALUES (@WorldId, @CharacterId, @ZoneId, @ZoneInstanceId, 1, 'active')
+        VALUES (@WorldId, @CharacterId, @ZoneId, @ZoneInstanceId, @FirstEpoch, 'active')
         ON CONFLICT (world_id, character_id) DO UPDATE
             SET zone_id = EXCLUDED.zone_id,
                 zone_instance_id = EXCLUDED.zone_instance_id,
@@ -287,8 +287,8 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
         // below, PostgreSQL aborts the statement. Rolling back to here keeps the ownership unchanged
         // while the ticket stays consumed: a ticket is single-use whatever the outcome.
         await tx.SaveAsync(BeforeOwnershipSavepoint, cancellationToken);
-        long epoch = await connection.ExecuteScalarAsync<long>(Cmd(UpsertOwnershipSql,
-            new { request.WorldId, request.CharacterId, zone.ZoneId, zone.ZoneInstanceId }, tx, cancellationToken));
+        var epoch = new OwnerEpoch(await connection.ExecuteScalarAsync<long>(Cmd(UpsertOwnershipSql,
+            new { request.WorldId, request.CharacterId, zone.ZoneId, zone.ZoneInstanceId, FirstEpoch = OwnerEpoch.First }, tx, cancellationToken)));
 
         try
         {
@@ -324,9 +324,9 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
 
     private sealed record TicketState(bool Redeemed, bool Expired);
 
-    private sealed record OwnershipRow(int ZoneId, byte[] ZoneInstanceId, long OwnerEpoch, bool ZoneAlive);
+    private sealed record OwnershipRow(ZoneId ZoneId, byte[] ZoneInstanceId, OwnerEpoch OwnerEpoch, bool ZoneAlive);
 
-    private sealed record ZoneRow(int ZoneId, byte[] ZoneInstanceId);
+    private sealed record ZoneRow(ZoneId ZoneId, byte[] ZoneInstanceId);
 
     private sealed record LeaseRow(DateTime LeaseExpiresAt, DateTime FirstSeenAt);
 }

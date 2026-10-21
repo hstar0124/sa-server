@@ -15,10 +15,16 @@ internal sealed class EconomyGrpcService(EconomyRepository repository) : Sa.Back
             throw new RpcException(new Status(StatusCode.InvalidArgument, "kill_id and authority.zone_instance_id must be 16 bytes"));
         }
 
-        List<DropRoll> drops = request.Drops.Select(d => new DropRoll((int)d.ItemTemplateId, d.Position?.X ?? 0, d.Position?.Y ?? 0)).ToList();
+        // A drop without a position would land at the map origin; that is a malformed request, not (0, 0).
+        if (request.Drops.Any(d => d.Position is null))
+        {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "every drop must carry a position"));
+        }
+
+        List<DropRoll> drops = request.Drops.Select(d => new DropRoll(new ItemTemplateId((int)d.ItemTemplateId), d.Position.X, d.Position.Y)).ToList();
         KillResult result = await repository.RecordKillAsync(
             new RecordKillCommand(killId, new WorldId((long)request.WorldId), new CharacterId((long)request.KillerCharacterId), authority,
-                (int)request.MonsterTemplateId, request.ContentVersion, drops),
+                new MonsterTemplateId((int)request.MonsterTemplateId), request.ContentVersion, drops),
             context.CancellationToken);
 
         var response = new RecordKillResponse
@@ -30,7 +36,7 @@ internal sealed class EconomyGrpcService(EconomyRepository repository) : Sa.Back
         response.Items.AddRange(result.Items.Select(item => new Sa.Backend.V1.DroppedItem
         {
             ItemInstanceId = ByteString.CopyFrom(item.Id.Bytes),
-            ItemTemplateId = (uint)item.ItemTemplateId,
+            ItemTemplateId = (uint)item.ItemTemplateId.Value,
             Position = new Sa.Game.V1.Vec2 { X = item.X, Y = item.Y },
         }));
         return response;
@@ -79,14 +85,14 @@ internal sealed class EconomyGrpcService(EconomyRepository repository) : Sa.Back
             return false;
         }
 
-        authority = new ZoneAuthority(zone, (long)proto.OwnerEpoch);
+        authority = new ZoneAuthority(zone, new OwnerEpoch((long)proto.OwnerEpoch));
         return true;
     }
 
     private static Sa.Backend.V1.InventoryItem Map(InventoryItem item) => new()
     {
         ItemInstanceId = ByteString.CopyFrom(item.Id.Bytes),
-        ItemTemplateId = (uint)item.ItemTemplateId,
+        ItemTemplateId = (uint)item.ItemTemplateId.Value,
         SlotNo = (uint)item.SlotNo,
     };
 
