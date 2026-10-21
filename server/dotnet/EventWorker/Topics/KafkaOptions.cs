@@ -27,5 +27,9 @@ internal sealed class KafkaOptions
     [Required]
     public TopicOptions CharacterEvents { get; init; } = new() { Name = "game.character-events.v1", Partitions = 3 };
 
-    public IEnumerable<TopicOptions> AllTopics => [CharacterEvents];
+    /// <summary>Events a consumer could not decode or apply; kept for inspection, never retried blindly.</summary>
+    [Required]
+    public TopicOptions FailedEvents { get; init; } = new() { Name = "game.failed-events.v1", Partitions = 1 };
+
+    public IEnumerable<TopicOptions> AllTopics => [CharacterEvents, FailedEvents];
 }
