@@ -4,6 +4,7 @@
 
 - 실제 PostgreSQL을 Testcontainers로 띄우고 `database/migrations/`를 적용한 뒤 실행한다.
 - 각 테스트는 HTTP 상태 코드가 아니라 **DB 상태(소유자 수, 잔액, 원장, Inbox)**를 단언한다.
+- 이벤트 파이프라인 시나리오(발행 중 종료, 소비 중 종료)는 실제 Kafka도 필요해서 `server/dotnet/tests/EventWorker.Tests/`에 있다. 같은 방식으로 PostgreSQL과 Kafka를 Testcontainers로 띄운다.
 - C++ 쪽(Zone·Gateway) 통합 테스트가 생기면 이 디렉터리에 둔다.
 
 ## 반드시 통과할 정합성 시나리오
