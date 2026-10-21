@@ -92,7 +92,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [dev, asan, tidy]
+        # release builds and tests the optimised binaries the container images ship: optimisation
+        # changes what the compiler can prove and what undefined behaviour does (issues/015).
+        preset: [dev, release, asan, tidy]
     steps:
       - uses: actions/checkout@v7
 

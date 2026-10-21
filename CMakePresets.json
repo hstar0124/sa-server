@@ -35,6 +35,8 @@
   "testPresets": [
     { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true },
       "execution": { "noTestsAction": "error" } },
+    { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" } },
     { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true },
       "execution": { "noTestsAction": "error" } },
     { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true },
