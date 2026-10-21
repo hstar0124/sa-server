@@ -9,6 +9,7 @@ internal static class CharactersModule
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddSingleton<CharacterRepository>();
+        services.AddSingleton<CharacterOwnership>();
         return services;
     }
 }

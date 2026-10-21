@@ -35,8 +35,7 @@ app.UseAuthorization();
 
 app.MapAuthEndpoints();
 app.MapCharacterEndpoints();
-app.MapEntryEndpoints();
-app.MapGrpcService<WorldDirectoryGrpcService>();
+app.UseWorldDirectoryModule();
 app.UseEconomyModule();
 
 // Liveness answers while the process runs; readiness also requires the database.

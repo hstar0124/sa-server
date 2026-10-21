@@ -270,9 +270,13 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         WHERE world_id = @WorldId AND scope = @Scope AND request_id = @RequestId
         """;
 
+    // An inventory nobody has changed yet; every change raises it, and the zone keeps the highest
+    // version it has seen. Matches the column default (migration 0005).
+    private const int InitialInventoryVersion = 0;
+
     private const string EnsureInventorySql = """
         INSERT INTO game.inventories (world_id, character_id, capacity, version)
-        VALUES (@WorldId, @CharacterId, @Capacity, 0)
+        VALUES (@WorldId, @CharacterId, @Capacity, @InitialVersion)
         ON CONFLICT (world_id, character_id) DO NOTHING
         """;
 
@@ -347,7 +351,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         }
 
         var inventoryKey = new { command.WorldId, command.CharacterId };
-        await connection.ExecuteAsync(Cmd(EnsureInventorySql, new { command.WorldId, command.CharacterId, Capacity = content.InventoryCapacity }, tx, ct));
+        await connection.ExecuteAsync(Cmd(EnsureInventorySql, new { command.WorldId, command.CharacterId, Capacity = content.InventoryCapacity, InitialVersion = InitialInventoryVersion }, tx, ct));
         InventoryRow inventory = await connection.QuerySingleAsync<InventoryRow>(Cmd(LockInventorySql, inventoryKey, tx, ct));
         List<int> occupied = (await connection.QueryAsync<int>(Cmd(OccupiedSlotsSql, inventoryKey, tx, ct))).ToList();
         if (occupied.Count >= inventory.Capacity)
@@ -446,7 +450,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         List<InventoryItem> items = (await connection.QueryAsync<InventoryItemRow>(Cmd(InventoryItemsSql, key, tx, ct))).Select(r => r.ToItem()).ToList();
         List<WalletEntry> wallet = (await connection.QueryAsync<WalletEntry>(Cmd(WalletSql, key, tx, ct))).ToList();
         InventoryRow inventory = await connection.QuerySingleOrDefaultAsync<InventoryRow>(Cmd(InventorySql, key, tx, ct))
-                                 ?? new InventoryRow(content.InventoryCapacity, 0);
+                                 ?? new InventoryRow(content.InventoryCapacity, InitialInventoryVersion);
         await tx.CommitAsync(ct);
         return new CharacterAssets(items, wallet, inventory.Capacity, inventory.Version);
     }

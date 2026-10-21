@@ -9,4 +9,10 @@ internal static class AccountRules
 {
     public const string UsernamePattern = "^[a-z0-9_]{3,24}$";
     public const string UsernameRuleText = "3-24 characters: lowercase letters, digits, underscore";
+
+    /// <summary>The pattern's upper bound; login bounds its input by it without revealing the pattern.</summary>
+    public const int UsernameMaxLength = 24;
+
+    /// <summary>Bounds the work one login can ask of the password hasher.</summary>
+    public const int PasswordMaxLength = 128;
 }

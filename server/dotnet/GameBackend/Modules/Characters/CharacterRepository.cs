@@ -47,17 +47,6 @@ internal sealed class CharacterRepository(NpgsqlDataSource dataSource)
         RETURNING {SelectColumns}
         """;
 
-    private const string OwnedSql = """
-        SELECT 1 FROM game.characters
-        WHERE character_id = @CharacterId AND account_id = @AccountId AND world_id = @WorldId
-        """;
-
-    public async Task<bool> IsOwnedByAsync(CharacterId characterId, AccountId accountId, WorldId worldId, CancellationToken cancellationToken)
-    {
-        await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await connection.ExecuteScalarAsync<int?>(
-            new CommandDefinition(OwnedSql, new { CharacterId = characterId, AccountId = accountId, WorldId = worldId }, cancellationToken: cancellationToken)) is not null;
-    }
 
     public async Task<IReadOnlyList<Character>> ListAsync(AccountId accountId, WorldId worldId, CancellationToken cancellationToken)
     {

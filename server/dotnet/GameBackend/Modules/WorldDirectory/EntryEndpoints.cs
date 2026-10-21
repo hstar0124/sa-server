@@ -24,7 +24,7 @@ internal static class EntryEndpoints
         WorldId worldId,
         CharacterId characterId,
         ClaimsPrincipal principal,
-        CharacterRepository characters,
+        CharacterOwnership characters,
         EntryTicketIssuer tickets,
         IOptions<WorldDirectoryOptions> options,
         CancellationToken cancellationToken)
