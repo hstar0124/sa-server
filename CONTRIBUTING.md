@@ -15,7 +15,7 @@
 - [ ] 단계 끝이면 `scripts/bench/capacity.sh` 50~2,000 재측정, 보고서에 비교(7단계 이후).
 - [ ] 검증은 **커밋된 트리**로 한다: `git stash -u` 뒤 빌드하거나 별도 worktree(`git worktree add`)에서 빌드한다. 작업 트리에만 있는 파일에 기대지 않는다.
 - [ ] README에 **이 PR이 만든 것**을 더한다(구조·흐름·데이터 기준의 해당 부분). 미래 단계의 내용이나 아직 하지 않은 측정은 적지 않는다. 측정이 있었으면 "성능과 개선"(부하별 리소스 표, 개선 사례: 증상 → 원인 → 조치 → 다시 잰 결과)과 `docs/reports/`를 갱신한다.
-- [ ] 릴리스: `release/x.y.z`에서 바꾸는 것은 버전(루트 `CMakeLists.txt`의 `project(... VERSION ...)` 한 곳)과 피처 색인의 릴리스 칸뿐이다. `vcpkg.json`에는 제품 버전을 두지 않는다(이슈 008). `release/x.y.z` PR → `main` 병합 → 태그 `vx.y.z` → Release 노트(그 단계 피처 문서 요약) → `main`을 머리로 `develop`에 되돌리는 PR. 이 PR을 병합한 뒤 "Delete branch"를 누르지 않는다. 마지막에 원격 `main`의 머리가 태그 커밋과 같은지 본다(이슈 010).
+- [ ] 릴리스: `release/x.y.z`에서 바꾸는 것은 버전(루트 `CMakeLists.txt`의 `project(... VERSION ...)` 한 곳)과 피처 색인의 릴리스 칸뿐이다. `vcpkg.json`에는 제품 버전을 두지 않는다(이슈 008). `release/x.y.z` PR → `main` 병합 → 태그 `vx.y.z` → Release 노트(그 단계 피처 문서 요약) → `main`을 머리로 `develop`에 되돌리는 PR. 이 PR을 병합한 뒤 "Delete branch"를 누르지 않는다. 태그는 만들기 전에 로컬에 같은 이름이 없는지 보고, 생성과 푸시를 `git tag -a vx.y.z <커밋> -m ... && git push origin vx.y.z`로 묶는다(이슈 014). 마지막에 원격 `main`의 머리가 태그 커밋과 같은지 본다(이슈 010).
 
 ## 도구 버전
 - GCC 14(gcc-toolset-14), vcpkg `builtin-baseline` 고정.
