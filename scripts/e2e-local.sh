@@ -55,7 +55,7 @@ trap cleanup EXIT
 docker compose -f deploy/compose/docker-compose.yml up -d --wait >/dev/null
 dotnet run --project server/dotnet/Migrator --no-build -- --connection "$CONN" --scripts database/migrations >"$RUN_DIR/migrator.log" 2>&1
 
-# Started first and stopped last, so it publishes what the run leaves behind.
+# Started first and stopped last, so it publishes and applies what the run leaves behind.
 (
   cd server/dotnet/EventWorker
   Database__ConnectionString="$CONN" exec bin/Debug/net10.0/EventWorker
@@ -109,14 +109,20 @@ if [ "$recorded" -lt "$MIN_KILLS" ]; then echo "FAIL: kills were not recorded by
 acquired=$(psql_value "SELECT count(*) FROM game.economy_ledger WHERE kind = 'item_acquired' AND created_at >= '$run_started'")
 echo "items acquired in the ledger: $acquired (required $MIN_PICKUPS)"
 if [ "$acquired" -lt "$MIN_PICKUPS" ]; then echo "FAIL: pickups were not recorded by the backend"; verdict=1; fi
-# Every event this run's transactions wrote must reach Kafka. The publisher polls, so allow it a
-# few intervals.
-unpublished_after_run() { [ "$(psql_value "SELECT count(*) FROM game.outbox_events WHERE occurred_at >= '$run_started' AND published_at IS NULL")" = 0 ]; }
+# Every event this run's transactions wrote must reach Kafka and be applied by the statistics
+# consumer, each once (its Inbox has one row per event). Both poll, so allow them a few intervals.
+STATS_CONSUMER=character-stats  # CharacterStatsConsumer:GroupId in the EventWorker's appsettings.json
 written=$(psql_value "SELECT count(*) FROM game.outbox_events WHERE occurred_at >= '$run_started'")
-if wait_for "the outbox to drain" unpublished_after_run; then
-  echo "events written and published: $written"
+unpublished_after_run() { [ "$(psql_value "SELECT count(*) FROM game.outbox_events WHERE occurred_at >= '$run_started' AND published_at IS NULL")" = 0 ]; }
+applied_after_run() {
+  [ "$(psql_value "SELECT count(*) FROM game.outbox_events o JOIN game.inbox_events i
+                   ON i.event_id = o.event_id AND i.consumer_name = '$STATS_CONSUMER'
+                   WHERE o.occurred_at >= '$run_started'")" = "$written" ]
+}
+if wait_for "the outbox to drain" unpublished_after_run && wait_for "the consumer to catch up" applied_after_run; then
+  echo "events written, published and applied: $written"
 else
-  echo "FAIL: events of this run were not published (see $RUN_DIR/eventworker.log)"; verdict=1
+  echo "FAIL: events of this run were not all published and applied (see $RUN_DIR/eventworker.log)"; verdict=1
 fi
 echo "logs: $RUN_DIR"
 exit $verdict

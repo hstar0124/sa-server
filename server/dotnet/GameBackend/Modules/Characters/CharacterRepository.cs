@@ -48,6 +48,24 @@ internal sealed class CharacterRepository(NpgsqlDataSource dataSource)
         """;
 
 
+    // One statement checks ownership and reads the read model: no row means not this account's
+    // character; a character without events yet reads as zeros.
+    private const string StatsSql = """
+        SELECT coalesce(p.kills, 0) AS "Kills", coalesce(p.items_acquired, 0) AS "ItemsAcquired",
+               coalesce(p.gold_earned, 0) AS "GoldEarned", coalesce(p.last_event_seq, 0) AS "AsOfEventSeq"
+        FROM game.characters c
+        LEFT JOIN game.character_projections p ON p.world_id = c.world_id AND p.character_id = c.character_id
+        WHERE c.character_id = @CharacterId AND c.account_id = @AccountId AND c.world_id = @WorldId
+        """;
+
+    /// <summary>Null when the account has no such character in the world: the caller answers "not found" either way.</summary>
+    public async Task<CharacterStats?> ReadStatsAsync(CharacterId characterId, AccountId accountId, WorldId worldId, CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<CharacterStats>(new CommandDefinition(
+            StatsSql, new { CharacterId = characterId, AccountId = accountId, WorldId = worldId }, cancellationToken: cancellationToken));
+    }
+
     public async Task<IReadOnlyList<Character>> ListAsync(AccountId accountId, WorldId worldId, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
