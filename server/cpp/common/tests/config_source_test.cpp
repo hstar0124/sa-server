@@ -94,6 +94,30 @@ address = "zone-b"
     EXPECT_FALSE(ConfigSource::FromText("zones = [1, 2]\n", "")->Sections("zones").has_value());
 }
 
+TEST(ConfigSource, EnvironmentOverridesReachAnArrayEntryByIndexAndRejectAMissingOne) {
+    constexpr std::string_view kZones = R"(
+[[zones]]
+zone_id = 1
+address = "localhost"
+[[zones]]
+zone_id = 2
+address = "localhost"
+)";
+    {
+        const ScopedEnv address{"SA_TEST__ZONES__1__ADDRESS", "zone-b.game.svc"};
+        auto zones = ConfigSource::FromText(kZones, "SA_TEST__")->Sections("zones");
+        ASSERT_TRUE(zones.has_value()) << zones.error().message;
+        EXPECT_EQ((*zones)[0].Require<std::string>("address").value(), "localhost");
+        EXPECT_EQ((*zones)[1].Require<std::string>("address").value(), "zone-b.game.svc");
+    }
+    for (const char* misplaced :
+         {"SA_TEST__ZONES__2__ADDRESS", "SA_TEST__ZONES__X__ADDRESS", "SA_TEST__ZONES__ADDRESS"}) {
+        const ScopedEnv typo{misplaced, "zone-c"};
+        EXPECT_FALSE(ConfigSource::FromText(kZones, "SA_TEST__")->Sections("zones").has_value())
+            << misplaced;
+    }
+}
+
 TEST(ConfigSource, InvalidTomlIsAnError) {
     EXPECT_FALSE(ConfigSource::FromText("[zone\n", "").has_value());
 }
