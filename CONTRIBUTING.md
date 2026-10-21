@@ -1,7 +1,7 @@
 # 작업 규칙
 
 ## 브랜치
-- `main`은 릴리스만. `develop`이 기본 브랜치. 둘 다 PR로만 바뀐다. 룰셋 `protect-main-branch`가 두 브랜치에 PR 필수, CI 다섯 잡(C++ dependencies, dev, asan, tidy, .NET) 통과, merge commit만 허용, 삭제·강제 푸시 금지를 건다. 룰셋의 시행 상태는 Active여야 한다(이슈 010).
+- `main`은 릴리스만. `develop`이 기본 브랜치. 둘 다 PR로만 바뀐다. 룰셋 `protect-main-branch`가 두 브랜치에 PR 필수, CI 여섯 잡(C++ dependencies, dev, release, asan, tidy, .NET) 통과, merge commit만 허용, 삭제·강제 푸시 금지를 건다. 룰셋의 시행 상태는 Active여야 한다(이슈 010).
 - 피처는 `feature/<영역>-<주제>`, 수정은 `fix/<영역>-<증상>`, 릴리스는 `release/x.y.z`, 핫픽스는 `hotfix/x.y.z`. 이름은 소문자 kebab-case 명사구.
 - 커밋은 Conventional Commits(`feat(zone): ...`, `fix(loadgen): ...`, `docs: ...`)에 본문(무엇을 왜). 컴포넌트별로 나누고, 각 커밋이 빌드·테스트를 통과한다. 공동 작업 표기(Co-Authored-By 등)는 넣지 않는다.
 

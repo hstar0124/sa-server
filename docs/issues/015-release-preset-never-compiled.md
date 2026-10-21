@@ -32,4 +32,4 @@ cc1plus: all warnings being treated as errors
 
 ## 재발 방지
 - 컨테이너 이미지(`deploy/docker/cpp.Dockerfile`)가 release 프리셋으로 빌드한다. 이미지를 만들 때마다 release 빌드가 돈다.
-- 39(빌드 이미지와 CI 전환)에서 CI에 release 빌드를 더할지 정한다.
+- CI의 C++ 매트릭스에 release를 더했다(39). 최적화된 빌드에서 테스트까지 돈다. 룰셋의 필수 검사에도 넣는다.
