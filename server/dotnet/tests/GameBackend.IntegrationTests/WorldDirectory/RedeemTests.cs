@@ -246,7 +246,7 @@ public sealed class RedeemTests(PostgresFixture postgres) : IDisposable
         ApiClient owner = await Api.AsNewAccountAsync(Unique.Username());
         (byte[] ticket, long characterId) = await owner.CreateCharacterAndEnterAsync(World, Unique.CharacterName());
         await Db.ExecuteAsync(postgres.ConnectionString,
-            "UPDATE game.entry_tickets SET expires_at = now() - interval '1 second' WHERE character_id = @c", new { c = characterId });
+            "UPDATE game.entry_tickets SET issued_at = now() - interval '1 minute', expires_at = now() - interval '1 second' WHERE character_id = @c", new { c = characterId });
 
         RedeemEntryTicketResponse answer = await directory.RedeemAsync(ticket, gateway, DirectoryClient.NewInstanceId());
 
@@ -274,7 +274,7 @@ public sealed class RedeemTests(PostgresFixture postgres) : IDisposable
         await rival.ExecuteAsync("""
             INSERT INTO game.character_sessions
                 (gateway_session_id, gateway_instance_id, world_id, character_id, account_id, owner_epoch)
-            SELECT @Session, @Gateway, world_id, character_id, account_id, 0
+            SELECT @Session, @Gateway, world_id, character_id, account_id, 1
             FROM game.characters WHERE character_id = @CharacterId
             """, new { Session = DirectoryClient.NewInstanceId(), Gateway = otherGateway, CharacterId = characterId }, rivalTx);
 
