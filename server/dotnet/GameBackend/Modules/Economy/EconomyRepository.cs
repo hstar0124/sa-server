@@ -4,6 +4,7 @@ using System.Text.Json;
 using Dapper;
 using Npgsql;
 using Sa.GameBackend.Common;
+using Sa.GameBackend.Infrastructure.GameData;
 
 namespace Sa.GameBackend.Modules.Economy;
 

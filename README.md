@@ -376,7 +376,7 @@ sequenceDiagram
     Z-->>C: CommandResult(최종) + InventoryUpdate(전체 상태)
 ```
 
-Backend도 `Economy:ContentDir`의 같은 game-data를 읽는다. Zone과 다른 콘텐츠 버전으로 보고된 처치는 거절한다.
+Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 만들 때 클래스가 콘텐츠에 있는지도 여기서 본다. Zone과 다른 콘텐츠 버전으로 보고된 처치는 거절한다.
 
 콘텐츠는 `game-data/`의 데이터다. 아이템 템플릿, 몬스터별 드롭 표(항목별 확률과 골드), 경제 규칙(인벤토리 용량, 획득 거리, 바닥 아이템 소멸 시간)이 있다. Zone 로더가 전투 콘텐츠와 함께 읽고, 드롭 표가 모르는 몬스터나 아이템을 가리키면 거절한다.
 

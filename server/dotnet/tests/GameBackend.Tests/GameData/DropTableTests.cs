@@ -1,6 +1,6 @@
-using Sa.GameBackend.Modules.Economy;
+using Sa.GameBackend.Infrastructure.GameData;
 
-namespace Sa.GameBackend.Tests.Economy;
+namespace Sa.GameBackend.Tests.GameData;
 
 public sealed class DropTableTests
 {

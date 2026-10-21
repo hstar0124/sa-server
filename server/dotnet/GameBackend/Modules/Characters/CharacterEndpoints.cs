@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.Options;
 using Sa.GameBackend.Common;
+using Sa.GameBackend.Infrastructure.GameData;
 using Sa.GameBackend.Modules.Auth;
 
 namespace Sa.GameBackend.Modules.Characters;
@@ -40,11 +41,18 @@ internal static class CharacterEndpoints
         ClaimsPrincipal principal,
         CharacterRepository characters,
         IOptions<CharactersOptions> options,
+        ContentCatalog content,
         CancellationToken cancellationToken)
     {
         if (RequestValidation.Validate(request) is { } invalid)
         {
             return invalid;
+        }
+
+        // A class the zones do not know would make a character no zone can spawn.
+        if (!content.KnowsClass(request.ClassId))
+        {
+            return Problems.UnprocessableEntity("unknown-class", $"class {request.ClassId} does not exist");
         }
 
         CreateCharacterResult result = await characters.CreateAsync(

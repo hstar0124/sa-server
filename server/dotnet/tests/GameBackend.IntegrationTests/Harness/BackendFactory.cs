@@ -35,7 +35,7 @@ public sealed class BackendFactory(string connectionString, BackendSettings? set
             ["Database:ConnectionString"] = connectionString,
             ["Auth:SigningKey"] = _jwtKey,
             ["WorldDirectory:TicketSigningKey"] = Convert.ToBase64String(_ticketKey),
-            ["Economy:ContentDir"] = RepositoryPaths.GameData,
+            ["GameData:ContentDir"] = RepositoryPaths.GameData,
             ["Characters:MaxCharactersPerWorld"] = _settings.MaxCharactersPerWorld.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["Logging:LogLevel:Default"] = "Warning",
         };

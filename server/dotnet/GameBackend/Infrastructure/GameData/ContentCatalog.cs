@@ -1,7 +1,7 @@
 using Tomlyn;
 using Tomlyn.Serialization;
 
-namespace Sa.GameBackend.Modules.Economy;
+namespace Sa.GameBackend.Infrastructure.GameData;
 
 /// <summary>
 /// What a monster may yield: the gold credited to the killer and, per item template, how many drop
@@ -26,21 +26,22 @@ internal sealed record DropTable(int MonsterTemplateId, long Gold, IReadOnlyDict
 }
 
 /// <summary>
-/// The slice of game-data the Backend needs to judge a zone's economy requests: the content version,
-/// known items, drop tables and the inventory rules. Loaded once at start-up from the same files the
-/// zones read, so both sides agree on what a kill is worth (see README "전투").
+/// The slice of game-data the Backend judges requests by: the content version, the player classes a
+/// character may be created with, drop tables and the inventory rules. Loaded once at start-up from
+/// the same files the zones read, so both sides agree on what a class is and what a kill is worth
+/// (see README "전투"). Shared by the modules that need it, hence infrastructure.
 /// </summary>
 internal sealed class ContentCatalog
 {
-    private readonly IReadOnlySet<int> _items;
+    private readonly IReadOnlySet<int> _classes;
     private readonly IReadOnlyDictionary<int, DropTable> _drops;
 
-    private ContentCatalog(string version, int inventoryCapacity, string primaryCurrency, IReadOnlySet<int> items, IReadOnlyDictionary<int, DropTable> drops)
+    private ContentCatalog(string version, int inventoryCapacity, string primaryCurrency, IReadOnlySet<int> classes, IReadOnlyDictionary<int, DropTable> drops)
     {
         Version = version;
         InventoryCapacity = inventoryCapacity;
         PrimaryCurrency = primaryCurrency;
-        _items = items;
+        _classes = classes;
         _drops = drops;
     }
 
@@ -50,7 +51,7 @@ internal sealed class ContentCatalog
 
     public string PrimaryCurrency { get; }
 
-    public bool KnowsItem(int itemTemplateId) => _items.Contains(itemTemplateId);
+    public bool KnowsClass(int classId) => _classes.Contains(classId);
 
     public DropTable? DropTableFor(int monsterTemplateId) => _drops.GetValueOrDefault(monsterTemplateId);
 
@@ -58,6 +59,7 @@ internal sealed class ContentCatalog
     public static ContentCatalog Load(string contentDir)
     {
         VersionFile version = Read<VersionFile>(contentDir, "version.toml");
+        ClassesFile classes = Read<ClassesFile>(contentDir, Path.Combine("classes", "classes.toml"));
         ItemsFile items = Read<ItemsFile>(contentDir, Path.Combine("items", "items.toml"));
         MonstersFile monsters = Read<MonstersFile>(contentDir, Path.Combine("monsters", "monsters.toml"));
         DropsFile drops = Read<DropsFile>(contentDir, Path.Combine("drops", "drops.toml"));
@@ -100,7 +102,13 @@ internal sealed class ContentCatalog
             throw Invalid("inventory.capacity must be positive and currency.primary must be set");
         }
 
-        return new ContentCatalog(version.Content.Version, economy.Inventory.Capacity, economy.Currency.Primary, itemIds, dropTables);
+        HashSet<int> classIds = classes.Classes.Select(c => c.Id).ToHashSet();
+        if (classIds.Count == 0 || classIds.Count != classes.Classes.Count || classIds.Any(id => id <= 0))
+        {
+            throw Invalid("classes must be present, unique and have positive ids");
+        }
+
+        return new ContentCatalog(version.Content.Version, economy.Inventory.Capacity, economy.Currency.Primary, classIds, dropTables);
     }
 
     private static T Read<T>(string dir, string relative)
@@ -129,6 +137,18 @@ internal sealed class ContentCatalog
     {
         [TomlPropertyName("version")]
         public string Version { get; set; } = string.Empty;
+    }
+
+    private sealed class ClassesFile
+    {
+        [TomlPropertyName("classes")]
+        public List<ClassFile> Classes { get; set; } = [];
+    }
+
+    private sealed class ClassFile
+    {
+        [TomlPropertyName("id")]
+        public int Id { get; set; }
     }
 
     private sealed class ItemsFile
