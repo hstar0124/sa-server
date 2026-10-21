@@ -1,4 +1,5 @@
 #include "sa/bot/fighter.hpp"
+#include "sa/bot/looter.hpp"
 #include "sa/bot/wanderer.hpp"
 #include "sa/common/config_source.hpp"
 #include "sa/common/logging.hpp"
@@ -114,9 +115,9 @@ int Run(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     sa::common::InitLogging("loadgen", *logging);
-    spdlog::info("seed={} wanderers={} fighters={} duration={}s backend={}", profile->seed,
-                 profile->wanderers, profile->fighters, profile->duration.count(),
-                 profile->backend_base_url);
+    spdlog::info("seed={} wanderers={} fighters={} looters={} duration={}s backend={}",
+                 profile->seed, profile->wanderers, profile->fighters, profile->looters,
+                 profile->duration.count(), profile->backend_base_url);
 
     std::vector<sa::loadgen::BotReport> reports(profile->bot_count());
     std::vector<sa::loadgen::BotSession::Target> targets(
@@ -125,9 +126,7 @@ int Run(int argc, char** argv) {
     const auto accounts = Provision(*profile, api, reports);
     Enter(*profile, api, accounts, reports, targets);
     spdlog::info("provisioned {}/{} bots",
-                 sa::loadgen::RunReport::Aggregate(reports, profile->min_bots_seeing_others,
-                                                   profile->min_kills)
-                     .provisioned,
+                 sa::loadgen::RunReport::Aggregate(reports, profile->criteria).provisioned,
                  profile->bot_count());
 
     // ---- the run ----
@@ -138,10 +137,16 @@ int Run(int argc, char** argv) {
             continue;
         }
         std::unique_ptr<sa::bot::Brain> brain;
-        if (profile->IsFighter(i)) {
-            brain = std::make_unique<sa::bot::Fighter>(profile->seed + i, profile->fighter);
-        } else {
-            brain = std::make_unique<sa::bot::Wanderer>(profile->seed + i, profile->wanderer);
+        switch (profile->RoleOf(i)) {
+            case sa::loadgen::BotRole::kWanderer:
+                brain = std::make_unique<sa::bot::Wanderer>(profile->seed + i, profile->wanderer);
+                break;
+            case sa::loadgen::BotRole::kFighter:
+                brain = std::make_unique<sa::bot::Fighter>(profile->seed + i, profile->fighter);
+                break;
+            case sa::loadgen::BotRole::kLooter:
+                brain = std::make_unique<sa::bot::Looter>(profile->seed + i, profile->looter);
+                break;
         }
         sessions.push_back(std::make_shared<sa::loadgen::BotSession>(io, *profile, std::move(brain),
                                                                      targets[i], reports[i]));
@@ -176,8 +181,8 @@ int Run(int argc, char** argv) {
     });
     io.run();
 
-    const sa::loadgen::RunReport report = sa::loadgen::RunReport::Aggregate(
-        reports, profile->min_bots_seeing_others, profile->min_kills);
+    const sa::loadgen::RunReport report =
+        sa::loadgen::RunReport::Aggregate(reports, profile->criteria);
     std::cout << report.ToText();
     for (const sa::loadgen::BotReport& b : reports) {
         if (!b.failure.empty()) {

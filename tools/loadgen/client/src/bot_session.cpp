@@ -140,14 +140,17 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
         case ServerMessage::kCommandResult:
             world_.OnCommandResult(message.command_result());
             report_.combat = world_.combat();
+            report_.loot = world_.loot();
+            report_.integrity = world_.integrity();
             return;
         case ServerMessage::kCombatEvent:
             world_.OnCombatEvent(message.combat_event());
             report_.combat = world_.combat();
             return;
         case ServerMessage::kInventoryUpdate:
-            // Inventory tracking belongs to the looter brain; the fighter and wanderer do not
-            // act on it, so the update is accepted without changing the world model.
+            world_.OnInventoryUpdate(message.inventory_update());
+            report_.loot = world_.loot();
+            report_.integrity = world_.integrity();
             return;
         case ServerMessage::BODY_NOT_SET:
             Fail("empty server message");
@@ -196,7 +199,8 @@ void BotSession::Tick() {
     if (intent.cast) {
         game::v1::ClientMessage cast;
         auto* skill = cast.mutable_cast_skill();
-        skill->set_request_id(++next_request_id_);
+        const common::RequestId request{++next_request_id_};
+        skill->set_request_id(request.value());
         skill->set_skill_id(intent.cast->skill.value());
         if (const auto* entity = std::get_if<common::EntityId>(&intent.cast->target)) {
             skill->set_target_entity_id(entity->value());
@@ -205,8 +209,20 @@ void BotSession::Tick() {
             skill->mutable_direction()->set_x(direction.x);
             skill->mutable_direction()->set_y(direction.y);
         }
+        world_.ExpectResult(request, RequestKind::kCast);
         if (connection_->Send(cast).has_value()) {
             ++report_.casts_sent;
+        }
+    }
+    if (intent.pickup) {
+        game::v1::ClientMessage pickup;
+        auto* item = pickup.mutable_pickup_item();
+        const common::RequestId request{++next_request_id_};
+        item->set_request_id(request.value());
+        item->set_item_entity_id(intent.pickup->value());
+        world_.ExpectResult(request, RequestKind::kPickup);
+        if (connection_->Send(pickup).has_value()) {
+            ++report_.pickups_sent;
         }
     }
 }

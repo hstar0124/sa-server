@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <format>
+#include <limits>
 #include <optional>
 #include <random>
 
@@ -13,12 +14,14 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     const auto class_id = source.Require<std::uint32_t>("world.class_id");
     const auto wanderers = source.Require<std::uint32_t>("bots.wanderers");
     const auto fighters = source.Require<std::uint32_t>("bots.fighters");
+    const auto looters = source.Require<std::uint32_t>("bots.looters");
     const auto seed = source.Require<std::uint64_t>("bots.seed");
     const auto prefix = source.Require<std::string>("bots.account_prefix");
     const auto password = source.Require<std::string>("bots.password");
     const auto duration = source.Require<std::uint32_t>("run.duration_sec");
     const auto min_seeing = source.Require<std::uint32_t>("run.min_bots_seeing_others");
     const auto min_kills = source.Require<std::uint32_t>("run.min_kills");
+    const auto min_pickups = source.Require<std::uint32_t>("run.min_pickups");
     const auto tick_hz = source.Require<std::uint32_t>("client.tick_hz");
     const auto ping = source.Require<std::uint32_t>("client.ping_interval_ms");
     const auto connect = source.Require<std::uint32_t>("client.connect_timeout_ms");
@@ -31,26 +34,34 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     const auto attack_skill = source.Require<std::uint32_t>("fighter.attack_skill_id");
     const auto attack_range = source.Require<double>("fighter.attack_range_m");
     const auto attack_interval = source.Require<std::uint32_t>("fighter.attack_interval_ms");
+    const auto loot_radius = source.Require<double>("looter.loot_radius_m");
+    const auto pickup_range = source.Require<double>("looter.pickup_range_m");
+    const auto pickup_retry = source.Require<std::uint32_t>("looter.pickup_retry_ms");
     if (auto err = common::FirstConfigError(
-            backend, world, class_id, wanderers, fighters, seed, prefix, password, duration,
-            tick_hz, ping, connect, arrive, retarget, idle_min, idle_max, margin, min_seeing,
-            min_kills, engage, attack_skill, attack_range, attack_interval)) {
+            backend, world, class_id, wanderers, fighters, looters, seed, prefix, password,
+            duration, tick_hz, ping, connect, arrive, retarget, idle_min, idle_max, margin,
+            min_seeing, min_kills, min_pickups, engage, attack_skill, attack_range, attack_interval,
+            loot_radius, pickup_range, pickup_retry)) {
         return std::unexpected(*err);
     }
-    if (*wanderers + *fighters == 0 || *tick_hz == 0 || *duration == 0) {
+    // Summed in 64 bits so that huge role counts cannot wrap around to a valid-looking total.
+    const std::uint64_t bots = std::uint64_t{*wanderers} + *fighters + *looters;
+    if (bots == 0 || bots > std::numeric_limits<std::uint32_t>::max() || *tick_hz == 0 ||
+        *duration == 0) {
         return std::unexpected(common::ConfigError{
             "at least one bot, client.tick_hz and run.duration_sec must be positive"});
     }
-    if (*ping == 0 || *connect == 0 || *attack_interval == 0 || *retarget == 0) {
+    if (*ping == 0 || *connect == 0 || *attack_interval == 0 || *retarget == 0 ||
+        *pickup_retry == 0) {
         return std::unexpected(common::ConfigError{
-            "client intervals, fighter.attack_interval_ms and wanderer.retarget_after_ticks must "
-            "be positive"});
+            "client intervals, fighter.attack_interval_ms, looter.pickup_retry_ms and "
+            "wanderer.retarget_after_ticks must be positive"});
     }
     // Written so that NaN fails too.
     const auto positive = [](double value) { return value > 0.0; };
     const auto non_negative = [](double value) { return value >= 0.0; };
     if (!positive(*arrive) || !non_negative(*margin) || !positive(*engage) ||
-        !positive(*attack_range)) {
+        !positive(*attack_range) || !positive(*loot_radius) || !positive(*pickup_range)) {
         return std::unexpected(
             common::ConfigError{"bot distances must be positive (wanderer.margin_m may be zero)"});
     }
@@ -78,12 +89,14 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     out.class_id = common::ClassId{*class_id};
     out.wanderers = *wanderers;
     out.fighters = *fighters;
+    out.looters = *looters;
     out.seed = *seed;
     out.account_prefix = *prefix;
     out.password = *password;
     out.duration = std::chrono::seconds{*duration};
-    out.min_bots_seeing_others = *min_seeing;
-    out.min_kills = *min_kills;
+    out.criteria = PassCriteria{.min_bots_seeing_others = *min_seeing,
+                                .min_kills = *min_kills,
+                                .min_pickups = *min_pickups};
     out.client_tick_hz = *tick_hz;
     out.ping_interval = std::chrono::milliseconds{*ping};
     out.connect_timeout = std::chrono::milliseconds{*connect};
@@ -97,6 +110,10 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
                                      .attack_range_m = static_cast<float>(*attack_range),
                                      .attack_interval = std::chrono::milliseconds{*attack_interval},
                                      .roam = out.wanderer};
+    out.looter = bot::LooterParams{.loot_radius_m = static_cast<float>(*loot_radius),
+                                   .pickup_range_m = static_cast<float>(*pickup_range),
+                                   .pickup_retry = std::chrono::milliseconds{*pickup_retry},
+                                   .fight = out.fighter};
     return out;
 }
 

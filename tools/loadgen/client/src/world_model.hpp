@@ -12,19 +12,30 @@
 
 namespace sa::loadgen {
 
-// What one bot believes about the world, rebuilt from Welcome and WorldSnapshot messages. It is
-// also the consistency checker: a snapshot that contradicts earlier ones is counted, because the
-// server promised a coherent interest set (see README "Zone의 한 틱").
+// Which command a request id was spent on, so its result lands in the right counter.
+enum class RequestKind : std::uint8_t { kCast, kPickup };
+
+// What one bot believes about the world, rebuilt from Welcome, WorldSnapshot, CommandResult and
+// InventoryUpdate messages. It is also the consistency checker: a message that contradicts earlier
+// ones is counted, because the server promised a coherent interest set (see README "Zone의 한
+// 틱") and one final answer per request (see README "자산과 멱등성").
 class WorldModel {
 public:
     struct Combat {
         std::uint64_t casts_accepted = 0;
         std::uint64_t casts_rejected = 0;
-        std::uint64_t results_pending = 0;  // waiting for the Backend; a final result follows
-        std::uint64_t results_unknown = 0;  // the zone could not learn the outcome
+        std::uint64_t casts_unknown = 0;  // the zone could not learn the outcome
         std::uint64_t hits_dealt = 0;
         std::uint64_t kills = 0;
         std::uint64_t deaths = 0;
+    };
+
+    struct Loot {
+        std::uint64_t pickups_acquired = 0;
+        std::uint64_t pickups_rejected = 0;  // final refusals: taken, reserved, full, not found
+        std::uint64_t pickups_unknown = 0;   // the Backend did not answer; the bot may ask again
+        std::uint32_t items_held = 0;        // from the last InventoryUpdate
+        std::uint64_t gold = 0;
     };
 
     struct Integrity {
@@ -36,18 +47,23 @@ public:
         std::uint64_t snapshot_before_welcome = 0;  // world state before the session was set up
         std::uint64_t server_tick_regressed = 0;    // a snapshot older than the previous one
         std::uint64_t self_mismatch = 0;  // the snapshot's own entity is not the welcomed one
+        std::uint64_t result_of_unknown_request = 0;    // a verdict for a request never sent
+        std::uint64_t inventory_version_regressed = 0;  // an older inventory after a newer one
 
         [[nodiscard]] std::uint64_t Total() const noexcept {
             return despawn_of_unknown + spawn_of_known + update_of_unknown + self_in_view +
                    input_seq_regressed + snapshot_before_welcome + server_tick_regressed +
-                   self_mismatch;
+                   self_mismatch + result_of_unknown_request + inventory_version_regressed;
         }
     };
 
     void OnWelcome(const game::v1::Welcome& welcome);
     void OnSnapshot(const game::v1::WorldSnapshot& snapshot);
+    // Registers a request the bot is about to send; its final result is counted under `kind`.
+    void ExpectResult(common::RequestId request, RequestKind kind);
     void OnCommandResult(const game::v1::CommandResult& result);
     void OnCombatEvent(const game::v1::CombatEvent& event);
+    void OnInventoryUpdate(const game::v1::InventoryUpdate& update);
 
     [[nodiscard]] bool welcomed() const noexcept { return welcomed_; }
     [[nodiscard]] common::EntityId self() const noexcept { return self_; }
@@ -63,6 +79,10 @@ public:
     [[nodiscard]] std::uint64_t snapshots() const noexcept { return snapshots_; }
     [[nodiscard]] const Integrity& integrity() const noexcept { return integrity_; }
     [[nodiscard]] const Combat& combat() const noexcept { return combat_; }
+    [[nodiscard]] const Loot& loot() const noexcept { return loot_; }
+    // Requests still waiting for a final answer (a pickup the Backend is deciding, or one the run
+    // ended before).
+    [[nodiscard]] std::size_t awaiting_results() const noexcept { return awaiting_.size(); }
     [[nodiscard]] std::int32_t self_hp() const noexcept { return self_hp_; }
     [[nodiscard]] std::int32_t self_max_hp() const noexcept { return self_max_hp_; }
 
@@ -86,9 +106,12 @@ private:
         std::int32_t hp = 0;
     };
     std::unordered_map<common::EntityId, Known> visible_;
+    std::unordered_map<common::RequestId, RequestKind> awaiting_;
+    std::uint32_t inventory_version_ = 0;
     std::int32_t self_hp_ = 0;
     std::int32_t self_max_hp_ = 0;
     Combat combat_;
+    Loot loot_;
     std::vector<bot::SeenEntity> visible_cache_;
     bool cache_dirty_ = true;
     Integrity integrity_;

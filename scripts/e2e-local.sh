@@ -27,6 +27,7 @@ STACK_PORTS=(5100 5101 7777 7778 7801)
 profile_value() { sed -nE "s/^$1[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*/\1/p" "$PROFILE" | head -1 | tr -d ' '; }
 ACCOUNT_PREFIX="$(profile_value account_prefix)"
 MIN_KILLS="$(profile_value min_kills)"; MIN_KILLS="${MIN_KILLS:-0}"
+MIN_PICKUPS="$(profile_value min_pickups)"; MIN_PICKUPS="${MIN_PICKUPS:-0}"
 
 psql_value() { docker exec sa-postgres psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"; }
 port_open() { ss -ltn "sport = :$1" | grep -q LISTEN; }
@@ -90,10 +91,13 @@ live=$(psql_value "SELECT count(*) FROM game.character_sessions s JOIN game.acco
 echo "live sessions after run: $live"
 if [ "$live" != "0" ]; then echo "FAIL: sessions left open in the directory"; verdict=1; fi
 
-# What the bots saw is not the whole truth: kills must also have been recorded by the Backend
-# (issue 013 passed every bot-side check while no kill reached the database).
+# What the bots saw is not the whole truth: kills and pickups must also have been recorded by the
+# Backend (issue 013 passed every bot-side check while no kill reached the database).
 recorded=$(psql_value "SELECT count(*) FROM game.kill_receipts WHERE created_at >= '$run_started'")
 echo "kills recorded by the backend: $recorded (required $MIN_KILLS)"
 if [ "$recorded" -lt "$MIN_KILLS" ]; then echo "FAIL: kills were not recorded by the backend"; verdict=1; fi
+acquired=$(psql_value "SELECT count(*) FROM game.economy_ledger WHERE kind = 'item_acquired' AND created_at >= '$run_started'")
+echo "items acquired in the ledger: $acquired (required $MIN_PICKUPS)"
+if [ "$acquired" -lt "$MIN_PICKUPS" ]; then echo "FAIL: pickups were not recorded by the backend"; verdict=1; fi
 echo "logs: $RUN_DIR"
 exit $verdict

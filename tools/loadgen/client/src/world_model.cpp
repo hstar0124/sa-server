@@ -1,6 +1,7 @@
 #include "world_model.hpp"
 
 #include <algorithm>
+#include <cstdint>
 
 namespace sa::loadgen {
 namespace {
@@ -17,9 +18,21 @@ bot::SeenKind ToKind(game::v1::EntityKind kind) {
             return bot::SeenKind::kMonster;
         case game::v1::ENTITY_KIND_PROJECTILE:
             return bot::SeenKind::kProjectile;
+        case game::v1::ENTITY_KIND_DROPPED_ITEM:
+            return bot::SeenKind::kItem;
         default:
             return bot::SeenKind::kOther;
     }
+}
+
+// The counter a final verdict lands in. UNKNOWN is not a refusal: the zone could not learn the
+// outcome, and the same request may still succeed when asked again.
+std::uint64_t& VerdictCounter(game::v1::CommandStatus status, std::uint64_t& accepted,
+                              std::uint64_t& rejected, std::uint64_t& unknown) {
+    if (status == game::v1::COMMAND_STATUS_ACCEPTED) {
+        return accepted;
+    }
+    return status == game::v1::COMMAND_STATUS_UNKNOWN ? unknown : rejected;
 }
 
 }  // namespace
@@ -90,22 +103,41 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
     cache_dirty_ = true;
 }
 
+void WorldModel::ExpectResult(common::RequestId request, RequestKind kind) {
+    awaiting_.insert_or_assign(request, kind);
+}
+
 void WorldModel::OnCommandResult(const game::v1::CommandResult& result) {
-    switch (result.status()) {
-        case game::v1::COMMAND_STATUS_ACCEPTED:
-            ++combat_.casts_accepted;
+    const auto awaiting = awaiting_.find(common::RequestId{result.request_id()});
+    if (awaiting == awaiting_.end()) {
+        ++integrity_.result_of_unknown_request;
+        return;
+    }
+    if (result.status() == game::v1::COMMAND_STATUS_PENDING) {
+        return;  // the Backend is still deciding; the final verdict follows
+    }
+    const RequestKind kind = awaiting->second;
+    awaiting_.erase(awaiting);
+    switch (kind) {
+        case RequestKind::kCast:
+            ++VerdictCounter(result.status(), combat_.casts_accepted, combat_.casts_rejected,
+                             combat_.casts_unknown);
             return;
-        case game::v1::COMMAND_STATUS_REJECTED:
-            ++combat_.casts_rejected;
-            return;
-        case game::v1::COMMAND_STATUS_PENDING:
-            ++combat_.results_pending;
-            return;
-        case game::v1::COMMAND_STATUS_UNKNOWN:
-        default:
-            ++combat_.results_unknown;
+        case RequestKind::kPickup:
+            ++VerdictCounter(result.status(), loot_.pickups_acquired, loot_.pickups_rejected,
+                             loot_.pickups_unknown);
             return;
     }
+}
+
+void WorldModel::OnInventoryUpdate(const game::v1::InventoryUpdate& update) {
+    if (update.version() < inventory_version_) {
+        ++integrity_.inventory_version_regressed;
+        return;  // an older state must not overwrite a newer one
+    }
+    inventory_version_ = update.version();
+    loot_.items_held = static_cast<std::uint32_t>(update.items_size());
+    loot_.gold = update.gold();
 }
 
 void WorldModel::OnCombatEvent(const game::v1::CombatEvent& event) {
