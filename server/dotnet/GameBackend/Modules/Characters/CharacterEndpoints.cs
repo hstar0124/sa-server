@@ -18,6 +18,11 @@ internal sealed record CharacterResponse(long CharacterId, long WorldId, string 
         => new(character.Id.Value, character.WorldId.Value, character.Name, character.ClassId.Value);
 }
 
+internal sealed record CharacterStatsResponse(long Kills, long ItemsAcquired, long GoldEarned, long AsOfEventSeq)
+{
+    public static CharacterStatsResponse From(CharacterStats stats) => new(stats.Kills, stats.ItemsAcquired, stats.GoldEarned, stats.AsOfEventSeq);
+}
+
 internal static class CharacterEndpoints
 {
     public static IEndpointRouteBuilder MapCharacterEndpoints(this IEndpointRouteBuilder app)
@@ -25,7 +30,17 @@ internal static class CharacterEndpoints
         RouteGroupBuilder group = app.MapGroup("/api/v1/worlds/{worldId:long}/characters").RequireAuthorization();
         group.MapGet("/", ListAsync);
         group.MapPost("/", CreateAsync);
+        group.MapGet("/{characterId:long}/stats", StatsAsync);
         return app;
+    }
+
+    private static async Task<Results<Ok<CharacterStatsResponse>, ProblemHttpResult>> StatsAsync(
+        WorldId worldId, CharacterId characterId, ClaimsPrincipal principal, CharacterRepository characters, CancellationToken cancellationToken)
+    {
+        CharacterStats? stats = await characters.ReadStatsAsync(characterId, CurrentAccount.Require(principal), worldId, cancellationToken);
+        return stats is null
+            ? Problems.NotFound("unknown-character", "no such character on this account")
+            : TypedResults.Ok(CharacterStatsResponse.From(stats));
     }
 
     private static async Task<Ok<IReadOnlyList<CharacterResponse>>> ListAsync(

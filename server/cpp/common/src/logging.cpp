@@ -24,7 +24,9 @@ std::expected<LoggingConfig, ConfigError> LoggingConfig::FromConfig(const Config
 void InitLogging(std::string_view service, const LoggingConfig& config) {
     auto logger = spdlog::stdout_color_mt(std::string{service});
     logger->set_level(spdlog::level::from_str(config.level));
-    logger->set_pattern("%Y-%m-%dT%H:%M:%S.%eZ %^%l%$ [%n] %v");
+    // The timestamp claims UTC ("Z"), so it must be formatted in UTC: spdlog's default is local
+    // time, which on a host outside UTC wrote local hours under a "Z".
+    logger->set_pattern("%Y-%m-%dT%H:%M:%S.%eZ %^%l%$ [%n] %v", spdlog::pattern_time_type::utc);
     spdlog::set_default_logger(std::move(logger));
 }
 

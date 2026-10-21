@@ -1,0 +1,16 @@
+# Build contexts are the repository root; keep outputs, VCS and tooling state out of the layers.
+.git
+build/
+out/
+**/bin/
+**/obj/
+vcpkg_installed/
+.cache/
+.idea/
+.vscode/
+docs/
+tools/viewer/
+*.local.toml
+*.local.json
+.env
+.env.*

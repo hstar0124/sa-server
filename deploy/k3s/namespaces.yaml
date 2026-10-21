@@ -1,0 +1,10 @@
+# Data stores apart from game processes, so network policies can say who reaches them.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: data
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: game

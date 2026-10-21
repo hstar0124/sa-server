@@ -97,7 +97,8 @@ int Run(int argc, char** argv) {
                                         .port = endpoint.port,
                                         .frame_limits = config->zone_link_frame_limits,
                                         .reconnect_backoff = config->zone_link_reconnect_backoff,
-                                        .close_linger = config->zone_link_close_linger},
+                                        .close_linger = config->zone_link_close_linger,
+                                        .establish_timeout = config->zone_link_establish_timeout},
             gateway_instance, registry));
     }
 

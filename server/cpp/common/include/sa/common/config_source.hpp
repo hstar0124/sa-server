@@ -15,6 +15,7 @@
 // Process configuration: one TOML file plus environment overrides.
 //   file:  [zone] simulation_hz = 20
 //   env:   SA_ZONE__ZONE__SIMULATION_HZ=30     (prefix + section + "__" + key, case-insensitive)
+//   array: SA_GATEWAY__ZONES__0__ADDRESS=zone-a (an [[zones]] entry by its index from 0)
 // Every tunable is read through Require()/GetOr(); code never embeds the literal.
 namespace sa::common {
 
@@ -80,8 +81,9 @@ public:
         return env_overrides_.contains(key) || static_cast<bool>(table_.at_path(key));
     }
 
-    // Each table of an array-of-tables ([[zones]]) as its own source. Environment overrides do
-    // not reach into arrays: repeated sections are deployment topology, not tunables.
+    // Each table of an array-of-tables ([[zones]]) as its own source. Environment overrides name an
+    // entry by its index (ZONES__0__ADDRESS): a deployment changes addresses, not the file. An
+    // override for an entry the file does not have is an error, so a typo is not ignored.
     [[nodiscard]] std::expected<std::vector<ConfigSource>, ConfigError> Sections(
         std::string_view array_key) const;
 

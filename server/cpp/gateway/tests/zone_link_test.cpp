@@ -23,8 +23,9 @@ constexpr common::ZoneId kZone{1};
 constexpr std::uint32_t kOtherZone = 2;
 constexpr std::chrono::milliseconds kTestBackoff{10};
 constexpr std::chrono::milliseconds kTestLinger{50};
+constexpr std::chrono::milliseconds kTestEstablish{50};
 
-// Accepts gateway links and answers each with a LinkWelcome naming `welcome_zone`.
+// Accepts gateway links and answers each with a LinkWelcome naming `welcome_zone`, unless `silent`.
 class FakeZone {
 public:
     explicit FakeZone(asio::io_context& io)
@@ -35,6 +36,7 @@ public:
     [[nodiscard]] std::uint16_t port() const { return acceptor_.local_endpoint().port(); }
 
     std::uint32_t welcome_zone = kZone.value();
+    bool silent = false;  // accept and say nothing, like a zone stuck before its welcome
     int connections = 0;
 
 private:
@@ -44,6 +46,11 @@ private:
                 return;
             }
             ++connections;
+            if (silent) {
+                open_.push_back(std::move(socket));
+                Accept();
+                return;
+            }
             internal::v1::ZoneToGateway welcome;
             welcome.mutable_link_welcome()->set_zone_id(welcome_zone);
             const std::string payload = welcome.SerializeAsString();
@@ -90,7 +97,8 @@ std::shared_ptr<ZoneLink> LinkTo(asio::io_context& io, const FakeZone& zone,
                                                      .port = zone.port(),
                                                      .frame_limits = common::FrameLimits{},
                                                      .reconnect_backoff = kTestBackoff,
-                                                     .close_linger = kTestLinger},
+                                                     .close_linger = kTestLinger,
+                                                     .establish_timeout = kTestEstablish},
                                       common::InstanceId::Generate(), handler);
 }
 
@@ -112,6 +120,21 @@ TEST(ZoneLink, AWelcomeFromAnotherZoneIsRefusedAndTheLinkRetries) {
     asio::io_context io;
     FakeZone zone{io};
     zone.welcome_zone = kOtherZone;
+    RecordingHandler handler;
+    auto link = LinkTo(io, zone, handler);
+    link->Start();
+    RunUntil(io, [&] { return zone.connections >= 2; });
+    EXPECT_EQ(handler.ready, 0);
+    EXPECT_FALSE(link->is_ready());
+    StopAndDrain(io, link);
+}
+
+// A zone that accepts the connection but never welcomes it must not hold the link: the
+// establishment deadline closes the attempt and the link tries again.
+TEST(ZoneLink, AZoneThatNeverWelcomesIsGivenUpOnAndTriedAgain) {
+    asio::io_context io;
+    FakeZone zone{io};
+    zone.silent = true;
     RecordingHandler handler;
     auto link = LinkTo(io, zone, handler);
     link->Start();

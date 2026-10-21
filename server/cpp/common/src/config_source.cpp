@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <ranges>
+#include <system_error>
 
 // POSIX process environment; not declared in <cstdlib>. Read-only use.
 extern char**
@@ -76,10 +78,33 @@ std::expected<std::vector<ConfigSource>, ConfigError> ConfigSource::Sections(
         return std::unexpected(
             ConfigError{"config key '" + std::string{array_key} + "' must be an array of tables"});
     }
+    std::vector<std::map<std::string, std::string>> overrides(array->size());
+    const std::string prefix = std::string{array_key} + ".";
+    for (const auto& [key, raw] : env_overrides_) {
+        if (!key.starts_with(prefix)) {
+            continue;
+        }
+        const std::string_view rest = std::string_view{key}.substr(prefix.size());
+        const std::size_t dot = rest.find('.');
+        const std::string index_text{rest.substr(0, dot)};
+        std::size_t index = 0;
+        // std::from_chars takes a [first, last) pointer range.
+        // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        const char* const index_end = index_text.data() + index_text.size();
+        const auto [parsed_end, error] = std::from_chars(index_text.data(), index_end, index);
+        // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        if (dot == std::string_view::npos || error != std::errc{} || parsed_end != index_end ||
+            index >= overrides.size()) {
+            return std::unexpected(ConfigError{"environment override '" + key +
+                                               "' names no entry of [[" + std::string{array_key} +
+                                               "]]"});
+        }
+        overrides[index].emplace(std::string{rest.substr(dot + 1)}, raw);
+    }
     std::vector<ConfigSource> sections;
     sections.reserve(array->size());
-    for (const toml::node& item : *array) {
-        sections.emplace_back(ConfigSource{*item.as_table(), {}});
+    for (std::size_t i = 0; i < array->size(); ++i) {
+        sections.emplace_back(ConfigSource{*(*array)[i].as_table(), std::move(overrides[i])});
     }
     return sections;
 }

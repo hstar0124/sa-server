@@ -1,6 +1,7 @@
 using Google.Protobuf;
 using Grpc.Core;
 using Sa.Backend.V1;
+using Sa.Events.V1;
 using Sa.GameBackend.IntegrationTests.Harness;
 
 namespace Sa.GameBackend.IntegrationTests.Economy;
@@ -58,6 +59,19 @@ public sealed class RecordKillTests(PostgresFixture postgres) : IDisposable
         Assert.Equal(1, receipts);
         Assert.Equal(1, credits);
         Assert.Equal(2, groundItems);
+
+        // The confirmed fact left exactly one event in the same transaction, caused by the kill id; the retry added none.
+        IReadOnlyList<Db.OutboxRow> outbox = await Db.OutboxOfCharacterAsync(postgres.ConnectionString, World, killer.CharacterId);
+        Db.OutboxRow recorded = Assert.Single(outbox);
+        Assert.Equal(1, recorded.AggregateSeq);
+        Assert.Equal(KillRecorded.Descriptor.Name, recorded.EventType);
+        Assert.Equal(kill.KillId.ToByteArray(), recorded.RequestId);
+        KillRecorded payload = KillRecorded.Parser.ParseFrom(recorded.Payload);
+        Assert.Equal((ulong)killer.CharacterId, payload.CharacterId);
+        Assert.Equal(Slime, payload.MonsterTemplateId);
+        Assert.Equal(SlimeGold, payload.GoldGranted);
+        Assert.Equal(SlimeGold, payload.GoldBalance);
+        Assert.Equal(first.Items.Select(i => i.ItemInstanceId), payload.Drops.Select(d => d.ItemInstanceId));
     }
 
     [Fact]
@@ -79,6 +93,7 @@ public sealed class RecordKillTests(PostgresFixture postgres) : IDisposable
         Assert.Empty(assets.Wallet);
         long receipts = await Db.ScalarAsync<long>(postgres.ConnectionString, "SELECT count(*) FROM game.kill_receipts WHERE killer_character_id = @c", new { c = killer.CharacterId });
         Assert.Equal(0, receipts);
+        Assert.Empty(await Db.OutboxOfCharacterAsync(postgres.ConnectionString, World, killer.CharacterId));
     }
 
     [Fact]

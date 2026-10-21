@@ -25,6 +25,10 @@ struct ZoneLinkConfig {
     common::FrameLimits frame_limits;
     std::chrono::milliseconds reconnect_backoff{};
     std::chrono::milliseconds close_linger{};
+    // Bounds one attempt from resolving the address to the zone's LinkWelcome. Without it a connect
+    // whose SYN goes unanswered waits for the kernel's retries (over two minutes), and a zone that
+    // accepts but never welcomes holds the link forever.
+    std::chrono::milliseconds establish_timeout{};
 };
 
 // Persistent connection from this gateway to one zone, carrying all sessions routed there.
@@ -65,6 +69,7 @@ private:
     void OnFrame(std::span<const std::byte> payload);
     void OnClosed(const std::error_code& ec);
     void ScheduleReconnect(const std::string& why);
+    void OnEstablishDeadline();
     void Send(const internal::v1::GatewayToZone& message);
 
     asio::io_context& io_;
@@ -76,6 +81,7 @@ private:
     // not answer can take minutes, and shutdown waits for outstanding work.
     std::shared_ptr<asio::ip::tcp::socket> connecting_;
     asio::steady_timer backoff_timer_;
+    asio::steady_timer establish_timer_;
     std::shared_ptr<common::FramedConnection> connection_;
     State state_ = State::kStopped;
     std::uint32_t consecutive_failures_ = 0;  // first failure is a warning, the rest are debug

@@ -36,6 +36,13 @@
 | [30](30-cpp-rule-cleanup-units-constants.md) | C++ 규칙 정리 2: 시간은 chrono로, ID는 타입으로, 수치는 데이터로 | – | 0.3.0 |
 | [31](31-backend-rule-cleanup.md) | Backend 규칙 정리: 타입 있는 ID, 결과 타입, 모듈 경계, DB 제약 | – | 0.3.0 |
 | [32](32-loadgen-looter.md) | 획득 봇: 떨어진 아이템을 줍는 Looter와 획득 end-to-end | 5 | 0.3.0 |
+| [33](33-events-contracts-schema.md) | 이벤트 계약과 소비 쪽 스키마: 처치 이벤트, Inbox, 조회 모델 | 6 | 0.4.0 |
+| [34](34-backend-outbox.md) | Backend Outbox: 확정된 처치와 획득이 같은 트랜잭션에 이벤트를 남긴다 | 6 | 0.4.0 |
+| [35](35-eventworker-publisher.md) | EventWorker 발행자: Outbox를 Kafka로, 캐릭터마다 순서대로, 발행자는 하나 | 6 | 0.4.0 |
+| [36](36-eventworker-consumer.md) | EventWorker 소비자: 확정 이벤트를 한 번씩 캐릭터 통계로 | 6 | 0.4.0 |
+| [37](37-container-images.md) | 컨테이너 이미지: 프로세스 여섯을 이미지로, release 빌드를 처음으로 | 6 | 0.4.0 |
+| [38](38-deploy-k3s.md) | K3s 배포: 같은 이미지, 같은 설정, 같은 검사로 단일 노드 클러스터에 | 6 | 0.4.0 |
+| [39](39-stage-6-wrap-up.md) | 6단계 마무리: 남은 계획 정리와 완료 표기 | 6 | 0.4.0 |
 
 ## 형식
 

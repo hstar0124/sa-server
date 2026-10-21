@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: game
+resources:
+  - backend.yaml
+  - eventworker.yaml
+  - zone-a.yaml
+  - gateway.yaml
+  - network-policy.yaml
+configMapGenerator:
+  # The same TOML the processes read on a developer machine; only addresses differ, and those
+  # come from environment overrides in the Deployments. The name carries a content hash, so a
+  # changed file rolls the pods that mount it.
+  - name: zone-a-config
+    files:
+      - zone.toml=../../compose/config/zone-a.toml
+  - name: gateway-config
+    files:
+      - gateway.toml=../../compose/config/gateway.toml

@@ -1,0 +1,50 @@
+# Outbox publisher and statistics consumer. One replica; a rolling update briefly runs two, which
+# is safe: only the instance holding the publisher lock publishes, and the consumer group gives
+# each partition to one of them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eventworker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eventworker
+  template:
+    metadata:
+      labels:
+        app: eventworker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: eventworker
+          image: sa/eventworker:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: Database__ConnectionString
+              valueFrom:
+                secretKeyRef:
+                  name: sa-database
+                  key: connection-string
+            - name: Kafka__BootstrapServers
+              value: kafka.data.svc:9092
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 384Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

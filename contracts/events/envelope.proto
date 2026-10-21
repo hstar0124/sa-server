@@ -21,9 +21,27 @@ message EventEnvelope {
   bytes payload = 10;
 }
 
+// ---- character 집합 (토픽 game.character-events.v1, 키 world_id:character_id) ----
+
+// 바닥 아이템이 캐릭터 인벤토리로 들어왔다 (PickupItem 커밋).
 message InventoryItemAcquired {
   uint64 character_id = 1;
   bytes item_instance_id = 2;
   uint32 item_template_id = 3;
   uint32 inventory_version = 4;
+}
+
+// 캐릭터의 몬스터 처치가 기록됐다: 영수증, 드롭 표에서 정한 골드, 떨어진 아이템 (RecordKill 커밋).
+message KillRecorded {
+  uint64 character_id = 1;
+  bytes kill_id = 2;            // 16바이트. kill_receipts의 기본 키
+  uint32 monster_template_id = 3;
+  uint64 gold_granted = 4;
+  uint64 gold_balance = 5;      // 입금 뒤 잔액
+  repeated DroppedItemRef drops = 6;
+}
+
+message DroppedItemRef {
+  bytes item_instance_id = 1;
+  uint32 item_template_id = 2;
 }

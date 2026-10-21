@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using Sa.GameBackend.IntegrationTests.Harness;
 
 namespace Sa.GameBackend.IntegrationTests.Characters;
@@ -7,6 +8,7 @@ namespace Sa.GameBackend.IntegrationTests.Characters;
 public sealed class CharacterTests(PostgresFixture postgres) : IDisposable
 {
     private const long World = 1;
+    private const long OtherWorld = 2;  // seeded in 0003
     private const long MissingWorld = 999;
     private const int MaxPerWorld = 3;
     private const int UndefinedClass = 99;  // game-data defines classes 1-3
@@ -104,6 +106,29 @@ public sealed class CharacterTests(PostgresFixture postgres) : IDisposable
         HttpResponseMessage response = await owner.CreateCharacterAsync(World, name);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Stats_come_from_the_read_model_default_to_zero_and_are_the_owners_only()
+    {
+        ApiClient owner = await Api.AsNewAccountAsync(Unique.Username());
+        ApiClient other = await Api.AsNewAccountAsync(Unique.Username());
+        HttpResponseMessage created = await owner.CreateCharacterAsync(World, Unique.CharacterName());
+        long characterId = (await created.Content.ReadFromJsonAsync<ApiClient.CharacterResponse>())!.CharacterId;
+
+        HttpResponseMessage fresh = await owner.GetStatsAsync(World, characterId);
+        await Db.ExecuteAsync(postgres.ConnectionString,
+            "INSERT INTO game.character_projections (world_id, character_id, kills, items_acquired, gold_earned, last_event_seq) VALUES (@World, @characterId, 4, 2, 13, 6)",
+            new { World, characterId });
+        HttpResponseMessage projected = await owner.GetStatsAsync(World, characterId);
+        HttpResponseMessage intruder = await other.GetStatsAsync(World, characterId);
+        HttpResponseMessage otherWorld = await owner.GetStatsAsync(OtherWorld, characterId);
+
+        Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
+        Assert.Equal(new ApiClient.StatsResponse(0, 0, 0, 0), await fresh.Content.ReadFromJsonAsync<ApiClient.StatsResponse>());
+        Assert.Equal(new ApiClient.StatsResponse(4, 2, 13, 6), await projected.Content.ReadFromJsonAsync<ApiClient.StatsResponse>());
+        Assert.Equal(HttpStatusCode.NotFound, intruder.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, otherWorld.StatusCode);
     }
 
     public void Dispose() => _factory.Dispose();

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs the whole stack locally (PostgreSQL in compose, everything else as host processes) and
-# drives it with the loadgen smoke profile. Exit code is the loadgen verdict.
+# Runs the whole stack locally (PostgreSQL and Kafka in compose, everything else as host processes) and
+# drives it with the loadgen smoke profile. Exit code is the verdict of the bots and of the checks
+# that follow them in the database.
 #
 #   scripts/e2e-local.sh [profile.toml]
 #
@@ -23,19 +24,10 @@ JWT_KEY="${SA_JWT_KEY:-$(openssl rand -base64 32)}"
 ZONE_SEED="${SA_E2E_ZONE_SEED:-1}"
 STACK_PORTS=(5100 5101 7777 7778 7801)
 
-# Reads a scalar from the profile; enough for the two keys the post-checks need.
-profile_value() { sed -nE "s/^$1[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*/\1/p" "$PROFILE" | head -1 | tr -d ' '; }
-ACCOUNT_PREFIX="$(profile_value account_prefix)"
-MIN_KILLS="$(profile_value min_kills)"; MIN_KILLS="${MIN_KILLS:-0}"
-MIN_PICKUPS="$(profile_value min_pickups)"; MIN_PICKUPS="${MIN_PICKUPS:-0}"
-
 psql_value() { docker exec sa-postgres psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"; }
+. scripts/lib/e2e.sh
+
 port_open() { ss -ltn "sport = :$1" | grep -q LISTEN; }
-wait_for() {  # description, command...
-  local what="$1"; shift
-  for _ in $(seq 1 60); do "$@" && return 0; sleep 0.5; done
-  echo "timed out waiting for $what"; return 1
-}
 
 # Another stack (scripts/dev-stack.sh, an earlier run) on these ports would answer instead of
 # ours and silently be what the bots test.
@@ -45,7 +37,8 @@ done
 
 pids=()
 # Orderly shutdown in reverse start order: gateway first (it ends sessions at the Backend), then
-# zone, then backend. Each pid is recorded as soon as it starts, so a failed start still cleans up.
+# zone, then backend, then the EventWorker. Each pid is recorded as soon as it starts, so a failed
+# start still cleans up.
 cleanup() {
   for pid in "${pids[@]:-}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
 }
@@ -53,6 +46,15 @@ trap cleanup EXIT
 
 docker compose -f deploy/compose/docker-compose.yml up -d --wait >/dev/null
 dotnet run --project server/dotnet/Migrator --no-build -- --connection "$CONN" --scripts database/migrations >"$RUN_DIR/migrator.log" 2>&1
+
+# Started first and stopped last, so it publishes and applies what the run leaves behind.
+(
+  cd server/dotnet/EventWorker
+  Database__ConnectionString="$CONN" exec bin/Debug/net10.0/EventWorker
+) >"$RUN_DIR/eventworker.log" 2>&1 &
+pids=("$!" "${pids[@]}")
+wait_for "the event publisher" grep -q "outbox publisher active" "$RUN_DIR/eventworker.log" \
+  || { cat "$RUN_DIR/eventworker.log"; exit 1; }
 
 (
   cd server/dotnet/GameBackend
@@ -81,23 +83,6 @@ set +e
 verdict=$?
 set -e
 
-# Bots have closed their sockets; give the gateway a moment to detach and end their sessions,
-# then check the directory agrees. Only this run's sessions count: a crashed viewer or dev
-# session from before would otherwise fail every later run.
-sleep 1
-live=$(psql_value "SELECT count(*) FROM game.character_sessions s JOIN game.accounts a USING (account_id)
-                   WHERE s.ended_at IS NULL AND s.started_at >= '$run_started'
-                     AND a.username LIKE '${ACCOUNT_PREFIX}\_%'")
-echo "live sessions after run: $live"
-if [ "$live" != "0" ]; then echo "FAIL: sessions left open in the directory"; verdict=1; fi
-
-# What the bots saw is not the whole truth: kills and pickups must also have been recorded by the
-# Backend (issue 013 passed every bot-side check while no kill reached the database).
-recorded=$(psql_value "SELECT count(*) FROM game.kill_receipts WHERE created_at >= '$run_started'")
-echo "kills recorded by the backend: $recorded (required $MIN_KILLS)"
-if [ "$recorded" -lt "$MIN_KILLS" ]; then echo "FAIL: kills were not recorded by the backend"; verdict=1; fi
-acquired=$(psql_value "SELECT count(*) FROM game.economy_ledger WHERE kind = 'item_acquired' AND created_at >= '$run_started'")
-echo "items acquired in the ledger: $acquired (required $MIN_PICKUPS)"
-if [ "$acquired" -lt "$MIN_PICKUPS" ]; then echo "FAIL: pickups were not recorded by the backend"; verdict=1; fi
+check_run "$run_started" || { verdict=1; echo "(see $RUN_DIR for process logs)"; }
 echo "logs: $RUN_DIR"
 exit $verdict

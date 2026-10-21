@@ -1,5 +1,6 @@
 using Google.Protobuf;
 using Sa.Backend.V1;
+using Sa.Events.V1;
 using Sa.GameBackend.IntegrationTests.Harness;
 
 namespace Sa.GameBackend.IntegrationTests.Economy;
@@ -52,6 +53,10 @@ public sealed class PickupTests(PostgresFixture postgres) : IDisposable
             "SELECT count(*) FROM game.economy_ledger WHERE item_instance_id = @id AND kind = 'item_acquired'", new { id = item.ItemInstanceId.ToByteArray() });
         Assert.Equal(1, owners);
         Assert.Equal(1, acquisitions);
+        long acquiredEvents = await Db.ScalarAsync<long>(postgres.ConnectionString,
+            "SELECT count(*) FROM game.outbox_events WHERE event_type = @type AND aggregate_id = ANY(@racers)",
+            new { type = InventoryItemAcquired.Descriptor.Name, racers = racers.Select(r => r.CharacterId).ToArray() });
+        Assert.Equal(1, acquiredEvents);
     }
 
     [Fact]
@@ -77,6 +82,15 @@ public sealed class PickupTests(PostgresFixture postgres) : IDisposable
         long stored = await Db.ScalarAsync<long>(postgres.ConnectionString,
             "SELECT count(*) FROM game.command_results WHERE request_id = @id", new { id = requestId });
         Assert.Equal(1, stored);
+
+        // Kill then pickup: the character's stream numbers them 1 and 2; the retry and the refused reuse added nothing.
+        IReadOnlyList<Db.OutboxRow> outbox = await Db.OutboxOfCharacterAsync(postgres.ConnectionString, World, looter.CharacterId);
+        Assert.Equal(new[] { KillRecorded.Descriptor.Name, InventoryItemAcquired.Descriptor.Name }, outbox.Select(o => o.EventType));
+        Assert.Equal(new long[] { 1, 2 }, outbox.Select(o => o.AggregateSeq));
+        Assert.Equal(requestId, outbox[1].RequestId);
+        InventoryItemAcquired acquired = InventoryItemAcquired.Parser.ParseFrom(outbox[1].Payload);
+        Assert.Equal(drops[0].ItemInstanceId, acquired.ItemInstanceId);
+        Assert.Equal(first.InventoryVersion, acquired.InventoryVersion);
     }
 
     [Fact]
@@ -128,6 +142,10 @@ public sealed class PickupTests(PostgresFixture postgres) : IDisposable
         GetCharacterAssetsResponse assets = await economy.AssetsAsync(World, looter.CharacterId);
         Assert.Equal((uint)capacity, assets.InventoryCapacity);
         Assert.Equal(Enumerable.Range(0, capacity).Select(i => (uint)i), assets.Items.Select(i => i.SlotNo));
+        // A refusal commits its stored outcome but no event: only acquisitions are facts to publish.
+        IReadOnlyList<Db.OutboxRow> outbox = await Db.OutboxOfCharacterAsync(postgres.ConnectionString, World, looter.CharacterId);
+        Assert.Equal(capacity, outbox.Count(o => o.EventType == InventoryItemAcquired.Descriptor.Name));
+        Assert.Equal(Enumerable.Range(1, outbox.Count).Select(i => (long)i), outbox.Select(o => o.AggregateSeq));
     }
 
     [Fact]
@@ -150,6 +168,10 @@ public sealed class PickupTests(PostgresFixture postgres) : IDisposable
             "SELECT version FROM game.inventories WHERE character_id = @c", new { c = picker.CharacterId });
         Assert.Equal(1, acquisitions);
         Assert.Equal(1, version);
+        long acquiredEvents = await Db.ScalarAsync<long>(postgres.ConnectionString,
+            "SELECT count(*) FROM game.outbox_events WHERE event_type = @type AND aggregate_id = @c",
+            new { type = InventoryItemAcquired.Descriptor.Name, c = picker.CharacterId });
+        Assert.Equal(1, acquiredEvents);
     }
 
     public void Dispose() => _factory.Dispose();

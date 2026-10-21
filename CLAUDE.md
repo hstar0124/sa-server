@@ -22,6 +22,12 @@ scl enable gcc-toolset-14 -- cmake --build --preset asan && ctest --preset asan
 dotnet build server/dotnet/GameServer.slnx
 # 로컬 인프라 (1단계부터, deploy/compose)
 docker compose -f deploy/compose/docker-compose.yml up -d
+# 전체 스택 end-to-end (종료 코드 = 판정), 대화형 스택
+scripts/e2e-local.sh [profile.toml]
+scripts/dev-stack.sh up && scripts/viewer.sh
+# K3s (6단계부터, deploy/k3s/README.md): 이미지 빌드·반입 후 data → migrate → game, 같은 검사로 확인
+scripts/build-images.sh && scripts/k3s-stack.sh import && scripts/k3s-stack.sh up
+scripts/e2e-k3s.sh tools/loadgen/client/profiles/looters.toml
 ```
 `VCPKG_ROOT=/opt/vcpkg`. 빌드 산출물은 `build/`.
 
@@ -50,5 +56,5 @@ docker compose -f deploy/compose/docker-compose.yml up -d
 `Auth:SigningKey`(base64 32바이트 이상)와 DB 비밀번호는 user-secrets 또는 환경 변수로만 준다. appsettings.json에는 빈 값만 있다.
 
 ## 단계 (ADR-0002)
-완료: 0 골격·툴체인(저장소 도구, ADR-0001~0008, 설계 노트 01~05), 1 Backend 인증·캐릭터·WorldDirectory, 2 Zone 시뮬레이션·서버 호스트, 3 입장 경로(Gateway·네트워크 봇·`scripts/e2e-local.sh`), 3b WebSocket 전송·브라우저 뷰어(`tools/viewer`, `scripts/dev-stack.sh`), 4 전투(game-data 클래스·스킬·몬스터, 시뮬레이션의 스킬 검증·시전·투사체·몬스터 AI, 호스트의 결과·이벤트 전달, Fighter 봇, 뷰어 전투, 설계 노트 06), 5 자산·멱등성(items·drops·economy 데이터, 경제 스키마, Backend `Modules/Economy`: 처치 기록·획득·자산 조회, Zone 드롭 굴림·바닥 아이템·획득 예약과 정산, Looter 봇·`looters.toml`, 뷰어 획득, 설계 노트 07).
-다음: 6 Outbox·Kafka(+K3s 도입) → 7 Redis → 8 두 번째 Zone·이전 → 9 거래 → 10 부하·장애·백업·보고서
+완료: 0 골격·툴체인(저장소 도구, ADR-0001~0008, 설계 노트 01~05), 1 Backend 인증·캐릭터·WorldDirectory, 2 Zone 시뮬레이션·서버 호스트, 3 입장 경로(Gateway·네트워크 봇·`scripts/e2e-local.sh`), 3b WebSocket 전송·브라우저 뷰어(`tools/viewer`, `scripts/dev-stack.sh`), 4 전투(game-data 클래스·스킬·몬스터, 시뮬레이션의 스킬 검증·시전·투사체·몬스터 AI, 호스트의 결과·이벤트 전달, Fighter 봇, 뷰어 전투, 설계 노트 06), 5 자산·멱등성(items·drops·economy 데이터, 경제 스키마, Backend `Modules/Economy`: 처치 기록·획득·자산 조회, Zone 드롭 굴림·바닥 아이템·획득 예약과 정산, Looter 봇·`looters.toml`, 뷰어 획득, 설계 노트 07), 6 확정 이벤트·배포(Backend Outbox, EventWorker 발행자·소비자, `inbox_events`·`character_projections`, compose Kafka, 통계 API, 컨테이너 이미지 `deploy/docker`, K3s `deploy/k3s`·`scripts/k3s-stack.sh`·`scripts/e2e-k3s.sh`, 설계 노트 08).
+다음: 7 Redis → 8 두 번째 Zone·이전 → 9 거래 → 10 부하·장애·백업·보고서

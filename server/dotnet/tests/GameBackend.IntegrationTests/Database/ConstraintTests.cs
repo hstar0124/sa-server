@@ -5,7 +5,7 @@ using Sa.GameBackend.IntegrationTests.Harness;
 namespace Sa.GameBackend.IntegrationTests.Database;
 
 /// <summary>
-/// The database keeps the consistency rules on its own (migration 0005): a write that breaks one
+/// The database keeps the consistency rules on its own (migrations 0005 and 0006): a write that breaks one
 /// fails with the named constraint even when it bypasses the Backend's code.
 /// </summary>
 [Collection(SharedPostgres.Name)]
@@ -73,6 +73,37 @@ public sealed class ConstraintTests(PostgresFixture postgres) : IDisposable
             INSERT INTO game.economy_ledger (world_id, character_id, kind, currency, amount, reason)
             VALUES (@World, @Character, 'currency_credit', 'gold', -5, 'kill')
             """, new { World, Character = character }));
+    }
+
+    private const string InsertProjectionSql = """
+        INSERT INTO game.character_projections (world_id, character_id, kills)
+        VALUES (@World, @Character, @Kills)
+        """;
+
+    [Fact]
+    public async Task A_projection_names_the_characters_own_world_and_never_counts_below_zero()
+    {
+        (_, long character) = await CharacterAsync();
+        Assert.Equal("character_projections_world_character_fkey", await ViolationAsync(InsertProjectionSql,
+            new { World = OtherWorld, Character = character, Kills = 0 }));
+        Assert.Equal("character_projections_non_negative", await ViolationAsync(InsertProjectionSql,
+            new { World, Character = character, Kills = -1 }));
+    }
+
+    [Fact]
+    public async Task A_consumer_records_an_event_once_while_other_consumers_keep_their_own_record()
+    {
+        const string insertInbox = """
+            INSERT INTO game.inbox_events (consumer_name, event_id) VALUES (@Consumer, @Event)
+            """;
+        byte[] eventId = Guid.NewGuid().ToByteArray();
+        await Db.ExecuteAsync(postgres.ConnectionString, insertInbox, new { Consumer = "character-stats", Event = eventId });
+        await Db.ExecuteAsync(postgres.ConnectionString, insertInbox, new { Consumer = "rankings", Event = eventId });
+
+        Assert.Equal("inbox_events_pkey", await ViolationAsync(insertInbox, new { Consumer = "character-stats", Event = eventId }));
+        Assert.Equal("inbox_events_id_len", await ViolationAsync(insertInbox, new { Consumer = "character-stats", Event = new byte[8] }));
+        Assert.Equal("inbox_events_consumer_format", await ViolationAsync(insertInbox,
+            new { Consumer = "", Event = Guid.NewGuid().ToByteArray() }));
     }
 
     public void Dispose() => _factory.Dispose();

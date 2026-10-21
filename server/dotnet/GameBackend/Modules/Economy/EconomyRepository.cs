@@ -2,9 +2,12 @@ using System.Data;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Dapper;
+using Google.Protobuf;
 using Npgsql;
+using Sa.Events.V1;
 using Sa.GameBackend.Common;
 using Sa.GameBackend.Infrastructure.GameData;
+using Sa.GameBackend.Infrastructure.Outbox;
 
 namespace Sa.GameBackend.Modules.Economy;
 
@@ -214,6 +217,8 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         }
 
         long newBalance = await connection.ExecuteScalarAsync<long>(Cmd(CreditWalletSql, new { command.WorldId, CharacterId = command.Killer, Currency = content.PrimaryCurrency, Amount = table.Gold }, tx, ct));
+        await OutboxWriter.AppendAsync(connection, tx, new OutboxEvent(command.WorldId, EventAggregate.Character(command.Killer),
+            KillRecordedEvent(command, table.Gold, newBalance, items), command.KillId.Bytes), ct);
         if (table.Gold > 0)
         {
             await connection.ExecuteAsync(Cmd(LedgerSql, new
@@ -389,6 +394,14 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
             RequestId = command.RequestId.Bytes,
         }, tx, ct));
         var acquired = new PickupResult(PickupOutcome.Acquired, new InventoryItem(command.ItemInstanceId, new ItemTemplateId(templateId.Value), slot), version);
+        await OutboxWriter.AppendAsync(connection, tx, new OutboxEvent(command.WorldId, EventAggregate.Character(command.CharacterId),
+            new InventoryItemAcquired
+            {
+                CharacterId = (ulong)command.CharacterId.Value,
+                ItemInstanceId = ByteString.CopyFrom(command.ItemInstanceId.Bytes),
+                ItemTemplateId = (uint)templateId.Value,
+                InventoryVersion = (uint)version,
+            }, command.RequestId.Bytes), ct);
         return await ConcludeAsync(connection, tx, requestKey, acquired, ct);
     }
 
@@ -453,6 +466,24 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
                                  ?? new InventoryRow(content.InventoryCapacity, InitialInventoryVersion);
         await tx.CommitAsync(ct);
         return new CharacterAssets(items, wallet, inventory.Capacity, inventory.Version);
+    }
+
+    private static KillRecorded KillRecordedEvent(RecordKillCommand command, long goldGranted, long goldBalance, IEnumerable<DroppedItem> items)
+    {
+        var recorded = new KillRecorded
+        {
+            CharacterId = (ulong)command.Killer.Value,
+            KillId = ByteString.CopyFrom(command.KillId.Bytes),
+            MonsterTemplateId = (uint)command.MonsterTemplateId.Value,
+            GoldGranted = (ulong)goldGranted,
+            GoldBalance = (ulong)goldBalance,
+        };
+        recorded.Drops.AddRange(items.Select(item => new DroppedItemRef
+        {
+            ItemInstanceId = ByteString.CopyFrom(item.Id.Bytes),
+            ItemTemplateId = (uint)item.ItemTemplateId.Value,
+        }));
+        return recorded;
     }
 
     private static CommandDefinition Cmd(string sql, object parameters, NpgsqlTransaction tx, CancellationToken ct)
