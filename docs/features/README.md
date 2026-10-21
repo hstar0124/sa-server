@@ -35,6 +35,7 @@
 | [29](29-cpp-rule-cleanup-errors-config.md) | C++ 규칙 정리 1: 오류는 타입으로, 설정은 엄격하게, 종료는 끝까지 | – | |
 | [30](30-cpp-rule-cleanup-units-constants.md) | C++ 규칙 정리 2: 시간은 chrono로, ID는 타입으로, 수치는 데이터로 | – | |
 | [31](31-backend-rule-cleanup.md) | Backend 규칙 정리: 타입 있는 ID, 결과 타입, 모듈 경계, DB 제약 | – | |
+| [32](32-loadgen-looter.md) | 획득 봇: 떨어진 아이템을 줍는 Looter와 획득 end-to-end | 5 | |
 
 ## 형식
 
