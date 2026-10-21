@@ -7,9 +7,10 @@ using Sa.GameBackend.Common;
 namespace Sa.GameBackend.Modules.WorldDirectory;
 
 /// <summary>gRPC surface for gateways and zones. Pure mapping: decisions live in <see cref="WorldDirectoryRepository"/>.</summary>
-internal sealed class WorldDirectoryGrpcService(
+internal sealed partial class WorldDirectoryGrpcService(
     WorldDirectoryRepository repository,
-    IOptions<WorldDirectoryOptions> options) : Sa.Backend.V1.WorldDirectory.WorldDirectoryBase
+    IOptions<WorldDirectoryOptions> options,
+    ILogger<WorldDirectoryGrpcService> logger) : Sa.Backend.V1.WorldDirectory.WorldDirectoryBase
 {
     public override async Task<RedeemEntryTicketResponse> RedeemEntryTicket(RedeemEntryTicketRequest request, ServerCallContext context)
     {
@@ -53,8 +54,8 @@ internal sealed class WorldDirectoryGrpcService(
             throw new RpcException(new Status(StatusCode.InvalidArgument, "gateway_session_id must be 16 bytes"));
         }
 
-        bool ended = await repository.EndSessionAsync(sessionId, request.Reason, context.CancellationToken);
-        return new EndSessionResponse { Ended = ended };
+        EndSessionOutcome outcome = await repository.EndSessionAsync(sessionId, request.Reason, context.CancellationToken);
+        return new EndSessionResponse { Ended = outcome == EndSessionOutcome.Ended };
     }
 
     public override async Task<RenewZoneLeaseResponse> RenewZoneLease(RenewZoneLeaseRequest request, ServerCallContext context)
@@ -64,12 +65,18 @@ internal sealed class WorldDirectoryGrpcService(
             throw new RpcException(new Status(StatusCode.InvalidArgument, "zone must carry a 16-byte instance id and a positive zone id"));
         }
 
-        DateTimeOffset? expires = await repository.RenewZoneLeaseAsync(
+        ZoneLeaseRenewal renewal = await repository.RenewZoneLeaseAsync(
             instanceId, new WorldId((long)request.Zone.WorldId), (int)request.Zone.ZoneId, options.Value.ZoneLeaseDuration, context.CancellationToken);
+        if (renewal.Outcome != ZoneLeaseOutcome.Renewed)
+        {
+            LogZoneLeaseRefused(instanceId, request.Zone.ZoneId, renewal.Outcome);
+            return new RenewZoneLeaseResponse { Renewed = false };
+        }
+
         return new RenewZoneLeaseResponse
         {
-            Renewed = expires is not null,
-            LeaseExpiresAtMs = expires is null ? 0 : (ulong)expires.Value.ToUnixTimeMilliseconds(),
+            Renewed = true,
+            LeaseExpiresAtMs = (ulong)renewal.ExpiresAt!.Value.ToUnixTimeMilliseconds(),
         };
     }
 
@@ -96,4 +103,7 @@ internal sealed class WorldDirectoryGrpcService(
         RedeemOutcome.UnknownGateway => Sa.Backend.V1.RedeemOutcome.UnknownGateway,
         _ => throw new InvalidOperationException($"unmapped outcome {outcome}"),
     };
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "zone lease refused for instance {Instance} (zone {ZoneId}): {Outcome}")]
+    private partial void LogZoneLeaseRefused(InstanceId instance, uint zoneId, ZoneLeaseOutcome outcome);
 }

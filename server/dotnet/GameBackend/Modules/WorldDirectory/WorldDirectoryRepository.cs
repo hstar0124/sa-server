@@ -17,6 +17,21 @@ internal enum RedeemOutcome
     UnknownGateway,
 }
 
+internal enum ZoneLeaseOutcome
+{
+    Renewed,
+    IdentityMismatch,  // the instance id is bound to another world or zone: an instance never changes identity
+    Superseded,        // a newer instance of the same zone has registered since (issue 013)
+}
+
+internal sealed record ZoneLeaseRenewal(ZoneLeaseOutcome Outcome, DateTimeOffset? ExpiresAt);
+
+internal enum EndSessionOutcome
+{
+    Ended,
+    NotLive,  // unknown or already ended; ending it again is harmless
+}
+
 internal sealed record ZoneAssignment(WorldId WorldId, int ZoneId, InstanceId ZoneInstanceId, long OwnerEpoch);
 
 internal sealed record CharacterProfile(CharacterId Id, string Name, int ClassId);
@@ -86,11 +101,12 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
           AND first_seen_at < @FirstSeenAt AND lease_expires_at > now()
         """;
 
-    /// <summary>
-    /// Null when the instance may not hold the lease: its id is bound to a different world/zone (an
-    /// instance never changes identity), or a newer instance of the same zone has registered since.
-    /// </summary>
-    public async Task<DateTimeOffset?> RenewZoneLeaseAsync(InstanceId instanceId, WorldId worldId, int zoneId, TimeSpan duration, CancellationToken cancellationToken)
+    private const string LeaseIdentitySql = """
+        SELECT world_id = @WorldId AND zone_id = @ZoneId FROM game.zone_leases WHERE zone_instance_id = @InstanceId
+        """;
+
+    /// <summary>Renews or creates the lease, or says why the instance may not hold it.</summary>
+    public async Task<ZoneLeaseRenewal> RenewZoneLeaseAsync(InstanceId instanceId, WorldId worldId, int zoneId, TimeSpan duration, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using NpgsqlTransaction tx = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
@@ -98,13 +114,16 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
             RenewZoneLeaseSql, new { InstanceId = instanceId.Bytes, WorldId = worldId, ZoneId = zoneId, Duration = duration }, tx, cancellationToken));
         if (lease is null)
         {
-            return null;
+            // The update's conditions refused it; the row says which one.
+            bool sameIdentity = await connection.ExecuteScalarAsync<bool>(Cmd(
+                LeaseIdentitySql, new { InstanceId = instanceId.Bytes, WorldId = worldId, ZoneId = zoneId }, tx, cancellationToken));
+            return new ZoneLeaseRenewal(sameIdentity ? ZoneLeaseOutcome.Superseded : ZoneLeaseOutcome.IdentityMismatch, null);
         }
 
         await connection.ExecuteAsync(Cmd(SupersedeOlderZonesSql,
             new { InstanceId = instanceId.Bytes, WorldId = worldId, ZoneId = zoneId, FirstSeenAt = lease.FirstSeenAt }, tx, cancellationToken));
         await tx.CommitAsync(cancellationToken);
-        return new DateTimeOffset(lease.LeaseExpiresAt, TimeSpan.Zero);
+        return new ZoneLeaseRenewal(ZoneLeaseOutcome.Renewed, new DateTimeOffset(lease.LeaseExpiresAt, TimeSpan.Zero));
     }
 
     private const string RenewGatewayLeaseSql = """
@@ -130,12 +149,12 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
         WHERE gateway_session_id = @SessionId AND ended_at IS NULL
         """;
 
-    public async Task<bool> EndSessionAsync(InstanceId sessionId, string reason, CancellationToken cancellationToken)
+    public async Task<EndSessionOutcome> EndSessionAsync(InstanceId sessionId, string reason, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
         int rows = await connection.ExecuteAsync(new CommandDefinition(
             EndSessionSql, new { SessionId = sessionId.Bytes, Reason = reason }, cancellationToken: cancellationToken));
-        return rows == 1;
+        return rows == 1 ? EndSessionOutcome.Ended : EndSessionOutcome.NotLive;
     }
 
     // ---- redemption -----------------------------------------------------------------------
