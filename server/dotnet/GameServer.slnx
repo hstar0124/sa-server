@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/tests/">
+    <Project Path="tests/EventWorker.Tests/EventWorker.Tests.csproj" />
     <Project Path="tests/GameBackend.IntegrationTests/GameBackend.IntegrationTests.csproj" />
     <Project Path="tests/GameBackend.Tests/GameBackend.Tests.csproj" />
   </Folder>
