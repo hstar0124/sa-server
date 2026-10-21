@@ -42,6 +42,7 @@
 | [36](36-eventworker-consumer.md) | EventWorker 소비자: 확정 이벤트를 한 번씩 캐릭터 통계로 | 6 | |
 | [37](37-container-images.md) | 컨테이너 이미지: 프로세스 여섯을 이미지로, release 빌드를 처음으로 | 6 | |
 | [38](38-deploy-k3s.md) | K3s 배포: 같은 이미지, 같은 설정, 같은 검사로 단일 노드 클러스터에 | 6 | |
+| [39](39-stage-6-wrap-up.md) | 6단계 마무리: 남은 계획 정리와 완료 표기 | 6 | |
 
 ## 형식
 
