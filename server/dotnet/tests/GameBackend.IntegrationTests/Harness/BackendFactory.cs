@@ -13,7 +13,8 @@ public sealed record BackendSettings(
     TimeSpan? TicketLifetime = null,
     int? CredentialAttemptsPerMinute = null,
     int? RankingsMaxTop = null,
-    int? RankingsDefaultTop = null);
+    int? RankingsDefaultTop = null,
+    string? RedisConnectionString = null);
 
 /// <summary>In-process GameBackend bound to the fixture database. Settings mirror production keys.</summary>
 public sealed class BackendFactory(string connectionString, BackendSettings? settings = null) : WebApplicationFactory<Program>
@@ -40,6 +41,10 @@ public sealed class BackendFactory(string connectionString, BackendSettings? set
             ["GameData:ContentDir"] = RepositoryPaths.GameData,
             ["Characters:MaxCharactersPerWorld"] = _settings.MaxCharactersPerWorld.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["Logging:LogLevel:Default"] = "Warning",
+            // Tests read the ranking from PostgreSQL unless they bring their own Redis: the default
+            // would reach whatever Redis runs on this machine.
+            ["Rankings:Backend"] = _settings.RedisConnectionString is null ? "Postgres" : "Redis",
+            ["Redis:ConnectionString"] = _settings.RedisConnectionString ?? string.Empty,
         };
         if (_settings.GatewayLeaseDuration is { } gateway)
         {

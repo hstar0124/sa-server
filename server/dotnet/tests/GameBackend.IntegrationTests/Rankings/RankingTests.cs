@@ -75,9 +75,9 @@ public sealed class RankingTests(PostgresFixture postgres) : IDisposable
     public async Task A_default_page_larger_than_the_maximum_stops_the_backend_from_starting()
     {
         using var misconfigured = new BackendFactory(postgres.ConnectionString, new BackendSettings(RankingsMaxTop: 5, RankingsDefaultTop: 10));
-        Microsoft.Extensions.Options.OptionsValidationException refused =
-            Assert.Throws<Microsoft.Extensions.Options.OptionsValidationException>(() => misconfigured.CreateClient());
-        Assert.Contains("DefaultTop", refused.Message, StringComparison.Ordinal);
+        // Start-up validation reports every failing option; the rankings one must be among them.
+        Exception refused = Assert.ThrowsAny<Exception>(() => misconfigured.CreateClient());
+        Assert.Contains("Rankings:DefaultTop must not exceed Rankings:MaxTop", refused.ToString(), StringComparison.Ordinal);
     }
 
     public void Dispose() => _factory.Dispose();

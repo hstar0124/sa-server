@@ -22,7 +22,7 @@ internal static class RankingEndpoints
     }
 
     private static async Task<Ok<IReadOnlyList<RankingEntryResponse>>> TopAsync(
-        WorldId worldId, int? top, RankingRepository rankings, IOptions<RankingsOptions> options, CancellationToken cancellationToken)
+        WorldId worldId, int? top, IRankingSource rankings, IOptions<RankingsOptions> options, CancellationToken cancellationToken)
     {
         // A page outside [1, MaxTop] is brought inside rather than refused: the answer is still a leaderboard.
         int size = Math.Clamp(top ?? options.Value.DefaultTop, 1, options.Value.MaxTop);
@@ -31,7 +31,7 @@ internal static class RankingEndpoints
     }
 
     private static async Task<Results<Ok<CharacterRankResponse>, ProblemHttpResult>> RankAsync(
-        WorldId worldId, CharacterId characterId, RankingRepository rankings, CancellationToken cancellationToken)
+        WorldId worldId, CharacterId characterId, IRankingSource rankings, CancellationToken cancellationToken)
     {
         CharacterRank? rank = await rankings.RankOfAsync(worldId, characterId, cancellationToken);
         return rank is null
