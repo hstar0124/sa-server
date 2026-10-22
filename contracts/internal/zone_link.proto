@@ -3,6 +3,7 @@ syntax = "proto3";
 package sa.internal.v1;
 
 import "game/client_messages.proto";
+import "game/common.proto";
 import "game/server_messages.proto";
 
 option csharp_namespace = "Sa.Internal.V1";
@@ -47,7 +48,8 @@ message LinkWelcome {
 message LinkPing { uint64 nonce = 1; }
 message LinkPong { uint64 nonce = 1; }
 
-// Result of a successful RedeemEntryTicket; the zone materialises the character.
+// Result of a successful RedeemEntryTicket or of a zone transfer; the zone materialises the
+// character at `position` when it is set (checkpoint or arrival point), else at a spawn point.
 message SessionAttach {
   bytes gateway_session_id = 1;
   uint64 account_id = 2;
@@ -55,6 +57,7 @@ message SessionAttach {
   string character_name = 4;
   uint32 class_id = 5;
   uint64 owner_epoch = 6;
+  sa.game.v1.Vec2 position = 7;
 }
 
 enum DetachReason {

@@ -19,6 +19,7 @@ message ServerMessage {
   }
 }
 
+// 접속 직후, 그리고 Zone이 바뀔 때마다 다시 온다. 클라이언트는 받을 때마다 월드 모델을 비운다.
 message Welcome {
   uint64 character_id = 1;
   uint32 zone_id = 2;
@@ -26,6 +27,15 @@ message Welcome {
   uint64 server_tick = 4;
   uint64 entity_id = 5;   // 수신자의 엔티티 id. 스냅샷에서 자기 자신을 식별한다
   Vec2 map_size = 6;
+  repeated Portal portals = 7;
+}
+
+// 다른 Zone으로 가는 통로. 반경 안에서 ChangeZone(portal_id)을 보내면 이동이 시작된다.
+message Portal {
+  uint32 portal_id = 1;
+  Vec2 position = 2;
+  float radius_m = 3;
+  uint32 to_zone_id = 4;
 }
 
 message Pong {
@@ -112,6 +122,11 @@ enum RejectCode {
   REJECT_CODE_INVENTORY_FULL = 22;
   REJECT_CODE_SERVICE_UNAVAILABLE = 23; // Backend 응답을 받지 못했다. 같은 request_id로 재시도
   REJECT_CODE_NOT_OWNER = 24;           // 이 Zone이 캐릭터의 소유자가 아니다. 세션이 끝나고 다시 입장해야 한다
+  // 지역 이동 (ChangeZone)
+  REJECT_CODE_UNKNOWN_PORTAL = 30;
+  REJECT_CODE_OUT_OF_PORTAL_RANGE = 31;
+  REJECT_CODE_TRANSFER_IN_PROGRESS = 32; // 이미 이동 중
+  REJECT_CODE_ZONE_UNAVAILABLE = 33;     // 도착 Zone이 없다. 나중에 다시
 }
 
 message CommandResult {
