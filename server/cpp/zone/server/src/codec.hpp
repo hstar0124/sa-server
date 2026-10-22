@@ -5,14 +5,19 @@
 #include "sa/common/instance_id.hpp"
 #include "sa/zone/sim/entities.hpp"
 #include "sa/zone/sim/events.hpp"
+#include "sa/zone/sim/map_data.hpp"
 #include "sa/zone/sim/player_view.hpp"
 
 #include <backend/economy.pb.h>
+#include <backend/world_directory.pb.h>
 #include <game/client_messages.pb.h>
 #include <game/server_messages.pb.h>
+#include <internal/zone_link.pb.h>
 
 #include <cstdint>
 #include <expected>
+#include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -33,6 +38,8 @@ enum class InputError : std::uint8_t {
     common::EntityId player, const game::v1::CastSkill& cast);
 [[nodiscard]] sim::PickupCommand ToPickupCommand(common::EntityId player,
                                                  const game::v1::PickupItem& pickup);
+[[nodiscard]] sim::ChangeZoneCommand ToChangeZoneCommand(common::EntityId player,
+                                                         const game::v1::ChangeZone& change);
 
 [[nodiscard]] game::v1::WorldSnapshot ToWorldSnapshot(const sim::PlayerView& view,
                                                       common::TickIndex tick);
@@ -48,6 +55,7 @@ struct WelcomeInfo {
     common::TickIndex tick;
     common::EntityId entity;
     common::Vec2 map_size;
+    std::span<const sim::Portal> portals;
 };
 [[nodiscard]] game::v1::Welcome ToWelcome(const WelcomeInfo& info);
 
@@ -55,7 +63,7 @@ struct WelcomeInfo {
 [[nodiscard]] game::v1::RejectCode ToProto(sim::RejectReason reason);
 [[nodiscard]] game::v1::CommandStatus ToProto(sim::CommandStatus status);
 
-// ---- zone <-> backend (Economy) ---------------------------------------------------------------
+// ---- zone <-> backend ---------------------------------------------------------------------------
 
 // What the zone claims when it acts for a character: its process identity and the ownership
 // generation the character was attached under (see README "소유권과 lease").
@@ -63,6 +71,33 @@ struct ZoneAuthority {
     common::InstanceId zone_instance;
     common::OwnerEpoch epoch;
 };
+
+// ---- WorldDirectory (placement) ----------------------------------------------------------------
+
+struct CheckpointInfo {
+    common::WorldId world;
+    common::CharacterId character;
+    common::ZoneId zone;
+    common::Vec2 position;
+    std::uint64_t version = 0;
+};
+[[nodiscard]] backend::v1::SaveCheckpointRequest ToSaveCheckpointRequest(
+    const CheckpointInfo& checkpoint, const ZoneAuthority& authority);
+// The transfer id the Backend stores for a departure: a digest of the character, the ownership
+// epoch of its session and the client's request id, so the client's retry of a departure whose
+// answer was lost asks about the same transfer instead of starting another.
+[[nodiscard]] common::TransferId TransferIdFor(const sim::ZoneTransferRequest& transfer,
+                                               common::OwnerEpoch epoch);
+[[nodiscard]] backend::v1::TransferCharacterRequest ToTransferRequest(
+    const sim::ZoneTransferRequest& transfer, common::WorldId world,
+    const ZoneAuthority& authority);
+[[nodiscard]] sim::TransferOutcome ToTransferOutcome(backend::v1::TransferOutcome outcome);
+// What the gateway needs to move the session: the destination the Backend named.
+[[nodiscard]] internal::v1::SessionTransfer ToSessionTransfer(
+    const common::InstanceId& session_id, const backend::v1::TransferCharacterResponse& response,
+    common::Vec2 arrival);
+
+// ---- Economy ------------------------------------------------------------------------------------
 
 [[nodiscard]] backend::v1::RecordKillRequest ToRecordKillRequest(const sim::KillRecord& kill,
                                                                  common::KillId kill_id,
@@ -74,10 +109,10 @@ struct ZoneAuthority {
     const backend::v1::RecordKillResponse& response);
 [[nodiscard]] backend::v1::PickupItemRequest ToPickupItemRequest(
     const sim::PickupReservation& pickup, common::WorldId world, const ZoneAuthority& authority);
-// The 16-byte idempotency key the Backend stores for a pickup: a digest of the character, the
-// ownership epoch of its session and the client's request id.
 // Kill ids for one zone process: derived from its instance id and a per-process sequence.
 [[nodiscard]] common::KillId KillIdFor(common::InstanceId zone_instance, std::uint64_t sequence);
+// The 16-byte idempotency key the Backend stores for a pickup: a digest of the character, the
+// ownership epoch of its session and the client's request id.
 [[nodiscard]] std::string PickupRequestKey(const sim::PickupReservation& pickup,
                                            common::OwnerEpoch epoch);
 [[nodiscard]] sim::PickupOutcome ToPickupOutcome(backend::v1::PickupOutcome outcome);

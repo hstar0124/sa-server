@@ -105,7 +105,7 @@ std::expected<BotAccount, ApiError> BackendApi::Provision(const std::string& use
     if (registered.error) {
         return std::unexpected(ApiError{"register: " + registered.error.message});
     }
-    // Re-running the same seed reuses accounts: 409 is expected then.
+    // A pinned identity seed reuses the accounts of an earlier run: 409 is expected then.
     if (registered.status_code != kCreated && registered.status_code != kConflict) {
         return std::unexpected(
             ApiError{std::format("register: HTTP {} {}", registered.status_code, registered.text)});

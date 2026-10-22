@@ -13,11 +13,12 @@
 #include <expected>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace sa::loadgen {
 
-// One run of the bot client. Everything random derives from `seed` (ADR-0006).
-// Account and character names of one bot; the same seed and index always give the same names.
+// One run of the bot client. Every input the bots send derives from `seed` (ADR-0006).
+// Account and character names of one bot; the same identity seed and index give the same names.
 struct BotIdentity {
     std::string username;
     std::string character_name;
@@ -38,7 +39,11 @@ struct LoadProfile {
     std::uint32_t fighters = 0;
     std::uint32_t looters = 0;
     std::uint64_t seed = 0;
-    std::string account_prefix;  // usernames are <prefix>_<seed-derived hex>
+    // Where the names come from, apart from `seed`: a character keeps what earlier runs left
+    // (inventory, last position), so a run normally gets fresh ones. Absent: a seed from the OS;
+    // pinned, a run reuses the accounts of an earlier one on purpose.
+    std::optional<std::uint64_t> identity_seed;
+    std::string account_prefix;  // usernames are <prefix>_<identity-derived hex>
     std::string password;
 
     std::chrono::seconds duration{};
@@ -59,8 +64,9 @@ struct LoadProfile {
         }
         return index < wanderers + fighters ? BotRole::kFighter : BotRole::kLooter;
     }
-    // Deterministic per-bot identities, so re-running a seed reuses its accounts (ADR-0006).
-    [[nodiscard]] BotIdentity IdentityOf(std::uint32_t index) const;
+    // Deterministic per-bot identities for one identity seed.
+    [[nodiscard]] static BotIdentity IdentityOf(std::string_view account_prefix,
+                                                std::uint64_t identity_seed, std::uint32_t index);
 
     static constexpr std::string_view kEnvPrefix = "SA_LOADGEN__";
 

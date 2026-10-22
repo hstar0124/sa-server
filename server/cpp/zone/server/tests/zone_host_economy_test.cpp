@@ -11,7 +11,8 @@ using namespace host_fixture;  // NOLINT(google-build-using-namespace): test fix
 TEST(ZoneHostEconomy, AttachAsksTheBackendForAssetsAndForwardsThemAsAnInventoryUpdate) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
 
     host.Attach(sink, AttachFor("s1", 42));
@@ -29,8 +30,9 @@ TEST(ZoneHostEconomy, AttachAsksTheBackendForAssetsAndForwardsThemAsAnInventoryU
 TEST(ZoneHostEconomy, AKillIsRecordedUnderTheSessionsAuthority) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
+    FakeDirectory directory;
     const ZoneHost::Identity identity = Identity();
-    ZoneHost host{zone, identity, economy, [] { return true; }};
+    ZoneHost host{zone, identity, economy, directory, [] { return true; }};
     FakeSink sink;
 
     AttachAndKillTheRat(zone, host, economy, sink);
@@ -50,7 +52,8 @@ TEST(ZoneHostEconomy, AKillIsRecordedUnderTheSessionsAuthority) {
 TEST(ZoneHostEconomy, ACommittedKillSpawnsTheDropsAndCreditsTheKiller) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
     const backend::v1::RecordKillRequest kill = Single(economy.kills, "kill record");
@@ -75,7 +78,8 @@ TEST(ZoneHostEconomy, ACommittedKillSpawnsTheDropsAndCreditsTheKiller) {
 TEST(ZoneHostEconomy, APickupIsForwardedWithTheItemsInstanceAndAnsweredPending) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
     const common::ItemInstanceId instance = common::ItemInstanceId::Generate();
@@ -95,7 +99,8 @@ TEST(ZoneHostEconomy, APickupIsForwardedWithTheItemsInstanceAndAnsweredPending) 
 TEST(ZoneHostEconomy, AnAcquiredPickupRemovesTheItemAndExtendsTheInventory) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
     const common::ItemInstanceId instance = common::ItemInstanceId::Generate();
@@ -127,7 +132,8 @@ TEST(ZoneHostEconomy, AnAcquiredPickupRemovesTheItemAndExtendsTheInventory) {
 TEST(ZoneHostEconomy, ABackendThatDoesNotAnswerReleasesTheItemAndReportsUnknown) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
     const common::EntityId item = GelOnTheGround(zone, common::ItemInstanceId::Generate());
@@ -149,7 +155,8 @@ TEST(ZoneHostEconomy, ABackendThatDoesNotAnswerReleasesTheItemAndReportsUnknown)
 TEST(ZoneHostEconomy, AnUnknownPickupThatDidCommitIsSettledByTheAssetReRead) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
     const common::ItemInstanceId instance = common::ItemInstanceId::Generate();
@@ -176,7 +183,8 @@ TEST(ZoneHostEconomy, AnUnknownPickupThatDidCommitIsSettledByTheAssetReRead) {
 TEST(ZoneHostEconomy, AnAnswerThatThisZoneIsNotTheOwnerEvictsTheSession) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
     sink.sent.clear();
@@ -195,7 +203,8 @@ TEST(ZoneHostEconomy, AnAnswerThatThisZoneIsNotTheOwnerEvictsTheSession) {
 TEST(ZoneHostEconomy, AKillTheBackendAlreadyRecordedShowsItsCommittedDrops) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
     const backend::v1::RecordKillRequest kill = Single(economy.kills, "kill record");
@@ -216,7 +225,8 @@ TEST(ZoneHostEconomy, AKillTheBackendAlreadyRecordedShowsItsCommittedDrops) {
 TEST(ZoneHostEconomy, ARefusedKillSpawnsNothing) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
 
@@ -235,7 +245,8 @@ TEST(ZoneHostEconomy, ARefusedKillSpawnsNothing) {
 TEST(ZoneHostEconomy, AFailedAssetReadIsRepeatedOnTheNextEconomyAnswer) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     host.Attach(sink, AttachFor("s1", 42));
     Single(economy.asset_replies, "assets request")(std::nullopt);
@@ -258,7 +269,8 @@ TEST(ZoneHostEconomy, AFailedAssetReadIsRepeatedOnTheNextEconomyAnswer) {
 TEST(ZoneHostEconomy, AKillWithNoAnswerReReadsTheKillersAssets) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
 
@@ -271,7 +283,8 @@ TEST(ZoneHostEconomy, AKillWithNoAnswerReReadsTheKillersAssets) {
 TEST(ZoneHostEconomy, OutOfOrderPickupAnswersNeverRollTheInventoryBack) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
-    ZoneHost host{zone, Identity(), economy, [] { return true; }};
+    FakeDirectory directory;
+    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
     FakeSink sink;
     AttachAndKillTheRat(zone, host, economy, sink);
     const auto first = common::ItemInstanceId::Generate();

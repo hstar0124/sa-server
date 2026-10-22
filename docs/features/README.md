@@ -48,6 +48,7 @@
 | [42](42-transfer-schema-contracts.md) | 지역 이전의 바탕: ADR-0010, 계약, 체크포인트·이전 스키마, 포털과 두 번째 맵 | 8 | |
 | [43](43-backend-transfer.md) | Backend 이전: 체크포인트, 한 트랜잭션의 Zone 이전, 체크포인트를 보는 배치 | 8 | |
 | [44](44-gateway-transfer.md) | Gateway 이전: 도착 Zone 재부착, Zone별 세션 메시지 | 8 | |
+| [45](45-zone-transfer.md) | Zone 이전: 포털, 출발, 체크포인트 주기, Gateway로 넘기기 | 8 | |
 
 ## 형식
 

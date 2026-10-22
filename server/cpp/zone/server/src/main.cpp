@@ -8,6 +8,7 @@
 #include "sa/zone/sim/rng.hpp"
 #include "sa/zone/sim/zone.hpp"
 
+#include "directory_client.hpp"
 #include "economy_client.hpp"
 #include "gateway_link_server.hpp"
 #include "lease_keeper.hpp"
@@ -184,11 +185,11 @@ int Run(int argc, char** argv) {
                                        config->world_id,
                                        config->zone_id,
                                        zone_instance};
-    sa::zone::EconomyClient economy{
-        io, backend_channel,
-        sa::zone::EconomyClientConfig{.rpc_timeout = config->backend_rpc_timeout,
-                                      .call_attempts = config->economy_call_attempts,
-                                      .retry_delay = config->backend_retry_delay}};
+    const sa::zone::BackendCallConfig backend_calls{.rpc_timeout = config->backend_rpc_timeout,
+                                                    .call_attempts = config->backend_call_attempts,
+                                                    .retry_delay = config->backend_retry_delay};
+    sa::zone::EconomyClient economy{io, backend_channel, backend_calls};
+    sa::zone::DirectoryClient directory{io, backend_channel, backend_calls};
     sa::common::LeaseKeeper lease{
         io, "zone",
         sa::common::LeaseKeeperConfig{.renew_interval = config->lease_renew_interval,
@@ -200,8 +201,9 @@ int Run(int argc, char** argv) {
         sa::zone::ZoneHost::Identity{.zone_instance = zone_instance,
                                      .simulation_hz = config->simulation_rate.hz,
                                      .ticks_per_snapshot = config->TicksPerSnapshot(),
+                                     .ticks_per_checkpoint = config->TicksPerCheckpoint(),
                                      .max_sessions = config->max_sessions},
-        economy, [&lease] { return lease.IsAlive(); }};
+        economy, directory, [&lease] { return lease.IsAlive(); }};
     lease.set_on_lost([&host] { host.EvictAll(sa::internal::v1::EVICT_REASON_LEASE_LOST); });
 
     sa::zone::GatewayLinkServer link_server{
@@ -268,6 +270,12 @@ int Run(int argc, char** argv) {
         "pickups_refused={} backend_failures={}",
         host.stats().kills_recorded, host.stats().kills_refused, host.stats().pickups_acquired,
         host.stats().pickups_refused, host.stats().backend_failures);
+    spdlog::info(
+        "placement checkpoints_saved={} checkpoints_refused={} transfers_completed={} "
+        "transfers_refused={} stale_attaches={} superseded_sessions={}",
+        host.stats().checkpoints_saved, host.stats().checkpoints_refused,
+        host.stats().transfers_completed, host.stats().transfers_refused,
+        host.stats().stale_attaches, host.stats().superseded_sessions);
     spdlog::info("stopped at tick={}", zone.current_tick().value());
     return EXIT_SUCCESS;
 }

@@ -7,7 +7,8 @@ add_library(sa_zone_sim STATIC
   src/zone.cpp
   src/zone_combat.cpp
   src/zone_monsters.cpp
-  src/zone_items.cpp)
+  src/zone_items.cpp
+  src/zone_transfer.cpp)
 add_library(sa::zone_sim ALIAS sa_zone_sim)
 sa_apply_policy(sa_zone_sim)
 
@@ -28,6 +29,7 @@ if(SA_BUILD_TESTS)
       tests/zone_combat_test.cpp
       tests/zone_monster_test.cpp
       tests/zone_items_test.cpp
+      tests/zone_transfer_test.cpp
       tests/test_maps.hpp
     LIBS sa::zone_sim)
 endif()

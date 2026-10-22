@@ -63,13 +63,14 @@ flowchart TB
 
     subgraph zone["Zone (C++)"]
         ZT["TickRunner<br/>고정 주기 타이머, 밀린 틱 상한"]
-        ZH["ZoneHost<br/>세션 ↔ 엔티티, 스냅샷·이벤트 송신"]
-        ZS["sim::Zone<br/>이동·충돌·관심 관리·스킬·투사체·AI (순수)"]
+        ZH["ZoneHost<br/>세션 ↔ 엔티티, 스냅샷·이벤트 송신, 체크포인트·이전"]
+        ZS["sim::Zone<br/>이동·충돌·관심 관리·스킬·투사체·AI·포털 (순수)"]
         ZC["codec<br/>Protobuf ↔ 도메인 (순수)"]
         ZD["data 로더<br/>game-data TOML → 구조체"]
         ZG["GatewayLinkServer<br/>Gateway 연결 수락"]
         ZL["LeaseKeeper<br/>Backend lease 갱신"]
         ZE["EconomyClient<br/>gRPC: 처치 기록·획득, 마감 시간"]
+        ZY["DirectoryClient<br/>gRPC: 체크포인트·Zone 이전"]
         ZT --> ZS
         ZT --> ZH
         ZH --> ZC --> ZS
@@ -77,12 +78,13 @@ flowchart TB
         ZD --> ZS
         ZL -. "권위 여부" .-> ZH
         ZH --> ZE
+        ZH --> ZY
     end
 
     subgraph backend["Backend (C# / .NET)"]
         BA["Modules/Auth<br/>가입·로그인·JWT·시도 상한"]
         BC["Modules/Characters<br/>생성·목록·소유 확인·통계 조회"]
-        BW["Modules/WorldDirectory<br/>티켓 발급·소비, 세션, 소유권, lease"]
+        BW["Modules/WorldDirectory<br/>티켓 발급·소비, 세션, 소유권, lease, 체크포인트·이전"]
         BE["Modules/Economy<br/>처치 기록·획득·자산 조회, 요청 결과"]
         BR["Modules/Rankings<br/>킬 리더보드·내 순위<br/>Redis, 없거나 뒤처지면 PostgreSQL"]
         BI["Infrastructure<br/>Npgsql 풀, Outbox 쓰기, 헬스체크, CORS"]
@@ -431,7 +433,10 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 - Gateway의 Zone 링크가 끊기면 그 Zone의 세션을 끝내고 Backend에 세션 종료를 알린다.
 - **체크포인트**: 소유 Zone이 캐릭터의 마지막 위치를 저장한다(`SaveCheckpoint`). 소유권 행과 lease로 권한을 확인하고, 세대가 같으면 버전이 커야, 세대가 다르면 새 세대만 이긴다. 그래서 이전 소유자의 늦은 저장은 현재 위치를 덮지 못한다.
 - **Zone 이전**: `TransferCharacter` 하나가 한 트랜잭션에서 출발 Zone의 권한(살아 있는 lease 포함)을 확인하고, 도착 Zone ID에 살아 있는 인스턴스가 있을 때만 소유권을 옮기며 세대를 1 올리고, 도착 지점을 체크포인트로 쓰고, 열린 세션의 세대를 맞추고, 결정을 `zone_transfers`에 남긴다(ADR-0010). 출발 Zone이 만든 이전 ID가 기본 키라, 다시 묻거나 두 번 동시에 물어도 처음 결정이 돌아오고 캐릭터는 한 번만 옮겨진다.
-- **배치**: 입장할 때 소유 Zone이 살아 있으면 그곳, 아니면 마지막 체크포인트의 Zone, 그것도 없으면 살아 있는 가장 낮은 Zone ID에 배정한다. 체크포인트의 Zone으로 들어가면 그 위치에서 시작한다.
+- **배치**: 입장할 때 소유 Zone이 살아 있으면 그곳, 아니면 마지막 체크포인트의 Zone, 그것도 없으면 살아 있는 가장 낮은 Zone ID에 배정한다. 체크포인트의 Zone으로 들어가면 그 위치에서 시작한다. 그 위치에 몸이 들어가지 않으면(지도가 바뀐 경우 등) Zone이 스폰 지점을 쓴다.
+- **Zone의 저장 주기**: Zone은 움직인 캐릭터의 위치를 정해진 주기(`backend.checkpoint_interval_ms`)마다 저장하고, 서 있는 캐릭터는 다시 저장하지 않는다. 클라이언트가 나가거나 Gateway 링크가 끊길 때도 그 자리를 저장한다. 소유권은 세션이 끝나도 남기 때문에 이 저장이 다음 입장 위치가 된다.
+- **떠나기**: 포털 반경 안에서 `ChangeZone`을 받으면 Zone은 검증 뒤 "처리 중"으로 답하고 캐릭터를 멈춘다(이동·스킬·획득 거절). 이전 ID는 캐릭터·소유권 세대·요청 ID의 다이제스트라서, 답을 잃은 클라이언트가 같은 요청으로 다시 물으면 같은 이전을 묻게 되고 Backend는 저장된 결정을 돌려준다. 이전이 확정되면 Zone은 결과를 보내고 캐릭터를 지운 뒤 Gateway에 도착지를 알린다. 도착 Zone이 없으면 캐릭터를 풀어 준다. 권한이 없다는 답이면 세션을 끝낸다.
+- **한 캐릭터, 한 몸**: Zone은 같은 캐릭터가 이미 있으면 세대를 비교한다. 같거나 낮은 세대의 부착은 거절하고, 높은 세대가 오면 옛 세션을 내보낸다(다른 Gateway로 다시 들어왔는데 옛 Gateway의 링크가 아직 남은 경우). 포털이 자기 Zone을 가리키는 지도는 시작할 때 거절한다.
 
 ## 검증
 

@@ -3,6 +3,7 @@
 #include "sa/common/geometry.hpp"
 #include "sa/common/ids.hpp"
 #include "sa/zone/sim/content.hpp"
+#include "sa/zone/sim/map_data.hpp"
 
 #include <cstdint>
 #include <variant>
@@ -53,6 +54,22 @@ struct PickupCommand {
     common::EntityId player;
     common::RequestId request_id;
     common::EntityId item;
+};
+
+// Leave through a portal (ADR-0010). The zone freezes the player and asks the host to move the
+// character; the Backend's answer completes or cancels the departure.
+struct ChangeZoneCommand {
+    common::EntityId player;
+    common::RequestId request_id;
+    PortalId portal;
+};
+
+// The Backend's verdict on a departure, as the host reports it back to the zone.
+enum class TransferOutcome : std::uint8_t {
+    kTransferred,      // ownership moved: the player leaves this zone
+    kZoneUnavailable,  // no live destination: the player stays and may try later
+    kNotOwner,         // this zone no longer owns the character; the session ends
+    kUnavailable,      // no answer; the player stays and may retry with the same request id
 };
 
 // An item the Backend has committed to the ground of this zone; becomes a kDroppedItem entity.

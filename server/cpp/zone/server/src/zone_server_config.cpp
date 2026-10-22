@@ -24,14 +24,16 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     const auto rpc_timeout = source.Require<std::uint32_t>("backend.rpc_timeout_ms");
     const auto renew_interval = source.Require<std::uint32_t>("backend.lease_renew_interval_ms");
     const auto safety_margin = source.Require<std::uint32_t>("backend.lease_safety_margin_ms");
-    const auto call_attempts = source.Require<std::uint32_t>("backend.economy_call_attempts");
+    const auto call_attempts = source.Require<std::uint32_t>("backend.call_attempts");
     const auto retry_delay = source.Require<std::uint32_t>("backend.retry_delay_ms");
+    const auto checkpoint_interval =
+        source.Require<std::uint32_t>("backend.checkpoint_interval_ms");
     const auto shutdown_grace = source.Require<std::uint32_t>("shutdown.grace_ms");
     if (auto err = common::FirstConfigError(
             world_id, zone_id, hz, snapshot_hz, catch_up, stats_interval, max_sessions, map_file,
             rules_file, economy_file, content_dir, link_address, link_port, link_max, link_frame,
             link_linger, backend_address, rpc_timeout, renew_interval, safety_margin, call_attempts,
-            retry_delay, shutdown_grace)) {
+            retry_delay, checkpoint_interval, shutdown_grace)) {
         return std::unexpected(*err);
     }
     // Positive and slow enough that one tick lasts at least one clock unit (the period divides by
@@ -46,7 +48,11 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     }
     if (*renew_interval == 0 || *rpc_timeout == 0 || *call_attempts == 0 || *retry_delay == 0) {
         return std::unexpected(common::ConfigError{
-            "backend intervals, retry_delay_ms and economy_call_attempts must be positive"});
+            "backend intervals, retry_delay_ms and call_attempts must be positive"});
+    }
+    if (std::chrono::milliseconds{*checkpoint_interval} < sim::TickRate{.hz = *hz}.Period()) {
+        return std::unexpected(common::ConfigError{
+            "backend.checkpoint_interval_ms must last at least one simulation tick"});
     }
     // Zero would refuse every gateway or frame, skip every catch-up tick, or re-arm the stats
     // timer without pause.
@@ -108,8 +114,9 @@ std::expected<ZoneServerConfig, common::ConfigError> ZoneServerConfig::FromConfi
     out.backend_rpc_timeout = std::chrono::milliseconds{*rpc_timeout};
     out.lease_renew_interval = std::chrono::milliseconds{*renew_interval};
     out.lease_safety_margin = std::chrono::milliseconds{*safety_margin};
-    out.economy_call_attempts = *call_attempts;
+    out.backend_call_attempts = *call_attempts;
     out.backend_retry_delay = std::chrono::milliseconds{*retry_delay};
+    out.checkpoint_interval = std::chrono::milliseconds{*checkpoint_interval};
     out.shutdown_grace = std::chrono::milliseconds{*shutdown_grace};
     out.logging = *logging;
     return out;
