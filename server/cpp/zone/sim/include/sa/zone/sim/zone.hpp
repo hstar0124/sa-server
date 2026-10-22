@@ -59,6 +59,9 @@ struct ZoneStats {
     std::uint64_t drop_rolls = 0;  // items rolled on kills, before the Backend confirmed them
     std::uint64_t pickups_requested = 0;
     std::uint64_t pickups_acquired = 0;
+    std::uint64_t transfers_requested = 0;
+    std::uint64_t transfers_completed = 0;
+    std::uint64_t spawns_relocated = 0;  // a requested position was not walkable: spawn point used
     std::size_t players = 0;
     std::size_t monsters = 0;
     std::size_t projectiles = 0;
@@ -70,20 +73,23 @@ struct ZoneStats {
 // clocks, no randomness other than the injected Rng (ADR-0008).
 //
 // Implementation is split by concern across zone.cpp (membership, input, interest, views),
-// zone_combat.cpp (skills, projectiles, damage, death), zone_monsters.cpp (spawns, AI) and
-// zone_items.cpp (drop rolls, ground items, pickups).
+// zone_combat.cpp (skills, projectiles, damage, death), zone_monsters.cpp (spawns, AI),
+// zone_items.cpp (drop rolls, ground items, pickups) and zone_transfer.cpp (portals).
 class Zone {
 public:
-    using Command = std::variant<MoveCommand, CastCommand, PickupCommand>;
+    using Command = std::variant<MoveCommand, CastCommand, PickupCommand, ChangeZoneCommand>;
 
-    // Fails when the map's spawns name monsters the content does not define.
+    // Fails when the map's spawns name monsters the content does not define, or a portal leads
+    // back into this zone.
     [[nodiscard]] static std::expected<Zone, std::string> Create(ZoneConfig config, MapData map,
                                                                  ZoneRules rules,
                                                                  ContentBundle content, Rng rng);
 
     // ---- membership -------------------------------------------------------------------------
-    // Places the player at `position`, or at a spawn point chosen by the zone's RNG. The class
-    // comes from the Backend's character record and may be missing from this zone's content.
+    // Places the player at `position`, or at a spawn point chosen by the zone's RNG. A position
+    // where the body does not fit (a checkpoint from an older map, a bad arrival point) falls back
+    // to a spawn point. The class comes from the Backend's character record and may be missing
+    // from this zone's content.
     [[nodiscard]] std::expected<common::EntityId, SpawnError> SpawnPlayer(
         common::CharacterId character, ClassId class_id,
         std::optional<common::Vec2> position = std::nullopt);
@@ -110,6 +116,13 @@ public:
     // Removes unreserved ground items whose instances the Backend reports in an inventory: a
     // pickup committed while its answer was lost. Reserved items wait for their own answer.
     void RemoveSettledGroundItems(std::span<const common::ItemInstanceId> held);
+    // The Backend moved the character: the player leaves this zone. Returns the accepted result
+    // for the host to deliver, since the recipient is gone from the zone; nothing when the
+    // request no longer matches a departing player.
+    [[nodiscard]] std::optional<CommandResultEvent> CompleteTransfer(
+        const ZoneTransferRequest& transfer);
+    // The departure did not happen: the player is released and told why.
+    void FailTransfer(const ZoneTransferRequest& transfer, TransferOutcome outcome);
 
     // ---- output -----------------------------------------------------------------------------
     // Interest-set delta for one player since its previous view. Call at snapshot cadence.
@@ -130,6 +143,8 @@ public:
     [[nodiscard]] std::optional<EntitySnapshot> SnapshotOf(common::EntityId entity) const;
     [[nodiscard]] std::optional<Vitals> VitalsOf(common::EntityId entity) const;
     [[nodiscard]] std::optional<EntityKind> KindOf(common::EntityId entity) const;
+    // True while the player waits for the Backend's answer to a ChangeZone.
+    [[nodiscard]] bool IsDeparting(common::EntityId player) const;
     [[nodiscard]] std::vector<common::EntityId> LiveMonsters() const;
     [[nodiscard]] std::vector<common::EntityId> GroundItems() const;
     [[nodiscard]] Rng& rng() noexcept { return rng_; }
@@ -178,6 +193,8 @@ private:
         std::optional<PendingCast> cast;
         std::optional<common::TickIndex> respawn_at;  // set while dead
         RecentRequests recent_requests;
+        // Set while a ChangeZone waits for the Backend: movement, casts and pickups are refused.
+        std::optional<common::RequestId> departing;
         // Entities this player has been told about, kept sorted for cheap set differences.
         std::vector<common::EntityId> known;
         // Entities currently inside the hysteresis band (visible until they pass leave radius).
@@ -248,7 +265,7 @@ private:
     }
 
     // ---- zone.cpp ---------------------------------------------------------------------------
-    using QueuedCommand = std::variant<CastCommand, PickupCommand>;
+    using QueuedCommand = std::variant<CastCommand, PickupCommand, ChangeZoneCommand>;
 
     common::EntityId AllocateEntityId();
     void QueueMove(const MoveCommand& move);
@@ -306,6 +323,14 @@ private:
     void RespawnMonsters();
     [[nodiscard]] std::optional<common::EntityId> NearestLivePlayerWithin(common::Vec2 center,
                                                                           float radius) const;
+
+    // ---- zone_transfer.cpp ------------------------------------------------------------------
+    [[nodiscard]] std::expected<void, std::string> ValidatePortalsLeaveZone() const;
+    void ApplyChangeZone(const ChangeZoneCommand& command);
+    [[nodiscard]] static RejectReason ValidateChangeZone(const Player& player,
+                                                         const Portal* portal);
+    // The departing player this request belongs to, or nullptr once it left or was released.
+    [[nodiscard]] Player* DepartingPlayer(const ZoneTransferRequest& transfer);
 
     // ---- zone_items.cpp ---------------------------------------------------------------------
     void RollDrops(common::EntityId killer, const Player& killer_player, const Monster& monster);

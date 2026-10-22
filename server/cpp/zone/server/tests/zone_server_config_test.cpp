@@ -36,6 +36,7 @@ TEST(ZoneServerConfig, TheShippedConfigIsValid) {
     const auto config = Parse(ShippedConfig());
     ASSERT_TRUE(config.has_value()) << config.error().message;
     EXPECT_FALSE(config->rng_seed.has_value()) << "absent: a seed from the OS";
+    EXPECT_EQ(config->TicksPerCheckpoint(), 300U) << "15 s at 20 Hz";
 }
 
 TEST(ZoneServerConfig, ZeroLimitsAndIntervalsAreRefused) {
@@ -43,7 +44,8 @@ TEST(ZoneServerConfig, ZeroLimitsAndIntervalsAreRefused) {
          {std::pair{"stats_log_interval_sec = 10", "stats_log_interval_sec = 0"},
           std::pair{"max_frame_bytes = 262144", "max_frame_bytes = 0"},
           std::pair{"max_gateways = 8", "max_gateways = 0"},
-          std::pair{"call_attempts = 3", "call_attempts = 0"}}) {
+          std::pair{"call_attempts = 3", "call_attempts = 0"},
+          std::pair{"checkpoint_interval_ms = 15000", "checkpoint_interval_ms = 1"}}) {
         EXPECT_FALSE(Parse(Replace(ShippedConfig(), from, to)).has_value()) << to;
     }
 }

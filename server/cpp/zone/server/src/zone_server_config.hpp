@@ -59,6 +59,8 @@ struct ZoneServerConfig {
     // backend_call.hpp).
     std::uint32_t backend_call_attempts = 0;
     std::chrono::milliseconds backend_retry_delay{};
+    // How often each session's position is saved while it moves (ADR-0010).
+    std::chrono::milliseconds checkpoint_interval{};
 
     // How long shutdown waits for evictions, detaches and lease RPCs to drain (design
     // document 16.3).
@@ -69,6 +71,12 @@ struct ZoneServerConfig {
 
     [[nodiscard]] std::uint32_t TicksPerSnapshot() const noexcept {
         return simulation_rate.hz / snapshot_rate.hz;
+    }
+    // At least one: validation refuses an interval shorter than a tick.
+    [[nodiscard]] std::uint32_t TicksPerCheckpoint() const noexcept {
+        return static_cast<std::uint32_t>(
+            std::chrono::duration_cast<sim::Duration>(checkpoint_interval) /
+            simulation_rate.Period());
     }
 
     static constexpr std::string_view kEnvPrefix = "SA_ZONE__";

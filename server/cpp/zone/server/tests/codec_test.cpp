@@ -120,7 +120,7 @@ TEST(Codec, EventsWrapIntoTheServerEnvelope) {
 }
 
 TEST(Codec, EveryRejectReasonMaps) {
-    for (int i = 1; i <= static_cast<int>(sim::RejectReason::kNotOwner); ++i) {
+    for (int i = 1; i <= static_cast<int>(sim::RejectReason::kZoneUnavailable); ++i) {
         EXPECT_NE(ToProto(static_cast<sim::RejectReason>(i)), game::v1::REJECT_CODE_UNSPECIFIED)
             << i;
     }
@@ -248,6 +248,69 @@ TEST(Codec, KillIdsAreUniquePerSequenceAndPerZoneInstance) {
     EXPECT_NE(KillIdFor(zone_a, 1), KillIdFor(zone_a, 2));
     EXPECT_NE(KillIdFor(zone_a, 1), KillIdFor(zone_b, 1)) << "a restarted zone is a new instance";
     EXPECT_FALSE(KillIdFor(zone_a, 1).IsNil());
+}
+
+TEST(Codec, TransfersAndCheckpointsCarryTheAuthority) {
+    const ZoneAuthority authority{.zone_instance = common::InstanceId::Generate(),
+                                  .epoch = common::OwnerEpoch{3}};
+    const sim::ZoneTransferRequest transfer{.player = common::EntityId{1},
+                                            .character = common::CharacterId{42},
+                                            .request_id = common::RequestId{7},
+                                            .portal = sim::PortalId{1},
+                                            .to_zone = common::ZoneId{2},
+                                            .arrival = {8.0F, 100.0F}};
+    const backend::v1::TransferCharacterRequest request =
+        ToTransferRequest(transfer, common::WorldId{1}, authority);
+    EXPECT_EQ(request.transfer_id(), TransferIdFor(transfer, authority.epoch).ToWire());
+    EXPECT_EQ(request.character_id(), 42U);
+    EXPECT_EQ(request.to_zone_id(), 2U);
+    EXPECT_EQ(request.authority().owner_epoch(), 3U);
+    EXPECT_FLOAT_EQ(request.arrival_position().y(), 100.0F);
+
+    const backend::v1::SaveCheckpointRequest save =
+        ToSaveCheckpointRequest(CheckpointInfo{.world = common::WorldId{1},
+                                               .character = common::CharacterId{42},
+                                               .zone = common::ZoneId{1},
+                                               .position = {1.0F, 2.0F},
+                                               .version = 9},
+                                authority);
+    EXPECT_EQ(save.checkpoint_version(), 9U);
+    EXPECT_EQ(save.zone_id(), 1U);
+    EXPECT_EQ(save.authority().zone_instance_id(), authority.zone_instance.ToWire());
+}
+
+TEST(Codec, TransferIdsNameOneDepartureOfOneSession) {
+    sim::ZoneTransferRequest transfer{.character = common::CharacterId{42},
+                                      .request_id = common::RequestId{7}};
+    const common::OwnerEpoch epoch{3};
+    const common::TransferId id = TransferIdFor(transfer, epoch);
+    EXPECT_EQ(TransferIdFor(transfer, epoch), id) << "a retry asks about the same transfer";
+    EXPECT_NE(TransferIdFor(transfer, common::OwnerEpoch{4}), id) << "a later session";
+    transfer.request_id = common::RequestId{8};
+    EXPECT_NE(TransferIdFor(transfer, epoch), id);
+    const sim::PickupReservation pickup{.character = common::CharacterId{42},
+                                        .request_id = common::RequestId{7}};
+    EXPECT_NE(PickupRequestKey(pickup, epoch), id.ToWire()) << "kinds do not collide";
+}
+
+TEST(Codec, TransferOutcomesMapToTheSimulation) {
+    EXPECT_EQ(ToTransferOutcome(backend::v1::TRANSFER_OUTCOME_TRANSFERRED),
+              sim::TransferOutcome::kTransferred);
+    EXPECT_EQ(ToTransferOutcome(backend::v1::TRANSFER_OUTCOME_ALREADY_TRANSFERRED),
+              sim::TransferOutcome::kTransferred);
+    EXPECT_EQ(ToTransferOutcome(backend::v1::TRANSFER_OUTCOME_SAME_ZONE),
+              sim::TransferOutcome::kZoneUnavailable);
+    EXPECT_EQ(ToTransferOutcome(backend::v1::TRANSFER_OUTCOME_STALE_AUTHORITY),
+              sim::TransferOutcome::kNotOwner);
+    EXPECT_EQ(ToTransferOutcome(backend::v1::TRANSFER_OUTCOME_UNSPECIFIED),
+              sim::TransferOutcome::kUnavailable);
+
+    game::v1::ChangeZone change;
+    change.set_request_id(7);
+    change.set_portal_id(1);
+    const sim::ChangeZoneCommand command = ToChangeZoneCommand(common::EntityId{1}, change);
+    EXPECT_EQ(command.portal, sim::PortalId{1});
+    EXPECT_EQ(command.request_id, common::RequestId{7});
 }
 
 }  // namespace

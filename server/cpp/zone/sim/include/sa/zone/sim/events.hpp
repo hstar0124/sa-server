@@ -3,6 +3,7 @@
 #include "sa/common/geometry.hpp"
 #include "sa/common/ids.hpp"
 #include "sa/zone/sim/content.hpp"
+#include "sa/zone/sim/map_data.hpp"
 
 #include <cstdint>
 #include <variant>
@@ -30,6 +31,11 @@ enum class RejectReason : std::uint8_t {
     kInventoryFull,
     kServiceUnavailable,  // the Backend did not answer; the same request_id may be retried
     kNotOwner,            // the Backend says another zone owns the character; the session ends
+    // zone changes (see README "소유권과 lease")
+    kUnknownPortal,
+    kOutOfPortalRange,
+    kTransferInProgress,
+    kZoneUnavailable,  // no live destination zone right now
 };
 
 // Mirrors CommandStatus in contracts/game: a result is final (accepted/rejected), still waiting
@@ -81,8 +87,8 @@ struct DeliveredEvent {
 
 // ---- requests to the host ------------------------------------------------------------------
 // The zone adjudicates and rolls; durable effects (receipts, items, gold) are the Backend's.
-// The host carries these over gRPC and brings the answer back through Zone::SpawnGroundItems
-// and Zone::ResolvePickup (see README "자산과 멱등성").
+// The host carries these over gRPC and brings the answer back through Zone::SpawnGroundItems,
+// Zone::ResolvePickup and Zone::CompleteTransfer/FailTransfer (see README "자산과 멱등성").
 
 struct DropRoll {
     ItemTemplateId item;
@@ -107,6 +113,16 @@ struct PickupReservation {
     common::ItemInstanceId instance;
 };
 
-using HostRequest = std::variant<KillRecord, PickupReservation>;
+// A player stands in a portal and asked to leave; the player is frozen until the answer arrives.
+struct ZoneTransferRequest {
+    common::EntityId player;
+    common::CharacterId character;
+    common::RequestId request_id;
+    PortalId portal;
+    common::ZoneId to_zone;
+    common::Vec2 arrival;
+};
+
+using HostRequest = std::variant<KillRecord, PickupReservation, ZoneTransferRequest>;
 
 }  // namespace sa::zone::sim

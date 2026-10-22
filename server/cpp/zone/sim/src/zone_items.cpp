@@ -139,6 +139,9 @@ void Zone::ApplyPickup(const PickupCommand& command) {
 }
 
 RejectReason Zone::ValidatePickup(const Player& player, common::EntityId item_id) const {
+    if (player.departing) {
+        return RejectReason::kTransferInProgress;
+    }
     if (!player.vitals.IsAlive()) {
         return RejectReason::kDead;
     }

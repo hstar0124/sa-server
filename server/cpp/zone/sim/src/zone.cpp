@@ -33,6 +33,9 @@ std::expected<Zone, std::string> Zone::Create(ZoneConfig config, MapData map, Zo
         return std::unexpected(walkable.error());
     }
     Zone zone{config, std::move(map), std::move(rules), std::move(content), rng};
+    if (auto portals = zone.ValidatePortalsLeaveZone(); !portals) {
+        return std::unexpected(portals.error());
+    }
     zone.PopulateMonsterSlots();
     return zone;
 }
@@ -68,8 +71,12 @@ std::expected<common::EntityId, SpawnError> Zone::SpawnPlayer(
     if (cls == content_.classes.end()) {
         return std::unexpected(SpawnError::kUnknownClass);
     }
+    const bool fits = position && map_.IsWalkable(*position, rules_.movement.body_radius_m);
+    if (position && !fits) {
+        ++stats_.spawns_relocated;
+    }
     common::Vec2 at = position.value_or(common::Vec2{});
-    if (!position) {
+    if (!fits) {
         const auto index = rng_.Range<std::size_t>(0, map_.spawn_points.size() - 1);
         at = map_.spawn_points[index];
     }
@@ -150,8 +157,10 @@ void Zone::DrainCommands() {
                 using T = std::decay_t<decltype(c)>;
                 if constexpr (std::is_same_v<T, CastCommand>) {
                     ApplyCast(c);
-                } else {
+                } else if constexpr (std::is_same_v<T, PickupCommand>) {
                     ApplyPickup(c);
+                } else {
+                    ApplyChangeZone(c);
                 }
                 return c.player;
             },
@@ -183,9 +192,10 @@ void Zone::ApplyMove(const MoveCommand& command) {
         return;
     }
     player.last_input_seq = command.input_seq;
-    // The dead have no intent: an input sent while dead must not make the respawned body walk.
-    player.desired_direction =
-        player.vitals.IsAlive() ? command.direction.Normalized() : common::Vec2{};
+    // The dead and the departing have no intent: an input sent then must not move the body.
+    player.desired_direction = player.vitals.IsAlive() && !player.departing
+                                   ? command.direction.Normalized()
+                                   : common::Vec2{};
     ++stats_.commands_applied;
 }
 

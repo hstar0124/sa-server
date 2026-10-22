@@ -36,5 +36,7 @@ using ItemInstanceId = OpaqueId<struct ItemInstanceIdTag>;
 using KillId = OpaqueId<struct KillIdTag>;
 // Idempotency key the Backend stores for one zone-originated command (e.g. a pickup).
 using RequestKey = OpaqueId<struct RequestKeyTag>;
+// One attempt to hand a character to another zone; the Backend stores its outcome (ADR-0010).
+using TransferId = OpaqueId<struct TransferIdTag>;
 
 }  // namespace sa::common

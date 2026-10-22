@@ -5,6 +5,7 @@
 #include "sa/zone/sim/zone.hpp"
 
 #include "codec.hpp"
+#include "directory_client.hpp"
 #include "economy_client.hpp"
 #include "gateway_link.hpp"
 #include "link_sink.hpp"
@@ -34,27 +35,39 @@ struct ZoneHostStats {
     std::uint64_t backend_failures = 0;     // no answer at all, after the client's retries
     std::uint64_t not_owner_evictions = 0;  // the Backend says another zone owns the character
     std::uint64_t inventory_updates_sent = 0;
+    // Placement round trips (see README "소유권과 lease").
+    std::uint64_t checkpoints_saved = 0;
+    std::uint64_t checkpoints_refused = 0;  // this zone no longer owns the character
+    std::uint64_t transfers_completed = 0;
+    std::uint64_t transfers_refused = 0;
+    std::uint64_t stale_attaches = 0;  // an attach under a generation not newer than the live one
+    std::uint64_t superseded_sessions = 0;  // a newer generation of the same character arrived
 };
 
-// Binds gateway sessions to simulated players and settles the zone's economy requests with the
-// Backend. Owns the session table and is the only code that translates between link messages,
-// Economy RPCs and Zone calls. Single-threaded with the zone: the EconomyClient posts Backend
-// replies to the io_context that also runs the tick, so no reply races a tick.
+// Binds gateway sessions to simulated players and settles the zone's economy and placement
+// requests with the Backend. Owns the session table and is the only code that translates between
+// link messages, Backend RPCs and Zone calls. Single-threaded with the zone: the Backend clients
+// post replies to the io_context that also runs the tick, so no reply races a tick.
+//
+// Split by concern across zone_host.cpp (sessions, input, output), zone_host_economy.cpp (assets,
+// kills, pickups) and zone_host_placement.cpp (checkpoints, transfers).
 class ZoneHost final : public GatewayLink::Handler {
 public:
     struct Identity {
         common::InstanceId zone_instance;
         std::uint32_t simulation_hz = 0;
         std::uint32_t ticks_per_snapshot = 0;
+        std::uint32_t ticks_per_checkpoint = 0;
         std::uint32_t max_sessions = 0;
     };
 
     // `authoritative` answers whether the zone currently holds its Backend lease.
     ZoneHost(sim::Zone& zone, Identity identity, EconomyGateway& economy,
-             std::function<bool()> authoritative);
+             DirectoryGateway& directory, std::function<bool()> authoritative);
 
     // Called after each simulation tick: delivers command results and combat events every tick,
-    // forwards kills and pickups to the Backend, snapshots at the configured cadence.
+    // forwards kills, pickups and departures to the Backend, snapshots and saves checkpoints at
+    // the configured cadences.
     void OnTick(common::TickIndex tick);
 
     // Lease lost or shutdown: every session is told to leave and the players despawn.
@@ -89,6 +102,10 @@ private:
         // Mirror of the Backend's answer, kept current from kill and pickup responses so every
         // InventoryUpdate carries the full state.
         std::optional<codec::CharacterAssets> assets;
+        std::uint64_t checkpoint_version = 0;  // grows with every save of this session
+        // The position of the last save not known to have failed: an idle character is not saved
+        // again and again.
+        std::optional<common::Vec2> checkpointed;
     };
 
     void Reject(LinkSink& sink, const common::InstanceId& session_id,
@@ -101,7 +118,7 @@ private:
     [[nodiscard]] Session* SessionOf(common::EntityId entity);
     [[nodiscard]] codec::ZoneAuthority AuthorityFor(const Session& session) const;
 
-    // Economy round trips.
+    // Economy round trips (zone_host_economy.cpp).
     void RequestAssets(const common::InstanceId& session_id);
     void OnAssets(const common::InstanceId& session_id, common::EntityId entity,
                   const std::optional<backend::v1::GetCharacterAssetsResponse>& response);
@@ -113,9 +130,24 @@ private:
     void OnPickupSettled(const sim::PickupReservation& pickup,
                          const std::optional<backend::v1::PickupItemResponse>& response);
 
+    // Placement round trips (zone_host_placement.cpp).
+    // The live session of a character, if it is already attached here.
+    [[nodiscard]] std::optional<common::InstanceId> SessionOfCharacter(
+        common::CharacterId character) const;
+    void SaveCheckpoints();
+    void SaveCheckpoint(const common::InstanceId& session_id, Session& session);
+    void OnCheckpointSaved(const common::InstanceId& session_id, common::EntityId entity,
+                           const std::optional<backend::v1::SaveCheckpointResponse>& response);
+    void Transfer(const sim::ZoneTransferRequest& transfer);
+    void OnTransferDecided(const sim::ZoneTransferRequest& transfer,
+                           const std::optional<backend::v1::TransferCharacterResponse>& response);
+    void HandOver(const sim::ZoneTransferRequest& transfer,
+                  const backend::v1::TransferCharacterResponse& response);
+
     sim::Zone& zone_;
     Identity identity_;
     EconomyGateway& economy_;
+    DirectoryGateway& directory_;
     std::function<bool()> authoritative_;
     std::function<void(GatewayLink&)> on_link_closed_;
     std::unordered_map<common::InstanceId, Session> sessions_;  // by gateway session id

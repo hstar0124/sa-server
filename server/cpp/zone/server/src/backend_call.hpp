@@ -13,8 +13,9 @@
 #include <string_view>
 #include <utility>
 
-// The zone's retry policy for Backend calls. Every call the zone makes is safe to repeat: a kill
-// carries its kill id, a pickup its request key, and a read changes nothing.
+// The zone's retry policy for Backend calls, shared by the Economy and WorldDirectory clients.
+// Every call the zone makes is safe to repeat: a kill carries its kill id, a pickup its request
+// key, a transfer its transfer id, a checkpoint its version, and a read changes nothing.
 namespace sa::zone {
 
 // nullopt means no answer arrived (transport failure or deadline, after every attempt): the

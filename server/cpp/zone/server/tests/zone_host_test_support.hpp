@@ -6,6 +6,7 @@
 #include "sa/common/protocol_limits.hpp"
 #include "sa/zone/sim/zone.hpp"
 
+#include "directory_client.hpp"
 #include "economy_client.hpp"
 #include "zone_host.hpp"
 
@@ -68,6 +69,26 @@ public:
     std::vector<Reply<backend::v1::GetCharacterAssetsResponse>> asset_replies;
 };
 
+// A scripted WorldDirectory: requests are captured, the test answers them when it chooses.
+class FakeDirectory final : public DirectoryGateway {
+public:
+    void SaveCheckpoint(backend::v1::SaveCheckpointRequest request,
+                        Reply<backend::v1::SaveCheckpointResponse> reply) override {
+        checkpoints.push_back(std::move(request));
+        checkpoint_replies.push_back(std::move(reply));
+    }
+    void TransferCharacter(backend::v1::TransferCharacterRequest request,
+                           Reply<backend::v1::TransferCharacterResponse> reply) override {
+        transfers.push_back(std::move(request));
+        transfer_replies.push_back(std::move(reply));
+    }
+
+    std::vector<backend::v1::SaveCheckpointRequest> checkpoints;
+    std::vector<Reply<backend::v1::SaveCheckpointResponse>> checkpoint_replies;
+    std::vector<backend::v1::TransferCharacterRequest> transfers;
+    std::vector<Reply<backend::v1::TransferCharacterResponse>> transfer_replies;
+};
+
 constexpr sim::MonsterTemplateId kRat{7};
 constexpr sim::ItemTemplateId kGel{2001};
 constexpr std::uint32_t kInventoryCapacity = 20;
@@ -102,9 +123,14 @@ inline sim::ContentBundle TestContent() {
     return c;
 }
 
-// Players spawn at (50,50); a rat stands 2 m away, inside strike range.
+// Players spawn at (50,50); a rat stands 2 m away, inside strike range. A portal to zone 2 stands
+// 10 m to the west.
 constexpr common::Vec2 kSpawn{50.0F, 50.0F};
 constexpr common::Vec2 kRatHome{52.0F, 50.0F};
+constexpr sim::PortalId kGate{1};
+constexpr common::Vec2 kGatePosition{40.0F, 50.0F};
+constexpr common::ZoneId kDestination{2};
+constexpr common::Vec2 kArrival{8.0F, 90.0F};
 
 inline sim::Zone MakeZone() {
     auto zone = sim::Zone::Create(
@@ -117,7 +143,12 @@ inline sim::Zone MakeZone() {
                      .obstacles = {},
                      .spawn_points = {kSpawn},
                      .monster_spawns = {sim::MonsterSpawn{
-                         .template_id = kRat, .position = kRatHome, .count = 1}}},
+                         .template_id = kRat, .position = kRatHome, .count = 1}},
+                     .portals = {sim::Portal{.id = kGate,
+                                             .position = kGatePosition,
+                                             .radius_m = 3.0F,
+                                             .to_zone = kDestination,
+                                             .arrival = kArrival}}},
         sim::ZoneRules{.movement = sim::MovementRules{.max_speed_mps = 10.0F,
                                                       .body_radius_m = 0.4F,
                                                       .aoi_enter_radius_m = 20.0F,
@@ -168,6 +199,7 @@ inline ZoneHost::Identity Identity(std::uint32_t max_sessions = 10) {
     return ZoneHost::Identity{.zone_instance = common::InstanceId::Generate(),
                               .simulation_hz = 10,
                               .ticks_per_snapshot = 2,
+                              .ticks_per_checkpoint = 4,
                               .max_sessions = max_sessions};
 }
 

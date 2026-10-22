@@ -56,7 +56,8 @@ struct MapData {
     [[nodiscard]] bool IsWalkable(common::Vec2 point, float body_radius_m) const noexcept;
 
     // Structural sanity: positive extents, at least one spawn point, obstacles and spawns inside
-    // the map, portals with distinct ids, a positive radius and a destination other than this map.
+    // the map, portals with distinct ids, a positive radius and a destination. The zone checks
+    // that no portal leads back into itself, since the map does not know which zone serves it.
     [[nodiscard]] std::expected<void, std::string> Validate() const;
     // Every player spawn point, monster home and portal centre is walkable for a body of this
     // radius, so nothing starts inside a wall or pressed against the map edge. A portal's arrival
