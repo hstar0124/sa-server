@@ -11,7 +11,9 @@ public sealed record BackendSettings(
     TimeSpan? GatewayLeaseDuration = null,
     TimeSpan? ZoneLeaseDuration = null,
     TimeSpan? TicketLifetime = null,
-    int? CredentialAttemptsPerMinute = null);
+    int? CredentialAttemptsPerMinute = null,
+    int? RankingsMaxTop = null,
+    int? RankingsDefaultTop = null);
 
 /// <summary>In-process GameBackend bound to the fixture database. Settings mirror production keys.</summary>
 public sealed class BackendFactory(string connectionString, BackendSettings? settings = null) : WebApplicationFactory<Program>
@@ -52,6 +54,16 @@ public sealed class BackendFactory(string connectionString, BackendSettings? set
         if (_settings.TicketLifetime is { } ticket)
         {
             values["WorldDirectory:TicketLifetime"] = ticket.ToString();
+        }
+
+        if (_settings.RankingsMaxTop is { } maxTop)
+        {
+            values["Rankings:MaxTop"] = maxTop.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (_settings.RankingsDefaultTop is { } defaultTop)
+        {
+            values["Rankings:DefaultTop"] = defaultTop.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         if (_settings.CredentialAttemptsPerMinute is { } attempts)
