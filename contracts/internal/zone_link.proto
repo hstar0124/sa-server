@@ -30,6 +30,7 @@ message ZoneToGateway {
     SessionRejected session_rejected = 11;
     SessionEvicted session_evicted = 12;
     SessionOutput session_output = 13;
+    SessionTransfer session_transfer = 14;
   }
 }
 
@@ -113,4 +114,15 @@ message SessionEvicted {
 message SessionOutput {
   bytes gateway_session_id = 1;
   sa.game.v1.ServerMessage message = 2;
+}
+
+// The Backend moved the character to another zone (ADR-0010): the origin zone has released it, and
+// the gateway attaches the session to the destination under the new ownership generation. The
+// client learns of the move through the destination's Welcome.
+message SessionTransfer {
+  bytes gateway_session_id = 1;
+  uint32 to_zone_id = 2;
+  bytes to_zone_instance_id = 3;
+  uint64 owner_epoch = 4;
+  sa.game.v1.Vec2 arrival_position = 5;
 }

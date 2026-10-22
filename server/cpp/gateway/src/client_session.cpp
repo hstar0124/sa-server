@@ -70,19 +70,28 @@ void ClientSession::OnClosed(const std::error_code& reason) {
     }
 }
 
-void ClientSession::OnZoneAttached(const internal::v1::SessionAttached& attached) {
-    Apply(protocol_.OnZoneAttached(common::EntityId{attached.entity_id()}));
+void ClientSession::OnZoneAttached(common::ZoneId zone,
+                                   const internal::v1::SessionAttached& attached) {
+    Apply(protocol_.OnZoneAttached(zone, common::EntityId{attached.entity_id()}));
 }
-void ClientSession::OnZoneRejected(const internal::v1::SessionRejected& rejected) {
-    spdlog::info("session {} rejected by zone: {}", id_.ToHex(),
+void ClientSession::OnZoneRejected(common::ZoneId zone,
+                                   const internal::v1::SessionRejected& rejected) {
+    spdlog::info("session {} rejected by zone {}: {}", id_.ToHex(), zone.value(),
                  internal::v1::RejectReason_Name(rejected.reason()));
-    Apply(protocol_.OnZoneRejected(rejected.reason()));
+    Apply(protocol_.OnZoneRejected(zone, rejected.reason()));
 }
-void ClientSession::OnZoneEvicted(const internal::v1::SessionEvicted& evicted) {
-    Apply(protocol_.OnZoneEvicted(evicted.reason()));
+void ClientSession::OnZoneEvicted(common::ZoneId zone,
+                                  const internal::v1::SessionEvicted& evicted) {
+    Apply(protocol_.OnZoneEvicted(zone, evicted.reason()));
 }
-void ClientSession::OnZoneOutput(const game::v1::ServerMessage& message) {
-    Apply(protocol_.OnZoneOutput(message));
+void ClientSession::OnZoneTransfer(common::ZoneId zone,
+                                   const internal::v1::SessionTransfer& transfer) {
+    spdlog::info("session {} moving from zone {} to zone {} (epoch {})", id_.ToHex(), zone.value(),
+                 transfer.to_zone_id(), transfer.owner_epoch());
+    Apply(protocol_.OnZoneTransfer(zone, transfer));
+}
+void ClientSession::OnZoneOutput(common::ZoneId zone, const game::v1::ServerMessage& message) {
+    Apply(protocol_.OnZoneOutput(zone, message));
 }
 void ClientSession::OnZoneLinkDown(common::ZoneId zone) {
     if (protocol_.zone() == zone) {

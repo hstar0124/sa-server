@@ -41,10 +41,18 @@ public:
         virtual ~Handler() = default;
         virtual void OnZoneReady(common::ZoneId zone, const internal::v1::LinkWelcome& welcome) = 0;
         virtual void OnZoneDown(common::ZoneId zone) = 0;
-        virtual void OnSessionAttached(const internal::v1::SessionAttached& attached) = 0;
-        virtual void OnSessionRejected(const internal::v1::SessionRejected& rejected) = 0;
-        virtual void OnSessionEvicted(const internal::v1::SessionEvicted& evicted) = 0;
-        virtual void OnSessionOutput(const internal::v1::SessionOutput& output) = 0;
+        // Session messages carry the zone whose link delivered them, so a session can tell its
+        // current zone from one that no longer holds it.
+        virtual void OnSessionAttached(common::ZoneId zone,
+                                       const internal::v1::SessionAttached& attached) = 0;
+        virtual void OnSessionRejected(common::ZoneId zone,
+                                       const internal::v1::SessionRejected& rejected) = 0;
+        virtual void OnSessionEvicted(common::ZoneId zone,
+                                      const internal::v1::SessionEvicted& evicted) = 0;
+        virtual void OnSessionTransfer(common::ZoneId zone,
+                                       const internal::v1::SessionTransfer& transfer) = 0;
+        virtual void OnSessionOutput(common::ZoneId zone,
+                                     const internal::v1::SessionOutput& output) = 0;
     };
 
     ZoneLink(asio::io_context& io, ZoneLinkConfig config, common::InstanceId gateway_instance,

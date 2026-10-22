@@ -76,10 +76,16 @@ struct RecordingHandler final : ZoneLink::Handler {
         ++ready;
     }
     void OnZoneDown(common::ZoneId /*zone*/) override { ++down; }
-    void OnSessionAttached(const internal::v1::SessionAttached& /*attached*/) override {}
-    void OnSessionRejected(const internal::v1::SessionRejected& /*rejected*/) override {}
-    void OnSessionEvicted(const internal::v1::SessionEvicted& /*evicted*/) override {}
-    void OnSessionOutput(const internal::v1::SessionOutput& /*output*/) override {}
+    void OnSessionAttached(common::ZoneId /*zone*/,
+                           const internal::v1::SessionAttached& /*attached*/) override {}
+    void OnSessionRejected(common::ZoneId /*zone*/,
+                           const internal::v1::SessionRejected& /*rejected*/) override {}
+    void OnSessionEvicted(common::ZoneId /*zone*/,
+                          const internal::v1::SessionEvicted& /*evicted*/) override {}
+    void OnSessionTransfer(common::ZoneId /*zone*/,
+                           const internal::v1::SessionTransfer& /*transfer*/) override {}
+    void OnSessionOutput(common::ZoneId /*zone*/,
+                         const internal::v1::SessionOutput& /*output*/) override {}
 };
 
 // Stops the link and runs until its connection has finished closing (the fake zone never closes,

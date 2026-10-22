@@ -180,16 +180,19 @@ void ZoneLink::OnFrame(std::span<const std::byte> payload) {
     }
     switch (message.body_case()) {
         case ZoneToGateway::kSessionAttached:
-            handler_.OnSessionAttached(message.session_attached());
+            handler_.OnSessionAttached(config_.zone, message.session_attached());
             return;
         case ZoneToGateway::kSessionRejected:
-            handler_.OnSessionRejected(message.session_rejected());
+            handler_.OnSessionRejected(config_.zone, message.session_rejected());
             return;
         case ZoneToGateway::kSessionEvicted:
-            handler_.OnSessionEvicted(message.session_evicted());
+            handler_.OnSessionEvicted(config_.zone, message.session_evicted());
+            return;
+        case ZoneToGateway::kSessionTransfer:
+            handler_.OnSessionTransfer(config_.zone, message.session_transfer());
             return;
         case ZoneToGateway::kSessionOutput:
-            handler_.OnSessionOutput(message.session_output());
+            handler_.OnSessionOutput(config_.zone, message.session_output());
             return;
         case ZoneToGateway::kLinkPong:
             return;
