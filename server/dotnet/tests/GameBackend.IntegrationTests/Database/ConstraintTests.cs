@@ -5,7 +5,7 @@ using Sa.GameBackend.IntegrationTests.Harness;
 namespace Sa.GameBackend.IntegrationTests.Database;
 
 /// <summary>
-/// The database keeps the consistency rules on its own (migrations 0005 and 0006): a write that breaks one
+/// The database keeps the consistency rules on its own (migrations 0005, 0006 and 0008): a write that breaks one
 /// fails with the named constraint even when it bypasses the Backend's code.
 /// </summary>
 [Collection(SharedPostgres.Name)]
@@ -104,6 +104,46 @@ public sealed class ConstraintTests(PostgresFixture postgres) : IDisposable
         Assert.Equal("inbox_events_id_len", await ViolationAsync(insertInbox, new { Consumer = "character-stats", Event = new byte[8] }));
         Assert.Equal("inbox_events_consumer_format", await ViolationAsync(insertInbox,
             new { Consumer = "", Event = Guid.NewGuid().ToByteArray() }));
+    }
+
+    [Fact]
+    public async Task A_checkpoint_holds_a_finite_position_under_a_real_generation()
+    {
+        (_, long character) = await CharacterAsync();
+        const string insert = """
+            INSERT INTO game.character_checkpoints (world_id, character_id, zone_id, pos_x, pos_y, owner_epoch, checkpoint_version)
+            VALUES (@World, @Character, 1, @X, 10, @Epoch, 0)
+            """;
+        Assert.Equal("character_checkpoints_position_finite", await ViolationAsync(insert, new { World, Character = character, X = float.NaN, Epoch = 1 }));
+        Assert.Equal("character_checkpoints_position_finite", await ViolationAsync(insert, new { World, Character = character, X = float.PositiveInfinity, Epoch = 1 }));
+        Assert.Equal("character_checkpoints_epoch_positive", await ViolationAsync(insert, new { World, Character = character, X = 5f, Epoch = 0 }));
+        Assert.Equal("character_checkpoints_world_character_fkey", await ViolationAsync(insert, new { World = OtherWorld, Character = character, X = 5f, Epoch = 1 }));
+    }
+
+    [Fact]
+    public async Task Only_a_transfer_that_happened_names_its_destination_and_a_newer_generation()
+    {
+        (_, long character) = await CharacterAsync();
+        const string insert = """
+            INSERT INTO game.zone_transfers (transfer_id, world_id, character_id, from_zone_instance_id, from_owner_epoch, to_zone_id, to_zone_instance_id, to_owner_epoch, outcome)
+            VALUES (@Id, @World, @Character, @From, 3, 2, @To, @ToEpoch, @Outcome)
+            """;
+        object Row(byte[]? to, long? toEpoch, string outcome) => new
+        {
+            Id = Guid.NewGuid().ToByteArray(),
+            World,
+            Character = character,
+            From = Guid.NewGuid().ToByteArray(),
+            To = to,
+            ToEpoch = toEpoch,
+            Outcome = outcome,
+        };
+
+        Assert.Equal("zone_transfers_result", await ViolationAsync(insert, Row(null, null, "transferred")));
+        Assert.Equal("zone_transfers_result", await ViolationAsync(insert, Row(Guid.NewGuid().ToByteArray(), 3, "transferred")));  // not newer
+        Assert.Equal("zone_transfers_result", await ViolationAsync(insert, Row(Guid.NewGuid().ToByteArray(), 4, "stale_authority")));
+        await Db.ExecuteAsync(postgres.ConnectionString, insert, Row(Guid.NewGuid().ToByteArray(), 4, "transferred"));
+        await Db.ExecuteAsync(postgres.ConnectionString, insert, Row(null, null, "no_zone_available"));
     }
 
     public void Dispose() => _factory.Dispose();
