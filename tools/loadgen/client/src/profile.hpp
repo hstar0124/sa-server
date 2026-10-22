@@ -2,6 +2,7 @@
 
 #include "sa/bot/fighter.hpp"
 #include "sa/bot/looter.hpp"
+#include "sa/bot/traveler.hpp"
 #include "sa/bot/wanderer.hpp"
 #include "sa/common/config_source.hpp"
 #include "sa/common/ids.hpp"
@@ -24,8 +25,8 @@ struct BotIdentity {
     std::string character_name;
 };
 
-// Bots are numbered wanderers first, then fighters, then looters.
-enum class BotRole : std::uint8_t { kWanderer, kFighter, kLooter };
+// Bots are numbered wanderers first, then fighters, looters and travelers.
+enum class BotRole : std::uint8_t { kWanderer, kFighter, kLooter, kTraveler };
 
 struct LoadProfile {
     std::string backend_base_url;  // e.g. http://localhost:5100
@@ -38,6 +39,7 @@ struct LoadProfile {
     std::uint32_t wanderers = 0;  // bot roles, numbered in this order (see RoleOf)
     std::uint32_t fighters = 0;
     std::uint32_t looters = 0;
+    std::uint32_t travelers = 0;
     std::uint64_t seed = 0;
     // Where the names come from, apart from `seed`: a character keeps what earlier runs left
     // (inventory, last position), so a run normally gets fresh ones. Absent: a seed from the OS;
@@ -54,15 +56,19 @@ struct LoadProfile {
     bot::WandererParams wanderer;
     bot::FighterParams fighter;
     bot::LooterParams looter;
+    bot::TravelerParams traveler;
 
     [[nodiscard]] std::uint32_t bot_count() const noexcept {
-        return wanderers + fighters + looters;
+        return wanderers + fighters + looters + travelers;
     }
     [[nodiscard]] BotRole RoleOf(std::uint32_t index) const noexcept {
         if (index < wanderers) {
             return BotRole::kWanderer;
         }
-        return index < wanderers + fighters ? BotRole::kFighter : BotRole::kLooter;
+        if (index < wanderers + fighters) {
+            return BotRole::kFighter;
+        }
+        return index < wanderers + fighters + looters ? BotRole::kLooter : BotRole::kTraveler;
     }
     // Deterministic per-bot identities for one identity seed.
     [[nodiscard]] static BotIdentity IdentityOf(std::string_view account_prefix,

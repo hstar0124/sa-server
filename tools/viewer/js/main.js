@@ -23,6 +23,8 @@ let api = null;
 let link = null;
 let contracts = null;
 let obstacles = [];
+const obstaclesByZone = new Map();  // zone id -> obstacles of its map
+let departure = null;  // { id, portal } of a ChangeZone not decided yet; retried under the same id
 let rtt = null;
 let tickTimer = null;
 let pingTimer = null;
@@ -32,9 +34,12 @@ const keys = new Set();
 const pendingRequests = new Map();  // request id -> what was asked, until the final result arrives
 let pickupRangeM = 0;  // from game-data/rules/economy.toml; the zone refuses anything farther
 
-async function loadMapObstacles() {
-  // The viewer draws the same map the zone loads; a tiny TOML subset is enough here.
-  const text = await (await fetch('/game-data/maps/zone-1.toml')).text();
+async function loadMapObstacles(zoneId) {
+  // The viewer draws the same map the zone loads (game-data/maps/zone-<id>.toml, as the zone
+  // configs name them); a tiny TOML subset is enough here.
+  const response = await fetch(`/game-data/maps/zone-${zoneId}.toml`);
+  if (!response.ok) return [];
+  const text = await response.text();
   const match = text.match(/obstacles\s*=\s*\[([\s\S]*?)\n\]/);
   if (!match) return [];
   return [...match[1].matchAll(/\[\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),\s*([\d.]+)\s*\]/g)].map(m => m.slice(1, 5).map(Number));
@@ -75,7 +80,15 @@ async function enter(characterId) {
     }
     world.reset();
     link = new GatewayLink(contracts, {
-      onWelcome: (welcome) => { world.applyWelcome(welcome); status(`in zone ${welcome.zone_id}`, 'ok'); startLoops(); },
+      onWelcome: (welcome) => {
+        const moved = world.zoneId !== 0 && world.zoneId !== welcome.zone_id;
+        world.applyWelcome(welcome);
+        departure = null;
+        showZone(welcome.zone_id);
+        status(`in zone ${welcome.zone_id}`, 'ok');
+        if (moved) world.note(`arrived in zone ${welcome.zone_id}`);
+        startLoops();
+      },
       onSnapshot: (snapshot) => world.applySnapshot(snapshot, performance.now(), Number($('loss-pct').value) / 100),
       onPong: () => { rtt = Math.round(performance.now() - pingSentAt); },
       onCommandResult: (result, rejectCode) => {
@@ -83,6 +96,7 @@ async function enter(characterId) {
         const name = pendingRequests.get(result.request_id) ?? `request ${result.request_id}`;
         if (result.status === statuses.COMMAND_STATUS_PENDING) { world.note(`${name}: waiting for the backend`); return; }
         pendingRequests.delete(result.request_id);
+        if (departure?.id === result.request_id && result.status !== statuses.COMMAND_STATUS_UNKNOWN) departure = null;
         if (result.status === statuses.COMMAND_STATUS_ACCEPTED) world.note(`${name}: accepted`);
         else if (result.status === statuses.COMMAND_STATUS_UNKNOWN) world.note(`${name}: outcome unknown, try again`);
         else world.note(`${name}: ${rejectCode}`);
@@ -121,6 +135,26 @@ function cast(skillId, name) {
   pendingRequests.set(link.sendCast(skillId, Number(target)), name);
 }
 
+// Obstacles follow the zone the session is in; each map is fetched once.
+function showZone(zoneId) {
+  obstacles = obstaclesByZone.get(zoneId) ?? [];
+  if (obstaclesByZone.has(zoneId)) return;
+  loadMapObstacles(zoneId).then((loaded) => {
+    obstaclesByZone.set(zoneId, loaded);
+    if (world.zoneId === zoneId) obstacles = loaded;
+  });
+}
+
+function changeZone() {
+  if (!link) return;
+  const portal = world.portalInReach();
+  if (portal === null) { world.note('portal: stand inside the ring first'); return; }
+  // Until the zone decides, asking again repeats the same request.
+  const id = link.sendChangeZone(portal.id, departure?.portal === portal.id ? departure.id : null);
+  departure = { id, portal: portal.id };
+  pendingRequests.set(id, `portal to zone ${portal.toZone}`);
+}
+
 function pickup() {
   if (!link) return;
   const item = world.nearest(pickupRangeM, contracts.EntityKind.values.ENTITY_KIND_DROPPED_ITEM, false);
@@ -139,6 +173,7 @@ function frame() {
   $('buffer-value').textContent = bufferMs;
   $('loss-value').textContent = $('loss-pct').value;
   const stats = {
+    'zone': world.zoneId,
     'server tick': world.serverTick,
     'acked input': `${world.lastAckedInput} / ${link?.inputSeq ?? 0}`,
     'visible': world.entities.size,
@@ -159,7 +194,6 @@ function frame() {
 async function main() {
   contracts = await loadContracts();
   renderer.useKinds(contracts.EntityKind.values);
-  obstacles = await loadMapObstacles();
   pickupRangeM = await loadPickupRange();
   $('btn-register').onclick = async () => {
     api = new BackendApi($('backend-url').value);
@@ -184,6 +218,7 @@ async function main() {
     if (e.key === ' ') { e.preventDefault(); cast(SKILL_STRIKE, 'strike'); return; }
     if (e.key.toLowerCase() === 'e') { cast(SKILL_HEAVY_BLOW, 'heavy blow'); return; }
     if (e.key.toLowerCase() === 'f') { pickup(); return; }
+    if (e.key.toLowerCase() === 'g') { changeZone(); return; }
     keys.add(e.key.toLowerCase());
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));

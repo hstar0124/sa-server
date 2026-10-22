@@ -13,7 +13,7 @@
 namespace sa::loadgen {
 
 // Which command a request id was spent on, so its result lands in the right counter.
-enum class RequestKind : std::uint8_t { kCast, kPickup };
+enum class RequestKind : std::uint8_t { kCast, kPickup, kChangeZone };
 
 // What one bot believes about the world, rebuilt from Welcome, WorldSnapshot, CommandResult and
 // InventoryUpdate messages. It is also the consistency checker: a message that contradicts earlier
@@ -38,6 +38,13 @@ public:
         std::uint64_t gold = 0;
     };
 
+    struct Travel {
+        std::uint64_t zone_changes = 0;  // Welcomes after the first: the zone changed under us
+        std::uint64_t transfers_accepted = 0;
+        std::uint64_t transfers_rejected = 0;  // no destination now, already moving, out of range
+        std::uint64_t transfers_unknown = 0;   // the Backend did not answer; asked again as is
+    };
+
     struct Integrity {
         std::uint64_t despawn_of_unknown = 0;       // told to remove an entity never spawned
         std::uint64_t spawn_of_known = 0;           // told to spawn an entity already visible
@@ -57,6 +64,8 @@ public:
         }
     };
 
+    // A second Welcome means a transfer landed the session in another zone: what was visible
+    // belonged to the old one, and the new zone acknowledges inputs and counts ticks afresh.
     void OnWelcome(const game::v1::Welcome& welcome);
     void OnSnapshot(const game::v1::WorldSnapshot& snapshot);
     // Registers a request the bot is about to send; its final result is counted under `kind`.
@@ -80,6 +89,9 @@ public:
     [[nodiscard]] const Integrity& integrity() const noexcept { return integrity_; }
     [[nodiscard]] const Combat& combat() const noexcept { return combat_; }
     [[nodiscard]] const Loot& loot() const noexcept { return loot_; }
+    [[nodiscard]] const Travel& travel() const noexcept { return travel_; }
+    [[nodiscard]] common::ZoneId zone() const noexcept { return zone_; }
+    [[nodiscard]] const std::vector<bot::SeenPortal>& portals() const noexcept { return portals_; }
     // Requests still waiting for a final answer (a pickup the Backend is deciding, or one the run
     // ended before).
     [[nodiscard]] std::size_t awaiting_results() const noexcept { return awaiting_.size(); }
@@ -100,6 +112,8 @@ private:
     std::size_t max_visible_ = 0;
     std::size_t max_visible_players_ = 0;
     std::uint32_t simulation_hz_ = 0;
+    common::ZoneId zone_;
+    std::vector<bot::SeenPortal> portals_;
     struct Known {
         bot::SeenKind kind = bot::SeenKind::kOther;
         common::Vec2 position;
@@ -112,6 +126,7 @@ private:
     std::int32_t self_max_hp_ = 0;
     Combat combat_;
     Loot loot_;
+    Travel travel_;
     std::vector<bot::SeenEntity> visible_cache_;
     bool cache_dirty_ = true;
     Integrity integrity_;
