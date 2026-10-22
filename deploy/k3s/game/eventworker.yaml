@@ -31,6 +31,8 @@ spec:
                   key: connection-string
             - name: Kafka__BootstrapServers
               value: kafka.data.svc:9092
+            - name: Redis__ConnectionString
+              value: redis.data.svc:6379,abortConnect=false
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

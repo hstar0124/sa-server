@@ -16,6 +16,8 @@
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.Redis" />
+    <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="Grpc.Net.Client" />
     <PackageReference Include="dbup-postgresql" />
     <PackageReference Include="Npgsql" />
@@ -25,6 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../GameBackend/GameBackend.csproj" />
+    <ProjectReference Include="../../Shared/Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>

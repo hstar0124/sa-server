@@ -2,6 +2,7 @@ using Dapper;
 using Google.Protobuf;
 using Npgsql;
 using Sa.GameBackend.Common;
+using Sa.Shared.Events;
 
 namespace Sa.GameBackend.Infrastructure.Outbox;
 
@@ -11,7 +12,7 @@ namespace Sa.GameBackend.Infrastructure.Outbox;
 /// </summary>
 internal readonly record struct EventAggregate(string Type, long Id)
 {
-    public static EventAggregate Character(CharacterId id) => new("character", id.Value);
+    public static EventAggregate Character(CharacterId id) => new(AggregateTypes.Character, id.Value);
 }
 
 /// <summary>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the whole stack locally (PostgreSQL and Kafka in compose, everything else as host processes) and
+# Runs the whole stack locally (PostgreSQL, Kafka and Redis in compose, the rest as host processes) and
 # drives it with the loadgen smoke profile. Exit code is the verdict of the bots and of the checks
 # that follow them in the database.
 #
@@ -25,6 +25,7 @@ ZONE_SEED="${SA_E2E_ZONE_SEED:-1}"
 STACK_PORTS=(5100 5101 7777 7778 7801)
 
 psql_value() { docker exec sa-postgres psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"; }
+redis_cli() { docker exec sa-redis redis-cli "$@"; }
 . scripts/lib/e2e.sh
 
 port_open() { ss -ltn "sport = :$1" | grep -q LISTEN; }

@@ -17,6 +17,8 @@
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Testcontainers.Kafka" />
+    <PackageReference Include="Testcontainers.Redis" />
+    <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="dbup-postgresql" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Dapper" />
@@ -25,6 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../EventWorker/EventWorker.csproj" />
+    <ProjectReference Include="../../Shared/Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>

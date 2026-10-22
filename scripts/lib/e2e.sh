@@ -1,6 +1,6 @@
 # Shared by scripts/e2e-local.sh and scripts/e2e-k3s.sh: reading the profile, waiting, and the
-# database checks that follow a bot run. Sourced, not run. The caller defines
-# psql_value "<sql>" (prints one value) and sets PROFILE before sourcing.
+# database checks that follow a bot run. Sourced, not run. The caller defines psql_value "<sql>"
+# (prints the result rows) and redis_cli <args> (runs redis-cli), and sets PROFILE before sourcing.
 
 # Reads a scalar from the profile; enough for the keys the checks need.
 profile_value() { sed -nE "s/^$1[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*/\1/p" "$PROFILE" | head -1 | tr -d ' '; }
@@ -52,7 +52,31 @@ check_run() {
   else
     echo "FAIL: events of this run were not all published and applied"; failed=1
   fi
+
+  # The Redis ranking is a copy of the statistics: for every character this run touched, the
+  # sorted set holds the same kill total (server/dotnet/Shared/Ranking/RankingKeys.cs: the member is
+  # long.MaxValue - id, 19 digits wide).
+  if wait_for "the ranking to match the statistics" ranking_mirrors_statistics; then
+    echo "ranking matches the statistics for this run's characters"
+  else
+    echo "FAIL: the Redis ranking differs from the statistics: $CHECK_RANKING_MISMATCH"; failed=1
+  fi
   return $failed
+}
+
+ranking_mirrors_statistics() {
+  local rows world character kills member score
+  CHECK_RANKING_MISMATCH=""
+  rows=$(psql_value "SELECT p.world_id || ' ' || p.character_id || ' ' || p.kills FROM game.character_projections p
+                     WHERE (p.world_id, p.character_id) IN (SELECT DISTINCT world_id, aggregate_id FROM game.outbox_events
+                                                            WHERE occurred_at >= '$CHECK_RUN_STARTED' AND aggregate_type = 'character')")
+  while read -r world character kills; do
+    [ -n "$world" ] || continue
+    member=$(printf '%019d' $((9223372036854775807 - character)))
+    score=$(redis_cli ZSCORE "ranking:kills:v1:$world" "$member")
+    [ "$score" = "$kills" ] || CHECK_RANKING_MISMATCH+="character $character: statistics $kills, ranking ${score:-none}; "
+  done <<< "$rows"
+  [ -z "$CHECK_RANKING_MISMATCH" ]
 }
 
 outbox_drained() {

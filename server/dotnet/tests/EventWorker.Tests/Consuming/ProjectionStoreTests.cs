@@ -19,11 +19,11 @@ public sealed class ProjectionStoreTests(InfrastructureFixture infra)
         EventEnvelope kill = Outbox.Envelope(character, 1, Outbox.Kill(character, 3));
         EventEnvelope pickup = Outbox.Envelope(character, 2, Outbox.Acquired(character, 1));
 
-        Assert.Equal(ApplyOutcome.Applied, await store.ApplyAsync(Consumer, kill, CancellationToken.None));
-        Assert.Equal(ApplyOutcome.Applied, await store.ApplyAsync(Consumer, pickup, CancellationToken.None));
+        Assert.Equal(ApplyOutcome.Applied, (await store.ApplyAsync(Consumer, kill, CancellationToken.None)).Outcome);
+        Assert.Equal(ApplyOutcome.Applied, (await store.ApplyAsync(Consumer, pickup, CancellationToken.None)).Outcome);
         // The consumer died after its database commit and before the offset commit: Kafka hands the kill over again.
-        Assert.Equal(ApplyOutcome.Duplicate, await store.ApplyAsync(Consumer, kill, CancellationToken.None));
-        Assert.Equal(ApplyOutcome.Duplicate, await store.ApplyAsync(Consumer, kill, CancellationToken.None));
+        Assert.Equal(ApplyOutcome.Duplicate, (await store.ApplyAsync(Consumer, kill, CancellationToken.None)).Outcome);
+        Assert.Equal(ApplyOutcome.Duplicate, (await store.ApplyAsync(Consumer, kill, CancellationToken.None)).Outcome);
 
         Assert.Equal(new Characters.Stats(Kills: 1, ItemsAcquired: 1, GoldEarned: 3, LastEventSeq: 2), await Characters.StatsAsync(infra.ConnectionString, character));
         Assert.Equal(1, await Characters.InboxCountAsync(infra.ConnectionString, Consumer, kill.EventId.ToByteArray()));
@@ -37,11 +37,11 @@ public sealed class ProjectionStoreTests(InfrastructureFixture infra)
         EventEnvelope kill = Outbox.Envelope(character, 1, Outbox.Kill(character, 5));
         var unknown = new EventEnvelope(Outbox.Envelope(character, 2, Outbox.Kill(character, 0))) { EventType = "GuildJoined" };
 
-        Assert.Equal(ApplyOutcome.Applied, await store.ApplyAsync(Consumer, kill, CancellationToken.None));
+        Assert.Equal(ApplyOutcome.Applied, (await store.ApplyAsync(Consumer, kill, CancellationToken.None)).Outcome);
         // A rebuild under a new consumer name replays everything.
-        Assert.Equal(ApplyOutcome.Applied, await store.ApplyAsync("rebuild-2", kill, CancellationToken.None));
-        Assert.Equal(ApplyOutcome.Ignored, await store.ApplyAsync(Consumer, unknown, CancellationToken.None));
-        Assert.Equal(ApplyOutcome.Duplicate, await store.ApplyAsync(Consumer, unknown, CancellationToken.None));
+        Assert.Equal(ApplyOutcome.Applied, (await store.ApplyAsync("rebuild-2", kill, CancellationToken.None)).Outcome);
+        Assert.Equal(ApplyOutcome.Ignored, (await store.ApplyAsync(Consumer, unknown, CancellationToken.None)).Outcome);
+        Assert.Equal(ApplyOutcome.Duplicate, (await store.ApplyAsync(Consumer, unknown, CancellationToken.None)).Outcome);
 
         Characters.Stats? stats = await Characters.StatsAsync(infra.ConnectionString, character);
         Assert.Equal(2, stats!.Kills);  // both consumer names counted the kill into the shared table

@@ -4,4 +4,5 @@ namespace: data
 resources:
   - postgres.yaml
   - kafka.yaml
+  - redis.yaml
   - network-policy.yaml
