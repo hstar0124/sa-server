@@ -62,6 +62,7 @@ up() {
   kustomize deploy/k3s/data | kubectl apply -f -
   kubectl -n data rollout status statefulset/postgres --timeout="$ROLLOUT_TIMEOUT"
   kubectl -n data rollout status statefulset/kafka --timeout="$ROLLOUT_TIMEOUT"
+  kubectl -n data rollout status statefulset/redis --timeout="$ROLLOUT_TIMEOUT"
 
   kubectl -n game delete job migrator --ignore-not-found
   kustomize deploy/k3s/migrate | kubectl apply -f -
