@@ -13,6 +13,14 @@ internal enum ApplyOutcome
     Rejected,   // cannot be applied, ever: sent to the failed-events topic
 }
 
+/// <summary>The outcome and, when the read model moved, the character's kill total after the change.</summary>
+internal sealed record ApplyResult(ApplyOutcome Outcome, long? Kills)
+{
+    public static ApplyResult Duplicate { get; } = new(ApplyOutcome.Duplicate, null);
+
+    public static ApplyResult Ignored { get; } = new(ApplyOutcome.Ignored, null);
+}
+
 /// <summary>
 /// Applies one event to <c>character_projections</c> exactly once: the Inbox insert and the read
 /// model update share a transaction, and the Inbox primary key refuses a second application of the
@@ -34,13 +42,14 @@ internal sealed class ProjectionStore(NpgsqlDataSource dataSource)
                 gold_earned = game.character_projections.gold_earned + EXCLUDED.gold_earned,
                 last_event_seq = GREATEST(game.character_projections.last_event_seq, EXCLUDED.last_event_seq),
                 updated_at = now()
+        RETURNING kills
         """;
 
     /// <summary>
     /// Throws InvalidProtocolBufferException for a payload that does not decode, a PostgresException
     /// for a row the database refuses, and NpgsqlException when the database is unreachable.
     /// </summary>
-    public async Task<ApplyOutcome> ApplyAsync(string consumerName, EventEnvelope envelope, CancellationToken ct)
+    public async Task<ApplyResult> ApplyAsync(string consumerName, EventEnvelope envelope, CancellationToken ct)
     {
         ProjectionDelta? delta = CharacterStatsProjection.DeltaOf(envelope);  // decode before any write
 
@@ -50,12 +59,13 @@ internal sealed class ProjectionStore(NpgsqlDataSource dataSource)
             new { ConsumerName = consumerName, EventId = envelope.EventId.ToByteArray() }, tx, cancellationToken: ct));
         if (claimed == 0)
         {
-            return ApplyOutcome.Duplicate;
+            return ApplyResult.Duplicate;
         }
 
+        long? kills = null;
         if (delta is not null)
         {
-            await connection.ExecuteAsync(new CommandDefinition(UpsertSql, new
+            kills = await connection.ExecuteScalarAsync<long>(new CommandDefinition(UpsertSql, new
             {
                 WorldId = (long)envelope.WorldId,
                 CharacterId = (long)envelope.AggregateId,
@@ -67,6 +77,6 @@ internal sealed class ProjectionStore(NpgsqlDataSource dataSource)
         }
 
         await tx.CommitAsync(ct);
-        return delta is null ? ApplyOutcome.Ignored : ApplyOutcome.Applied;
+        return delta is null ? ApplyResult.Ignored : new ApplyResult(ApplyOutcome.Applied, kills);
     }
 }

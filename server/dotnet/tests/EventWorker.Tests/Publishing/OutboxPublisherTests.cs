@@ -4,6 +4,7 @@ using Sa.Events.V1;
 using Sa.EventWorker.Publishing;
 using Sa.EventWorker.Tests.Harness;
 using Sa.EventWorker.Topics;
+using Sa.Shared.Events;
 
 namespace Sa.EventWorker.Tests.Publishing;
 
@@ -122,7 +123,7 @@ public sealed class OutboxPublisherTests(InfrastructureFixture infra)
 
         Assert.Equal(new ulong[] { 1 }, producer.SequencesOf(a));
         Assert.Empty(producer.SequencesOf(guild));
-        Assert.True(await repository.CountUnroutableAsync([TopicRouting.CharacterAggregate], CancellationToken.None) >= 2);
+        Assert.True(await repository.CountUnroutableAsync([AggregateTypes.Character], CancellationToken.None) >= 2);
     }
 
     [Fact]

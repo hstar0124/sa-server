@@ -34,6 +34,16 @@
         "resolved": "10.0.3",
         "contentHash": "7nb5YzXuvWWJxB0J8DiyL3we+X4FOctZrt0fIBnucOIaIevFEEwGQVZKtiu9olXdlNAK1eNgqSral6r/jlhI4w=="
       },
+      "StackExchange.Redis": {
+        "type": "Direct",
+        "requested": "[3.4.0, )",
+        "resolved": "3.4.0",
+        "contentHash": "29fvhba1pHQ2Vs+FIiG2201G62xL4EayGMm7yNZrHh/IcOZbzhl4g1CKQQP9xhznzDHybFURyj3XN433QctdPA==",
+        "dependencies": {
+          "RESPite": "3.4.0",
+          "System.IO.Hashing": "10.0.12"
+        }
+      },
       "Tomlyn": {
         "type": "Direct",
         "requested": "[2.10.1, )",
@@ -125,6 +135,11 @@
           "Microsoft.IdentityModel.Logging": "8.19.2"
         }
       },
+      "RESPite": {
+        "type": "Transitive",
+        "resolved": "3.4.0",
+        "contentHash": "BEdf42Eugi6oNw84vSQuLvYOzoY9KLv6gKsxFbSbv1zm23DiCULeQ8jobRgGip43T0GoAJstFW0TXvKRx9Ewlg=="
+      },
       "System.IdentityModel.Tokens.Jwt": {
         "type": "Transitive",
         "resolved": "8.19.2",
@@ -134,12 +149,20 @@
           "Microsoft.IdentityModel.Tokens": "8.19.2"
         }
       },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "10.0.12",
+        "contentHash": "jDix4bBMYnpZdSPcnY+KDV6ik3SRMzpMKby/bZl/XUwIiflwRNAFZ0oOl61R/pSaveIJ8t1gs2BUlrGsPs/bcg=="
+      },
       "contracts": {
         "type": "Project",
         "dependencies": {
           "Google.Protobuf": "[3.36.2, )",
           "Grpc.Core.Api": "[2.84.0, )"
         }
+      },
+      "shared": {
+        "type": "Project"
       },
       "Google.Protobuf": {
         "type": "CentralTransitive",

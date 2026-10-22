@@ -51,7 +51,7 @@ public sealed class ConsumerLoopTests(InfrastructureFixture infra)
         var publisher = new OutboxPublisher(new OutboxRepository(infra.DataSource), producer, new TopicRouting(topics),
             Options.Create(PublisherOptions), NullLogger<OutboxPublisher>.Instance);
         IOptions<ConsumerOptions> group = FreshGroup();
-        using var consumer = new CharacterStatsConsumer(new ProjectionStore(infra.DataSource), producer, topics, group, NullLogger<CharacterStatsConsumer>.Instance);
+        using var consumer = new CharacterStatsConsumer(new ProjectionStore(infra.DataSource), Redis.Writer(infra), producer, topics, group, NullLogger<CharacterStatsConsumer>.Instance);
 
         await publisher.PublishOnceAsync(CancellationToken.None);
         await Outbox.ForgetPublishedAsync(infra.ConnectionString, killId);
@@ -61,6 +61,7 @@ public sealed class ConsumerLoopTests(InfrastructureFixture infra)
         await consumer.StopAsync(CancellationToken.None);
 
         Assert.Equal(new Characters.Stats(Kills: 1, ItemsAcquired: 1, GoldEarned: 7, LastEventSeq: 2), stats);
+        Assert.Equal((1L, 1L), await Redis.PlaceAsync(infra, Outbox.World, character) is { } place ? (1L, place.Kills) : (0L, 0L));
         Assert.Equal(2, consumer.Applied);
         Assert.Equal(1, consumer.Duplicates);
         Assert.Equal(1, await Characters.InboxCountAsync(infra.ConnectionString, group.Value.GroupId, killId));
@@ -74,7 +75,7 @@ public sealed class ConsumerLoopTests(InfrastructureFixture infra)
         long character = await Characters.CreateAsync(infra.ConnectionString);
         using var producer = new KafkaEventProducer(infra.BootstrapServers, PublisherOptions.PublishTimeout);
         IOptions<ConsumerOptions> group = FreshGroup();
-        using var consumer = new CharacterStatsConsumer(new ProjectionStore(infra.DataSource), producer, topics, group, NullLogger<CharacterStatsConsumer>.Instance);
+        using var consumer = new CharacterStatsConsumer(new ProjectionStore(infra.DataSource), Redis.Writer(infra), producer, topics, group, NullLogger<CharacterStatsConsumer>.Instance);
 
         // Garbage first, then a valid kill behind it in the same partition (same key).
         string key = $"{Outbox.World}:{character}";
@@ -104,7 +105,7 @@ public sealed class ConsumerLoopTests(InfrastructureFixture infra)
         long ghost = Outbox.FreshAggregate();
         var producer = new FakeProducer();
         IOptions<ConsumerOptions> group = FreshGroup();
-        using var consumer = new CharacterStatsConsumer(new ProjectionStore(infra.DataSource), producer, topics, group, NullLogger<CharacterStatsConsumer>.Instance);
+        using var consumer = new CharacterStatsConsumer(new ProjectionStore(infra.DataSource), Redis.Writer(infra), producer, topics, group, NullLogger<CharacterStatsConsumer>.Instance);
         EventEnvelope kill = Outbox.Envelope(ghost, 1, Outbox.Kill(ghost, 4));
 
         ApplyOutcome outcome = await consumer.HandleAsync(new Message<string, byte[]> { Key = $"{Outbox.World}:{ghost}", Value = kill.ToByteArray() }, CancellationToken.None);

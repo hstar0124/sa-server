@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Conventions two .NET processes must agree on byte for byte but that are not protobuf
+       messages: event aggregate type names, Redis key names and the sorted-set encoding. The
+       Backend writes and reads, the EventWorker writes; one copy. -->
+  <PropertyGroup>
+    <RootNamespace>Sa.Shared</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GameBackend" />
+    <InternalsVisibleTo Include="EventWorker" />
+    <InternalsVisibleTo Include="GameBackend.Tests" />
+    <InternalsVisibleTo Include="GameBackend.IntegrationTests" />
+    <InternalsVisibleTo Include="EventWorker.Tests" />
+  </ItemGroup>
+
+</Project>
