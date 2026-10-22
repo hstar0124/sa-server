@@ -56,6 +56,8 @@ private:
     void Perform(const SessionProtocol::ForwardToZone& effect);
     void Perform(const SessionProtocol::DetachFromZone& effect);
     void Perform(SessionProtocol::EndSession effect);
+    // Re-arms the idle timer for the protocol's current deadline.
+    void ScheduleIdleCheck(std::chrono::steady_clock::time_point at);
 
     common::InstanceId id_;
     std::shared_ptr<common::MessageConnection> connection_;
@@ -63,6 +65,7 @@ private:
     SessionProtocol protocol_;
     std::function<void()> on_finished_;
     asio::steady_timer hello_deadline_;
+    asio::steady_timer idle_timer_;  // one timer per session, re-armed when it fires, not per frame
     bool finished_ = false;
 };
 

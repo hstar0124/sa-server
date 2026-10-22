@@ -33,6 +33,10 @@ struct SessionProtocolConfig {
     // From accepting the connection (which includes a WebSocket handshake) to a valid Hello.
     // Without it, idle sockets could hold every connection slot.
     std::chrono::milliseconds hello_timeout{};
+    // Once a client has spoken, the longest it may stay silent. Clients ping every second; a
+    // connection that sends nothing is a peer that vanished without closing (a dead network, a
+    // frozen tab), and it would otherwise hold the character's session until TCP gives up.
+    std::chrono::milliseconds idle_timeout{};
 };
 
 // Per-connection state machine (see README "네트워크와 입장"), free of I/O so every transition
@@ -108,6 +112,10 @@ public:
     [[nodiscard]] Reaction OnClientDisconnected();
     // The hello timeout passed; kicks a connection that has not sent a valid Hello yet.
     [[nodiscard]] Reaction OnHelloDeadline();
+    // The idle timer fired: kicks a client that has sent nothing since `now - idle_timeout`.
+    [[nodiscard]] Reaction OnIdleCheck(std::chrono::steady_clock::time_point now);
+    // When the client counts as idle unless something arrives first; nothing before it spoke.
+    [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> IdleDeadline() const;
     // The gateway ends the session itself: shutdown, or the loss of its own lease.
     [[nodiscard]] Reaction OnServerClose(game::v1::KickReason reason);
 
@@ -143,6 +151,7 @@ private:
     bool redeem_in_flight_ = false;  // asked the Backend; its answer has not arrived
     // Fixed one-second windows: up to max_messages_per_second per window. A burst that straddles
     // a window boundary can reach twice that, which the limit tolerates.
+    std::optional<std::chrono::steady_clock::time_point> last_heard_;  // any client message
     std::chrono::steady_clock::time_point window_start_;
     std::uint32_t messages_in_window_ = 0;
 };

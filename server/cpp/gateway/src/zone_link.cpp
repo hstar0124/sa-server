@@ -19,7 +19,8 @@ ZoneLink::ZoneLink(asio::io_context& io, ZoneLinkConfig config, common::Instance
       handler_(handler),
       resolver_(io),
       backoff_timer_(io),
-      establish_timer_(io) {}
+      establish_timer_(io),
+      heartbeat_timer_(io) {}
 
 void ZoneLink::Start() {
     if (state_ == State::kStopped) {
@@ -31,6 +32,7 @@ void ZoneLink::Stop() {
     state_ = State::kStopped;
     backoff_timer_.cancel();
     establish_timer_.cancel();
+    heartbeat_timer_.cancel();
     resolver_.cancel();
     if (connecting_) {
         std::error_code ignored;
@@ -98,6 +100,7 @@ void ZoneLink::OnConnected() {
 void ZoneLink::OnClosed(const std::error_code& ec) {
     const bool was_ready = state_ == State::kReady;
     connection_.reset();
+    heartbeat_timer_.cancel();
     if (state_ == State::kStopped) {
         return;
     }
@@ -125,6 +128,31 @@ void ZoneLink::OnEstablishDeadline() {
         spdlog::warn("zone {} did not welcome the link within {}", config_.zone.value(), limit);
         connection_->Abort();
     }
+}
+
+void ZoneLink::ScheduleHeartbeat() {
+    heartbeat_timer_.expires_after(config_.heartbeat_interval);
+    heartbeat_timer_.async_wait([self = shared_from_this()](const std::error_code& ec) {
+        if (!ec && self->state_ == State::kReady) {
+            self->OnHeartbeat();
+        }
+    });
+}
+
+void ZoneLink::OnHeartbeat() {
+    const auto silent_for = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - last_heard_);
+    if (silent_for >= config_.silence_timeout) {
+        // Closing reconnects through OnClosed, which first drops the zone's sessions.
+        spdlog::warn("zone {} silent for {} ms; dropping the link", config_.zone.value(),
+                     silent_for.count());
+        connection_->Abort();
+        return;
+    }
+    GatewayToZone ping;
+    ping.mutable_link_ping()->set_nonce(++ping_nonce_);
+    Send(ping);
+    ScheduleHeartbeat();
 }
 
 void ZoneLink::ScheduleReconnect(const std::string& why) {
@@ -156,6 +184,7 @@ void ZoneLink::OnFrame(std::span<const std::byte> payload) {
         connection_->Abort();
         return;
     }
+    last_heard_ = std::chrono::steady_clock::now();
     if (state_ == State::kHandshaking) {
         if (message.body_case() != ZoneToGateway::kLinkWelcome) {
             spdlog::warn("zone {}: expected LinkWelcome, reconnecting", config_.zone.value());
@@ -175,6 +204,7 @@ void ZoneLink::OnFrame(std::span<const std::byte> payload) {
                      common::InstanceId::FromString(message.link_welcome().zone_instance_id())
                          .value_or(common::InstanceId{})
                          .ToHex());
+        ScheduleHeartbeat();
         handler_.OnZoneReady(config_.zone, message.link_welcome());
         return;
     }

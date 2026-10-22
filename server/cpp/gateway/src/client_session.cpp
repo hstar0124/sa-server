@@ -21,7 +21,8 @@ ClientSession::ClientSession(std::shared_ptr<common::MessageConnection> connecti
       connection_(std::move(connection)),
       deps_(deps),
       protocol_(deps_.verifier, deps_.protocol, id_),
-      hello_deadline_(deps.io) {}
+      hello_deadline_(deps.io),
+      idle_timer_(deps.io) {}
 
 void ClientSession::Start() {
     deps_.registry.Add(id_, weak_from_this());
@@ -35,6 +36,22 @@ void ClientSession::Start() {
     hello_deadline_.async_wait([self = shared_from_this()](const std::error_code& ec) {
         if (!ec) {
             self->Apply(self->protocol_.OnHelloDeadline());
+        }
+    });
+    ScheduleIdleCheck(std::chrono::steady_clock::now() + deps_.protocol.idle_timeout);
+}
+
+void ClientSession::ScheduleIdleCheck(std::chrono::steady_clock::time_point at) {
+    idle_timer_.expires_at(at);
+    idle_timer_.async_wait([self = shared_from_this()](const std::error_code& ec) {
+        if (ec || self->finished_) {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        self->Apply(self->protocol_.OnIdleCheck(now));
+        if (self->protocol_.state() != SessionProtocol::State::kClosed) {
+            self->ScheduleIdleCheck(
+                self->protocol_.IdleDeadline().value_or(now + self->deps_.protocol.idle_timeout));
         }
     });
 }
@@ -62,6 +79,7 @@ void ClientSession::OnClosed(const std::error_code& reason) {
     }
     finished_ = true;
     hello_deadline_.cancel();
+    idle_timer_.cancel();
     spdlog::debug("session {} closed ({})", id_.ToHex(), reason ? reason.message() : "orderly");
     Apply(protocol_.OnClientDisconnected());
     deps_.registry.Remove(id_);

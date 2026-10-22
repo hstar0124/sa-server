@@ -50,6 +50,7 @@ SessionProtocol::Reaction SessionProtocol::OnClientMessage(const ClientMessage& 
     if (state_ == State::kClosed) {
         return Reaction{.close = true};
     }
+    last_heard_ = now.monotonic;
     if (!WithinRateLimit(now.monotonic)) {
         return Kick(game::v1::KICK_REASON_RATE_LIMITED);
     }
@@ -228,6 +229,21 @@ SessionProtocol::Reaction SessionProtocol::OnHelloDeadline() {
         return {};
     }
     return Kick(game::v1::KICK_REASON_PROTOCOL_ERROR);
+}
+
+SessionProtocol::Reaction SessionProtocol::OnIdleCheck(std::chrono::steady_clock::time_point now) {
+    const auto deadline = IdleDeadline();
+    if (state_ == State::kClosed || !deadline || now < *deadline) {
+        return {};  // closed, not spoken yet (the hello deadline covers that), or heard recently
+    }
+    return Kick(game::v1::KICK_REASON_IDLE_TIMEOUT, internal::v1::DETACH_REASON_CLIENT_IDLE);
+}
+
+std::optional<std::chrono::steady_clock::time_point> SessionProtocol::IdleDeadline() const {
+    if (!last_heard_) {
+        return std::nullopt;
+    }
+    return *last_heard_ + config_.idle_timeout;
 }
 
 SessionProtocol::Reaction SessionProtocol::OnServerClose(game::v1::KickReason reason) {

@@ -17,7 +17,8 @@ using game::v1::ClientMessage;
 using game::v1::ServerMessage;
 using State = SessionProtocol::State;
 
-constexpr SessionProtocolConfig kConfig{.max_messages_per_second = 10};
+constexpr SessionProtocolConfig kConfig{.max_messages_per_second = 10,
+                                        .idle_timeout = std::chrono::milliseconds{10'000}};
 constexpr common::ZoneId kZone1{1};
 constexpr common::ZoneId kZone2{2};
 
@@ -424,6 +425,33 @@ TEST_F(SessionProtocolTest, TransferIsIgnoredUnlessInZone) {
     EXPECT_TRUE(protocol.OnZoneTransfer(kZone1, TransferTo(kZone2, 2)).effects.empty())
         << "still attaching";
     EXPECT_EQ(protocol.state(), State::kAttaching);
+}
+
+TEST_F(SessionProtocolTest, ASilentClientIsKickedAfterTheIdleTimeoutAndEverythingIsCleanedUp) {
+    EnterZone();  // its last message, the Hello, arrived at At()
+    EXPECT_TRUE(protocol.OnIdleCheck(At(9'999ms).monotonic).replies.empty()) << "not yet";
+    const auto idle = protocol.OnIdleCheck(At(10'000ms).monotonic);
+    EXPECT_EQ(OnlyReply(idle).kick().reason(), game::v1::KICK_REASON_IDLE_TIMEOUT);
+    EXPECT_TRUE(idle.close);
+    const auto detach = std::ranges::find_if(idle.effects, [](const auto& effect) {
+        return std::holds_alternative<SessionProtocol::DetachFromZone>(effect);
+    });
+    ASSERT_NE(detach, idle.effects.end());
+    EXPECT_EQ(std::get<SessionProtocol::DetachFromZone>(*detach).reason,
+              internal::v1::DETACH_REASON_CLIENT_IDLE);
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(idle)) << "frees the character";
+    EXPECT_EQ(protocol.state(), State::kClosed);
+    EXPECT_TRUE(protocol.OnIdleCheck(At(20'000ms).monotonic).effects.empty()) << "once";
+}
+
+TEST_F(SessionProtocolTest, AnyMessageMovesTheIdleDeadline) {
+    EXPECT_FALSE(protocol.IdleDeadline().has_value()) << "the hello deadline covers a mute socket";
+    EXPECT_TRUE(protocol.OnIdleCheck(At(60'000ms).monotonic).effects.empty());
+    EnterZone();
+    (void)protocol.OnClientMessage(PingMessage(1), At(8'000ms));
+    EXPECT_EQ(protocol.IdleDeadline(), At(18'000ms).monotonic);
+    EXPECT_TRUE(protocol.OnIdleCheck(At(12'000ms).monotonic).replies.empty());
+    EXPECT_EQ(protocol.state(), State::kInZone);
 }
 
 }  // namespace
