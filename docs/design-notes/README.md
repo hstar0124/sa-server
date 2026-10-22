@@ -12,3 +12,4 @@
 | [06 전투](06-combat.md) | 스킬 검증 순서, 투사체 터널링, 몬스터 AI, 생명주기당 한 번의 사망, 이벤트 전달 |
 | [07 자산과 멱등성](07-economy-consistency.md) | 드롭·획득에서 Zone과 Backend의 역할, 동시 획득·요청 중복·응답 유실·낡은 Zone을 어떻게 막나 |
 | [08 확정 이벤트](08-events-and-read-models.md) | 확정된 사실을 Outbox → Kafka → Inbox로 순서대로, 한 번씩 조회 모델에 반영하는 방법 |
+| [09 킬 랭킹과 Redis](09-ranking-redis.md) | 왜 "내 순위"만 Redis로 옮겼고, 복사본이 비거나 뒤처져도 답이 틀리지 않게 하는 방법 |
