@@ -42,7 +42,8 @@ TEST(ZoneServerConfig, ZeroLimitsAndIntervalsAreRefused) {
     for (const auto& [from, to] :
          {std::pair{"stats_log_interval_sec = 10", "stats_log_interval_sec = 0"},
           std::pair{"max_frame_bytes = 262144", "max_frame_bytes = 0"},
-          std::pair{"max_gateways = 8", "max_gateways = 0"}}) {
+          std::pair{"max_gateways = 8", "max_gateways = 0"},
+          std::pair{"call_attempts = 3", "call_attempts = 0"}}) {
         EXPECT_FALSE(Parse(Replace(ShippedConfig(), from, to)).has_value()) << to;
     }
 }

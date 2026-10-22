@@ -2,22 +2,14 @@
 
 #include "sa/common/grpc_call.hpp"
 
-#include <asio/steady_timer.hpp>
-#include <spdlog/spdlog.h>
-
 #include <memory>
 #include <string_view>
 #include <utility>
 
 namespace sa::zone {
 
-bool IsTransient(const grpc::Status& status) {
-    return status.error_code() == grpc::StatusCode::UNAVAILABLE ||
-           status.error_code() == grpc::StatusCode::DEADLINE_EXCEEDED;
-}
-
 EconomyClient::EconomyClient(asio::io_context& io, std::shared_ptr<grpc::Channel> channel,
-                             EconomyClientConfig config)
+                             BackendCallConfig config)
     : io_(io), stub_(backend::v1::Economy::NewStub(std::move(channel))), config_(config) {}
 
 void EconomyClient::RecordKill(backend::v1::RecordKillRequest request,

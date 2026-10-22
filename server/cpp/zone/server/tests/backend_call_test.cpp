@@ -1,7 +1,9 @@
-#include "economy_client.hpp"
+#include "backend_call.hpp"
 
 #include <asio/post.hpp>
 #include <gtest/gtest.h>
+
+#include <backend/economy.pb.h>
 
 #include <chrono>
 #include <cstdint>
@@ -41,9 +43,9 @@ struct Outcome {
 };
 
 Outcome CallThrough(asio::io_context& io, ScriptedBackend& backend) {
-    const EconomyClientConfig config{.rpc_timeout = std::chrono::milliseconds{1},
-                                     .call_attempts = kTestAttempts,
-                                     .retry_delay = kTestRetryDelay};
+    const BackendCallConfig config{.rpc_timeout = std::chrono::milliseconds{1},
+                                   .call_attempts = kTestAttempts,
+                                   .retry_delay = kTestRetryDelay};
     Outcome outcome;
     RetryUntilAnswered<Response>(io, config, "RecordKill", backend.AsAttempt(),
                                  [&outcome](std::optional<Response> response) {
@@ -54,7 +56,7 @@ Outcome CallThrough(asio::io_context& io, ScriptedBackend& backend) {
     return outcome;
 }
 
-TEST(EconomyRetry, TransientFailuresAreRetriedUntilAnAnswer) {
+TEST(BackendRetry, TransientFailuresAreRetriedUntilAnAnswer) {
     asio::io_context io;
     ScriptedBackend backend{.io = io, .statuses = {kUnavailable, kUnavailable, grpc::Status::OK}};
     const Outcome outcome = CallThrough(io, backend);
@@ -63,7 +65,7 @@ TEST(EconomyRetry, TransientFailuresAreRetriedUntilAnAnswer) {
     EXPECT_TRUE(outcome.response.has_value());
 }
 
-TEST(EconomyRetry, AFailureARepeatCannotFixIsNotRetried) {
+TEST(BackendRetry, AFailureARepeatCannotFixIsNotRetried) {
     asio::io_context io;
     ScriptedBackend backend{.io = io, .statuses = {kInvalid}};
     const Outcome outcome = CallThrough(io, backend);
@@ -72,7 +74,7 @@ TEST(EconomyRetry, AFailureARepeatCannotFixIsNotRetried) {
     EXPECT_FALSE(outcome.response.has_value()) << "no answer: the caller treats it as unknown";
 }
 
-TEST(EconomyRetry, NoAnswerAfterTheLastAttempt) {
+TEST(BackendRetry, NoAnswerAfterTheLastAttempt) {
     asio::io_context io;
     ScriptedBackend backend{.io = io, .statuses = {kUnavailable, kUnavailable, kUnavailable}};
     const Outcome outcome = CallThrough(io, backend);

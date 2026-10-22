@@ -55,8 +55,9 @@ struct ZoneServerConfig {
     std::chrono::milliseconds backend_rpc_timeout{};
     std::chrono::milliseconds lease_renew_interval{};
     std::chrono::milliseconds lease_safety_margin{};
-    // RecordKill retries on transport failures (the kill id keeps the retry idempotent).
-    std::uint32_t economy_call_attempts = 0;
+    // Tries per Backend call on transport failures; every call is safe to repeat (see
+    // backend_call.hpp).
+    std::uint32_t backend_call_attempts = 0;
     std::chrono::milliseconds backend_retry_delay{};
 
     // How long shutdown waits for evictions, detaches and lease RPCs to drain (design

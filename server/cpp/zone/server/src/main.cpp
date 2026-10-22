@@ -184,11 +184,10 @@ int Run(int argc, char** argv) {
                                        config->world_id,
                                        config->zone_id,
                                        zone_instance};
-    sa::zone::EconomyClient economy{
-        io, backend_channel,
-        sa::zone::EconomyClientConfig{.rpc_timeout = config->backend_rpc_timeout,
-                                      .call_attempts = config->economy_call_attempts,
-                                      .retry_delay = config->backend_retry_delay}};
+    const sa::zone::BackendCallConfig backend_calls{.rpc_timeout = config->backend_rpc_timeout,
+                                                    .call_attempts = config->backend_call_attempts,
+                                                    .retry_delay = config->backend_retry_delay};
+    sa::zone::EconomyClient economy{io, backend_channel, backend_calls};
     sa::common::LeaseKeeper lease{
         io, "zone",
         sa::common::LeaseKeeperConfig{.renew_interval = config->lease_renew_interval,

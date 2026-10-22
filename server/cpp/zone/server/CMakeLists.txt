@@ -22,7 +22,7 @@ target_link_libraries(zone_server PRIVATE sa::zone_host sa::zone_data)
 if(SA_BUILD_TESTS)
   sa_add_test(sa_zone_host_tests
     SOURCES tests/codec_test.cpp tests/zone_host_test.cpp tests/zone_host_economy_test.cpp
-            tests/economy_client_test.cpp tests/zone_server_config_test.cpp
+            tests/backend_call_test.cpp tests/zone_server_config_test.cpp
             tests/tick_runner_test.cpp
     LIBS sa::zone_host)
   # The config test reads the shipped file so a broken default fails CI, not a deployment.
