@@ -2,7 +2,7 @@
 
 MMORPG 서버 포트폴리오. `sa`는 Server Architecture의 약자다. 미니 PC 한 대에서 구현·운영하며 정합성과 성능을 실측으로 입증하는 것이 목표이고, 단계별로 만들며 각 단계의 결정(ADR), 이유(설계 노트), 작업 서사(피처 문서)를 함께 남긴다. 이 README에는 **지금까지 만든 것**만 적는다. 단계가 끝날 때마다 그 단계의 구조·흐름·측정이 여기에 더해진다.
 
-- 결정 기록: [docs/adr/](docs/adr/) · 설계 노트(왜 이렇게 만들었나): [docs/design-notes/](docs/design-notes/) · 회고 리뷰: [docs/reviews/](docs/reviews/)
+- 결정 기록: [docs/adr/](docs/adr/) · 설계 노트(왜 이렇게 만들었나): [docs/design-notes/](docs/design-notes/) · 측정 보고서: [docs/reports/](docs/reports/) · 회고 리뷰: [docs/reviews/](docs/reviews/)
 - 피처별 작업 기록(곧 진행 기록): [docs/features/](docs/features/) · 작업 중 만난 문제: [docs/issues/](docs/issues/)
 - 작업 규칙: [CONTRIBUTING.md](CONTRIBUTING.md)(브랜치·PR 절차), [CLAUDE.md](CLAUDE.md)(코드 규칙)
 
@@ -32,7 +32,7 @@ flowchart TD
 |---|---|---|
 | GameGateway | C++23 | 연결, 프레이밍, 티켓 검증, 세션 상태 기계, Zone 라우팅, 유량 제한 |
 | ZoneServer | C++23 | 지역 시뮬레이션(이동·충돌·전투·몬스터 AI·관심 관리), 드롭 굴림·바닥 아이템·획득 예약과 Backend 정산, 세션 표, Backend lease 유지 |
-| GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory), 자산(Economy: 처치 기록·획득·조회). 모듈형 모놀리스 |
+| GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory), 자산(Economy: 처치 기록·획득·조회), 킬 랭킹(Rankings). 모듈형 모놀리스 |
 | EventWorker | C# / .NET 10 | Backend가 트랜잭션 안에서 쓴 Outbox 행을 Kafka로 발행하고(캐릭터마다 순번 순서, 발행 인스턴스는 하나), 그 이벤트를 Inbox로 한 번씩 적용해 캐릭터 통계 조회 모델을 만든다. 시작할 때 토픽을 만든다 |
 | 브라우저 뷰어 | JavaScript | 2D 뷰어. 같은 `.proto`를 브라우저에서 읽고 WebSocket으로 접속해 WASD로 움직이며, 다른 엔티티를 보간 버퍼로 그린다. 버퍼 길이·인위적 유실·외삽을 조절해 동기화를 눈으로 본다. 몬스터·투사체·바닥 아이템·체력 막대를 그리고, Space·E로 스킬을, F로 획득을 쓰며 전투 로그와 인벤토리·골드를 띄운다 |
 | loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장하고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 역할은 배회(Wanderer), 전투(Fighter), 획득(Looter)이다. 전투 봇은 보이는 가장 가까운 몬스터에 다가가 사거리 안에서 주기적으로 공격하고, 시전 수락·거절·처치·사망을 센다. 획득 봇은 보이는 아이템을 주우러 가고 없으면 사냥하며, 획득·거절·미확정과 인벤토리를 센다. 배회 두뇌는 Zone 안의 프로세스 봇으로도 돈다 |
@@ -81,11 +81,13 @@ flowchart TB
         BC["Modules/Characters<br/>생성·목록·소유 확인·통계 조회"]
         BW["Modules/WorldDirectory<br/>티켓 발급·소비, 세션, 소유권, lease"]
         BE["Modules/Economy<br/>처치 기록·획득·자산 조회, 요청 결과"]
+        BR["Modules/Rankings<br/>킬 리더보드·내 순위"]
         BI["Infrastructure<br/>Npgsql 풀, Outbox 쓰기, 헬스체크, CORS"]
         BA --> BI
         BC --> BI
         BW --> BI
         BE --> BI
+        BR --> BI
     end
 
     classDef pure fill:#2d333b,stroke:#8a94a3,color:#e6e9ee
@@ -372,6 +374,7 @@ EventWorker가 Outbox를 Kafka의 `game.character-events.v1`로 내보낸다. �
 - **한 번만**: Inbox 행 삽입과 통계 갱신이 한 트랜잭션이고, 커밋한 뒤에 Kafka 오프셋을 커밋한다. 그 사이에 죽어 같은 메시지가 다시 와도 Inbox의 기본 키가 막는다.
 - **막히지 않게**: 디코딩할 수 없거나 DB 제약이 거절하는 메시지는 실패 토픽(`game.failed-events.v1`)으로 보내고 넘어간다. DB나 브로커에 닿지 않을 때만 같은 메시지를 잠시 뒤 다시 읽는다.
 - **읽는 곳**: Backend의 `GET /api/v1/worlds/{w}/characters/{c}/stats`. 자기 캐릭터만 보이고, 자산보다 조금 늦게 따라온다(결국 일치). 응답의 `asOfEventSeq`가 어디까지 반영됐는지 알려 준다.
+- **킬 랭킹**: 같은 통계로 상위 N명(`GET /api/v1/worlds/{w}/rankings/kills?top=N`)과 한 캐릭터의 순위(`GET /api/v1/worlds/{w}/characters/{c}/rank`)를 답한다. 동점은 캐릭터 ID가 낮은 쪽이 앞이다. 지금은 PostgreSQL 인덱스로 읽는다. 상위 N명은 규모와 무관하지만, 순위는 앞선 행을 세므로 캐릭터 수에 비례한다([보고서 01](docs/reports/01-ranking.md)).
 
 왜 이렇게 나눴는지, 순서와 중복을 어떻게 증명했는지는 [설계 노트 08](docs/design-notes/08-events-and-read-models.md)에 있다.
 
@@ -436,6 +439,15 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 **K3s end-to-end**: `scripts/e2e-k3s.sh`는 K3s에 올린 스택에 같은 봇 프로필을 돌리고, 위와 같은 DB 검사(남은 세션, 처치·획득 기록, 이벤트 발행·적용)를 클러스터 안의 PostgreSQL에서 한다. 검사는 `scripts/lib/e2e.sh` 하나를 두 스크립트가 함께 쓴다.
 
 **정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭·표보다 많은 드롭 거절, 만료 티켓 거절, 유니크 인덱스에서 진 Redeem도 티켓은 소비, 같은 획득 요청 두 개가 동시에 와도 효과는 한 번, 재입장 뒤 처치 재시도는 반향, lease가 끝난 Zone의 지급 거절, 재시작한 Zone이 옛 인스턴스를 대신함.
+
+## 성능과 개선
+
+이 단계까지 잰 것만 적는다. 장비는 미니 PC 한 대(AMD Ryzen 7 8845HS, 16 스레드)이고, 조건과 원시 출력은 각 보고서에 있다.
+
+| 측정 | 결과 | 보고서 |
+|---|---|---|
+| 킬 랭킹 상위 20 (PostgreSQL, 캐릭터 100만) | 13,832 req/s, p99 2.35 ms. 규모와 무관 | [01](docs/reports/01-ranking.md) |
+| 최하위 캐릭터의 순위 (PostgreSQL) | 10만: 615 req/s, p99 40 ms → 100만: 62 req/s, p99 325 ms. 캐릭터 수에 비례 | [01](docs/reports/01-ranking.md) |
 
 ## 기술 선택
 
@@ -552,8 +564,10 @@ deploy/compose/    로컬 PostgreSQL·Kafka와 프로세스 설정
 deploy/docker/     프로세스별 컨테이너 이미지(C++ 셋, .NET 셋)
 deploy/k3s/        단일 노드 K3s 매니페스트(kustomize: data, migrate, game)
 tools/loadgen/     봇 두뇌(bot/)와 네트워크 봇 클라이언트(client/, 프로필)
-scripts/           end-to-end, 대화형 스택(dev-stack), 뷰어 정적 서버, 형식 검사
+scripts/           end-to-end, 대화형 스택(dev-stack), 뷰어 정적 서버, 형식 검사, 측정(bench/)
 tools/viewer/      브라우저 2D 뷰어
+tools/httpbench/   HTTP 부하 측정 도구(닫힌 루프, 지연 백분위)
+docs/reports/      측정 보고서
 tests/integration  정합성 시나리오 목록
 docs/              ADR, 설계 노트, 피처 문서, 이슈
 ```
