@@ -48,6 +48,8 @@ struct ZoneServerConfig {
     std::uint32_t link_max_gateways = 0;
     common::FrameLimits link_frame_limits;
     std::chrono::milliseconds link_close_linger{};
+    // A gateway link that carries nothing this long is closed; gateways ping well within it.
+    std::chrono::milliseconds link_silence_timeout{};
     std::uint32_t max_sessions = 0;
 
     // Backend gRPC and lease cadence (see README "소유권과 lease").

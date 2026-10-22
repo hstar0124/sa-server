@@ -45,7 +45,8 @@ void GatewayLinkServer::Accept() {
             std::ignore = socket.close(ignored);
         } else {
             auto link = std::make_shared<GatewayLink>(std::move(socket), config_.frame_limits,
-                                                      config_.close_linger, handler_);
+                                                      config_.close_linger, config_.silence_timeout,
+                                                      handler_);
             links_.push_back(link);
             spdlog::info("gateway link accepted from {}", link->PeerAddress());
             link->Start();

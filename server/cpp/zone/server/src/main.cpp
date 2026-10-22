@@ -212,7 +212,8 @@ int Run(int argc, char** argv) {
                                           .listen_port = config->link_listen_port,
                                           .max_gateways = config->link_max_gateways,
                                           .frame_limits = config->link_frame_limits,
-                                          .close_linger = config->link_close_linger},
+                                          .close_linger = config->link_close_linger,
+                                          .silence_timeout = config->link_silence_timeout},
         host};
     host.set_on_link_closed(
         [&link_server](sa::zone::GatewayLink& link) { link_server.Forget(link); });
