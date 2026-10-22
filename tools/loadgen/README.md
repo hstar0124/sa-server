@@ -9,6 +9,7 @@
 - `client/` — Gateway에 TCP로 접속해 `contracts/game` 메시지로 두뇌를 구동하는 실행 파일. 프로파일(TOML)이 역할 수·시드·판정 기준을 정한다.
   - `profiles/smoke.toml`: 배회 봇 5개, 서로를 보는지.
   - `profiles/fighters.toml`: 파이터 5 + 배회 1, 40초 안에 몬스터 2마리 이상.
+- 봇의 입력은 프로파일의 `seed`에서, 계정·캐릭터 이름은 따로 `identity_seed`에서 나온다. `identity_seed`가 없으면 실행마다 새로 정해 로그에 남긴다. 캐릭터에는 인벤토리와 마지막 위치가 쌓이므로, 지난 실행의 상태에서 출발하지 않게 하기 위해서다. 같은 계정을 다시 쓰려면 그 값을 프로파일이나 `SA_LOADGEN__BOTS__IDENTITY_SEED`로 고정한다([이슈 018](../../docs/issues/018-e2e-bots-reuse-characters-across-runs.md)).
 - 보고서는 입장·스냅샷·정합성·전투(시전 수락/거절, 적중, 처치, 사망)를 집계하고 종료 코드로 판정을 돌려준다.
 
 zone_server의 `[dev] local_bots`는 같은 두뇌를 네트워크 없이 프로세스 안에서 돌린다. 시뮬레이션 개발용이다.
