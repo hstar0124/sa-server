@@ -36,6 +36,7 @@ struct GatewayConfig {
     common::FrameLimits frame_limits;
     std::uint32_t max_messages_per_second = 0;
     std::chrono::milliseconds hello_timeout{};
+    std::chrono::milliseconds idle_timeout{};  // after the first message, see SessionProtocolConfig
     // How long closing a client connection may wait for the client to take our last bytes and
     // close its side, before the connection is reset and its slot freed.
     std::chrono::milliseconds client_close_linger{};
@@ -51,8 +52,10 @@ struct GatewayConfig {
     // [zone_link] + [[zones]]
     common::FrameLimits zone_link_frame_limits;
     std::chrono::milliseconds zone_link_reconnect_backoff{};
-    std::chrono::milliseconds zone_link_close_linger{};       // bounds closing a link at shutdown
-    std::chrono::milliseconds zone_link_establish_timeout{};  // connect plus LinkWelcome
+    std::chrono::milliseconds zone_link_close_linger{};        // bounds closing a link at shutdown
+    std::chrono::milliseconds zone_link_establish_timeout{};   // connect plus LinkWelcome
+    std::chrono::milliseconds zone_link_heartbeat_interval{};  // LinkPing cadence while ready
+    std::chrono::milliseconds zone_link_silence_timeout{};     // nothing heard: the link is dead
     std::vector<ZoneEndpoint> zones;
     // How long shutdown waits after kicking every session before it closes the zone links, so
     // detaches reach the zones and EndSession calls are answered. Longer than the RPC timeout.

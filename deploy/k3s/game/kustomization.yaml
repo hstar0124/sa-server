@@ -5,6 +5,7 @@ resources:
   - backend.yaml
   - eventworker.yaml
   - zone-a.yaml
+  - zone-b.yaml
   - gateway.yaml
   - network-policy.yaml
 configMapGenerator:
@@ -14,6 +15,9 @@ configMapGenerator:
   - name: zone-a-config
     files:
       - zone.toml=../../compose/config/zone-a.toml
+  - name: zone-b-config
+    files:
+      - zone.toml=../../compose/config/zone-b.toml
   - name: gateway-config
     files:
       - gateway.toml=../../compose/config/gateway.toml

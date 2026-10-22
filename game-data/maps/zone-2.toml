@@ -1,0 +1,42 @@
+# Zone 2 "highlands". Coordinates in metres, origin bottom-left. Wolves live here; the portal on
+# the west edge leads back to the meadow.
+[map]
+id = 2
+name = "highlands"
+width = 200.0
+height = 200.0
+cell_size = 25.0
+
+obstacles = [
+  [ 60.0,  60.0,  70.0, 140.0],   # ridge
+  [130.0,  60.0, 140.0, 140.0],   # ridge
+  [ 90.0, 170.0, 110.0, 190.0],   # boulder
+]
+
+spawn_points = [
+  [20.0, 100.0],
+  [100.0, 20.0],
+  [180.0, 100.0],
+]
+
+[[portals]]
+id = 1
+position = [4.0, 100.0]
+radius_m = 4.0
+to_zone_id = 1
+arrival = [192.0, 100.0]
+
+[[monster_spawns]]
+template_id = 102
+position = [100.0, 100.0]
+count = 3
+
+[[monster_spawns]]
+template_id = 102
+position = [160.0, 160.0]
+count = 2
+
+[[monster_spawns]]
+template_id = 101
+position = [40.0, 40.0]
+count = 3

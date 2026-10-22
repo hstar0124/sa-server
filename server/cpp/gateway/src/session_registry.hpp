@@ -26,10 +26,15 @@ public:
     // ZoneLink::Handler
     void OnZoneReady(common::ZoneId zone, const internal::v1::LinkWelcome& welcome) override;
     void OnZoneDown(common::ZoneId zone) override;
-    void OnSessionAttached(const internal::v1::SessionAttached& attached) override;
-    void OnSessionRejected(const internal::v1::SessionRejected& rejected) override;
-    void OnSessionEvicted(const internal::v1::SessionEvicted& evicted) override;
-    void OnSessionOutput(const internal::v1::SessionOutput& output) override;
+    void OnSessionAttached(common::ZoneId zone,
+                           const internal::v1::SessionAttached& attached) override;
+    void OnSessionRejected(common::ZoneId zone,
+                           const internal::v1::SessionRejected& rejected) override;
+    void OnSessionEvicted(common::ZoneId zone,
+                          const internal::v1::SessionEvicted& evicted) override;
+    void OnSessionTransfer(common::ZoneId zone,
+                           const internal::v1::SessionTransfer& transfer) override;
+    void OnSessionOutput(common::ZoneId zone, const internal::v1::SessionOutput& output) override;
 
 private:
     [[nodiscard]] std::shared_ptr<ClientSession> Find(const std::string& wire_id) const;

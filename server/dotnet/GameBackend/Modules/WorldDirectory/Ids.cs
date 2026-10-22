@@ -14,3 +14,14 @@ internal readonly record struct TicketId(byte[] Bytes)
         return ok;
     }
 }
+
+/// <summary>Identity of one zone transfer attempt; the origin zone mints it and its retries reuse it.</summary>
+internal readonly record struct TransferId(byte[] Bytes)
+{
+    public static bool TryFrom(ReadOnlySpan<byte> bytes, out TransferId id)
+    {
+        bool ok = OpaqueId.TryCopy(bytes, out byte[] copy);
+        id = new TransferId(copy);
+        return ok;
+    }
+}

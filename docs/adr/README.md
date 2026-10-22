@@ -13,3 +13,4 @@
 | [0007](0007-backend-data-access-and-modules.md) | Backend는 단일 어셈블리 모듈형 모놀리스, Npgsql+Dapper, SQL 마이그레이션 | Accepted |
 | [0008](0008-pure-simulation-core.md) | Zone 시뮬레이션은 시계·난수 주입형 순수 라이브러리 | Accepted |
 | [0009](0009-redis-only-for-measured-bottlenecks.md) | Redis는 측정된 병목(랭킹의 내 순위)에만, 복사본으로 | Accepted |
+| [0010](0010-zone-transfer-as-one-transaction.md) | 지역 이전은 Backend의 조건부 트랜잭션 하나, Gateway가 세션을 다시 붙인다 | Accepted |

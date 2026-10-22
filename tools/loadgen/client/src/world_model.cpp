@@ -38,11 +38,25 @@ std::uint64_t& VerdictCounter(game::v1::CommandStatus status, std::uint64_t& acc
 }  // namespace
 
 void WorldModel::OnWelcome(const game::v1::Welcome& welcome) {
+    if (welcomed_) {
+        ++travel_.zone_changes;
+        visible_.clear();
+        cache_dirty_ = true;
+        last_acked_input_ = 0;
+    }
     welcomed_ = true;
     self_ = common::EntityId{welcome.entity_id()};
+    zone_ = common::ZoneId{welcome.zone_id()};
     map_size_ = ToVec(welcome.map_size());
     server_tick_ = welcome.server_tick();
     simulation_hz_ = welcome.simulation_hz();
+    portals_.clear();
+    for (const game::v1::Portal& portal : welcome.portals()) {
+        portals_.push_back(bot::SeenPortal{.id = common::PortalId{portal.portal_id()},
+                                           .position = ToVec(portal.position()),
+                                           .radius_m = portal.radius_m(),
+                                           .to_zone = common::ZoneId{portal.to_zone_id()}});
+    }
 }
 
 void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
@@ -126,6 +140,10 @@ void WorldModel::OnCommandResult(const game::v1::CommandResult& result) {
         case RequestKind::kPickup:
             ++VerdictCounter(result.status(), loot_.pickups_acquired, loot_.pickups_rejected,
                              loot_.pickups_unknown);
+            return;
+        case RequestKind::kChangeZone:
+            ++VerdictCounter(result.status(), travel_.transfers_accepted,
+                             travel_.transfers_rejected, travel_.transfers_unknown);
             return;
     }
 }

@@ -21,6 +21,22 @@ void Fill(game::v1::Vec2& out, common::Vec2 v) {
     out.set_y(v.y);
 }
 
+// 16 bytes naming one command of one character for its lifetime: the client's request id is
+// unique only within one session, and the ownership epoch changes on every entry and transfer.
+// A retry within the session reproduces the same digest; a new session cannot collide with an
+// old one even when its counter restarts at the same number. `domain` keeps kinds apart.
+common::HmacSha256Digest CommandDigest(std::string_view domain, common::CharacterId character,
+                                       common::OwnerEpoch epoch, common::RequestId request) {
+    std::array<std::byte, sizeof(std::uint64_t) * 3> material{};
+    std::size_t offset = 0;
+    for (const std::uint64_t value : {character.value(), epoch.value(), request.value()}) {
+        for (std::size_t i = 0; i < sizeof value; ++i) {
+            material.at(offset++) = static_cast<std::byte>((value >> (8 * i)) & 0xFFU);
+        }
+    }
+    return common::HmacSha256(common::AsBytes(domain), material);
+}
+
 void Fill(game::v1::EntityUpdate& out, const sim::EntitySnapshot& s) {
     out.set_entity_id(s.id.value());
     Fill(*out.mutable_position(), s.position);
@@ -85,6 +101,14 @@ game::v1::RejectCode ToProto(sim::RejectReason reason) {
             return game::v1::REJECT_CODE_SERVICE_UNAVAILABLE;
         case sim::RejectReason::kNotOwner:
             return game::v1::REJECT_CODE_NOT_OWNER;
+        case sim::RejectReason::kUnknownPortal:
+            return game::v1::REJECT_CODE_UNKNOWN_PORTAL;
+        case sim::RejectReason::kOutOfPortalRange:
+            return game::v1::REJECT_CODE_OUT_OF_PORTAL_RANGE;
+        case sim::RejectReason::kTransferInProgress:
+            return game::v1::REJECT_CODE_TRANSFER_IN_PROGRESS;
+        case sim::RejectReason::kZoneUnavailable:
+            return game::v1::REJECT_CODE_ZONE_UNAVAILABLE;
     }
     return game::v1::REJECT_CODE_UNSPECIFIED;
 }
@@ -135,6 +159,13 @@ sim::PickupCommand ToPickupCommand(common::EntityId player, const game::v1::Pick
     return sim::PickupCommand{.player = player,
                               .request_id = common::RequestId{pickup.request_id()},
                               .item = common::EntityId{pickup.item_entity_id()}};
+}
+
+sim::ChangeZoneCommand ToChangeZoneCommand(common::EntityId player,
+                                           const game::v1::ChangeZone& change) {
+    return sim::ChangeZoneCommand{.player = player,
+                                  .request_id = common::RequestId{change.request_id()},
+                                  .portal = sim::PortalId{change.portal_id()}};
 }
 
 game::v1::WorldSnapshot ToWorldSnapshot(const sim::PlayerView& view, common::TickIndex tick) {
@@ -200,10 +231,17 @@ game::v1::Welcome ToWelcome(const WelcomeInfo& info) {
     out.set_server_tick(info.tick.value());
     out.set_entity_id(info.entity.value());
     Fill(*out.mutable_map_size(), info.map_size);
+    for (const sim::Portal& portal : info.portals) {
+        auto* p = out.add_portals();
+        p->set_portal_id(portal.id.value());
+        Fill(*p->mutable_position(), portal.position);
+        p->set_radius_m(portal.radius_m);
+        p->set_to_zone_id(portal.to_zone.value());
+    }
     return out;
 }
 
-// ---- zone <-> backend (Economy) ---------------------------------------------------------------
+// ---- zone <-> backend ---------------------------------------------------------------------------
 
 namespace {
 
@@ -213,6 +251,71 @@ void Fill(backend::v1::ZoneAuthority& out, const ZoneAuthority& authority) {
 }
 
 }  // namespace
+
+// ---- WorldDirectory (placement) ----------------------------------------------------------------
+
+backend::v1::SaveCheckpointRequest ToSaveCheckpointRequest(const CheckpointInfo& checkpoint,
+                                                           const ZoneAuthority& authority) {
+    backend::v1::SaveCheckpointRequest out;
+    out.set_world_id(checkpoint.world.value());
+    out.set_character_id(checkpoint.character.value());
+    Fill(*out.mutable_authority(), authority);
+    out.set_zone_id(checkpoint.zone.value());
+    Fill(*out.mutable_position(), checkpoint.position);
+    out.set_checkpoint_version(checkpoint.version);
+    return out;
+}
+
+common::TransferId TransferIdFor(const sim::ZoneTransferRequest& transfer,
+                                 common::OwnerEpoch epoch) {
+    static constexpr std::string_view kDomain = "zone-transfer";
+    const common::HmacSha256Digest digest =
+        CommandDigest(kDomain, transfer.character, epoch, transfer.request_id);
+    return common::TransferId::FromExact(std::span{digest}.first<common::TransferId::kBytes>());
+}
+
+backend::v1::TransferCharacterRequest ToTransferRequest(const sim::ZoneTransferRequest& transfer,
+                                                        common::WorldId world,
+                                                        const ZoneAuthority& authority) {
+    backend::v1::TransferCharacterRequest out;
+    out.set_transfer_id(TransferIdFor(transfer, authority.epoch).ToWire());
+    out.set_world_id(world.value());
+    out.set_character_id(transfer.character.value());
+    Fill(*out.mutable_authority(), authority);
+    out.set_to_zone_id(transfer.to_zone.value());
+    Fill(*out.mutable_arrival_position(), transfer.arrival);
+    return out;
+}
+
+sim::TransferOutcome ToTransferOutcome(backend::v1::TransferOutcome outcome) {
+    switch (outcome) {
+        case backend::v1::TRANSFER_OUTCOME_TRANSFERRED:
+        case backend::v1::TRANSFER_OUTCOME_ALREADY_TRANSFERRED:
+            return sim::TransferOutcome::kTransferred;
+        case backend::v1::TRANSFER_OUTCOME_NO_ZONE_AVAILABLE:
+        case backend::v1::TRANSFER_OUTCOME_SAME_ZONE:
+            return sim::TransferOutcome::kZoneUnavailable;
+        case backend::v1::TRANSFER_OUTCOME_STALE_AUTHORITY:
+            return sim::TransferOutcome::kNotOwner;
+        case backend::v1::TRANSFER_OUTCOME_UNSPECIFIED:
+        default:
+            return sim::TransferOutcome::kUnavailable;
+    }
+}
+
+internal::v1::SessionTransfer ToSessionTransfer(
+    const common::InstanceId& session_id, const backend::v1::TransferCharacterResponse& response,
+    common::Vec2 arrival) {
+    internal::v1::SessionTransfer out;
+    out.set_gateway_session_id(session_id.ToWire());
+    out.set_to_zone_id(response.to_zone().zone_id());
+    out.set_to_zone_instance_id(response.to_zone().zone_instance_id());
+    out.set_owner_epoch(response.owner_epoch());
+    Fill(*out.mutable_arrival_position(), arrival);
+    return out;
+}
+
+// ---- Economy ------------------------------------------------------------------------------------
 
 backend::v1::RecordKillRequest ToRecordKillRequest(const sim::KillRecord& kill,
                                                    common::KillId kill_id, common::WorldId world,
@@ -263,20 +366,9 @@ backend::v1::PickupItemRequest ToPickupItemRequest(const sim::PickupReservation&
 }
 
 std::string PickupRequestKey(const sim::PickupReservation& pickup, common::OwnerEpoch epoch) {
-    // The client's request id is unique only within one session; the ownership epoch changes on
-    // every entry, so (character, epoch, request) names one command for the character's lifetime.
-    // A retry within the session reproduces the same key; a new session cannot collide with an
-    // old one even when its counter restarts at the same number.
-    std::array<std::byte, sizeof(std::uint64_t) * 3> material{};
-    std::size_t offset = 0;
-    for (const std::uint64_t value :
-         {pickup.character.value(), epoch.value(), pickup.request_id.value()}) {
-        for (std::size_t i = 0; i < sizeof value; ++i) {
-            material.at(offset++) = static_cast<std::byte>((value >> (8 * i)) & 0xFFU);
-        }
-    }
     static constexpr std::string_view kDomain = "pickup-request";
-    const common::HmacSha256Digest digest = common::HmacSha256(common::AsBytes(kDomain), material);
+    const common::HmacSha256Digest digest =
+        CommandDigest(kDomain, pickup.character, epoch, pickup.request_id);
     return common::RequestKey::FromExact(std::span{digest}.first<common::RequestKey::kBytes>())
         .ToWire();
 }

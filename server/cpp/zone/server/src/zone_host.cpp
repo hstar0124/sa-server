@@ -4,7 +4,6 @@
 
 #include <spdlog/spdlog.h>
 
-#include <algorithm>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -14,10 +13,11 @@ namespace sa::zone {
 using internal::v1::ZoneToGateway;
 
 ZoneHost::ZoneHost(sim::Zone& zone, Identity identity, EconomyGateway& economy,
-                   std::function<bool()> authoritative)
+                   DirectoryGateway& directory, std::function<bool()> authoritative)
     : zone_(zone),
       identity_(identity),
       economy_(economy),
+      directory_(directory),
       authoritative_(std::move(authoritative)) {}
 
 // ---- GatewayLink::Handler -------------------------------------------------------------------
@@ -67,23 +67,40 @@ void ZoneHost::Attach(LinkSink& sink, const internal::v1::SessionAttach& attach)
         Reject(sink, session_id, internal::v1::REJECT_REASON_DUPLICATE_SESSION);
         return;
     }
+    const common::CharacterId character{attach.character_id()};
+    const common::OwnerEpoch epoch{attach.owner_epoch()};
+    // A character is simulated once. The Backend raises the generation on every entry and
+    // transfer, so the newer attach is the current one.
+    if (const auto live = SessionOfCharacter(character)) {
+        if (sessions_.at(*live).epoch >= epoch) {
+            ++stats_.stale_attaches;  // the late echo of a session already superseded
+            Reject(sink, session_id, internal::v1::REJECT_REASON_STALE_EPOCH);
+            return;
+        }
+        // A newer grant for a character still here, e.g. a re-entry through another gateway
+        // while the old gateway's link has not closed yet: the old session is over.
+        ++stats_.superseded_sessions;
+        Evict(*live, internal::v1::EVICT_REASON_NOT_OWNER);
+    }
     if (sessions_.size() >= identity_.max_sessions) {
         Reject(sink, session_id, internal::v1::REJECT_REASON_ZONE_FULL);
         return;
     }
 
-    const common::CharacterId character{attach.character_id()};
-    const auto spawned = zone_.SpawnPlayer(character, sim::ClassId{attach.class_id()});
+    // A checkpoint or an arrival point; the zone falls back to a spawn point if it is not
+    // walkable here.
+    const std::optional<common::Vec2> position =
+        attach.has_position()
+            ? std::optional{common::Vec2{attach.position().x(), attach.position().y()}}
+            : std::nullopt;
+    const auto spawned = zone_.SpawnPlayer(character, sim::ClassId{attach.class_id()}, position);
     if (!spawned) {
         spdlog::warn("attach refused: class {} is not in the content bundle", attach.class_id());
         Reject(sink, session_id, internal::v1::REJECT_REASON_UNKNOWN_CLASS);
         return;
     }
     const common::EntityId entity = *spawned;
-    const Session session{.sink = &sink,
-                          .entity = entity,
-                          .character = character,
-                          .epoch = common::OwnerEpoch{attach.owner_epoch()}};
+    const Session session{.sink = &sink, .entity = entity, .character = character, .epoch = epoch};
     sessions_.emplace(session_id, session);
     session_by_entity_.emplace(entity, session_id);
     ++stats_.attaches;
@@ -103,6 +120,7 @@ void ZoneHost::Attach(LinkSink& sink, const internal::v1::SessionAttach& attach)
         .tick = zone_.current_tick(),
         .entity = entity,
         .map_size = zone_.map().size,
+        .portals = zone_.map().portals,
     });
     SendToSession(session, session_id, welcome);
     RequestAssets(session_id);
@@ -112,10 +130,14 @@ void ZoneHost::Attach(LinkSink& sink, const internal::v1::SessionAttach& attach)
 
 void ZoneHost::Detach(const internal::v1::SessionDetach& detach) {
     const auto session_id = common::InstanceId::FromString(detach.gateway_session_id());
-    if (session_id && sessions_.contains(*session_id)) {
-        RemoveSession(*session_id, true);
-        ++stats_.detaches;
+    const auto it = session_id ? sessions_.find(*session_id) : sessions_.end();
+    if (it == sessions_.end()) {
+        return;
     }
+    const common::InstanceId id = it->first;
+    SaveCheckpoint(id, it->second);  // where the character logged out
+    RemoveSession(id, true);
+    ++stats_.detaches;
 }
 
 void ZoneHost::Input(const internal::v1::SessionInput& input) {
@@ -146,11 +168,14 @@ void ZoneHost::Input(const internal::v1::SessionInput& input) {
             ++stats_.inputs;
             return;
         case game::v1::ClientMessage::kChangeZone:
+            zone_.Submit(codec::ToChangeZoneCommand(it->second.entity, message.change_zone()));
+            ++stats_.inputs;
+            return;
         case game::v1::ClientMessage::kHello:
         case game::v1::ClientMessage::kPing:
         case game::v1::ClientMessage::BODY_NOT_SET:
-            // Transfers arrive in stage 8; Hello and Ping are consumed by the gateway. Any of
-            // them here is a client or gateway bug and shows up in metrics.
+            // Hello and Ping are consumed by the gateway. Any of them here is a client or gateway
+            // bug and shows up in metrics.
             ++stats_.bad_inputs;
             return;
     }
@@ -164,6 +189,7 @@ void ZoneHost::LinkClosed(const LinkSink& sink) {
         }
     }
     for (const common::InstanceId& id : gone) {
+        SaveCheckpoint(id, sessions_.at(id));  // the ownership outlives the gateway's link
         RemoveSession(id, true);
         ++stats_.detaches;
     }
@@ -212,18 +238,25 @@ void ZoneHost::OnTick(common::TickIndex tick) {
         ++stats_.events_sent;
     }
 
-    // Kills and pickups the zone adjudicated this tick go to the Backend now; their answers come
-    // back on this thread and are applied through the zone's answer entry points.
+    // Kills, pickups and departures the zone adjudicated this tick go to the Backend now; their
+    // answers come back on this thread and are applied through the zone's answer entry points.
     for (const sim::HostRequest& request : zone_.DrainHostRequests()) {
         std::visit(
             [this](const auto& r) {
-                if constexpr (std::is_same_v<std::decay_t<decltype(r)>, sim::KillRecord>) {
+                using T = std::decay_t<decltype(r)>;
+                if constexpr (std::is_same_v<T, sim::KillRecord>) {
                     RecordKill(r);
-                } else {
+                } else if constexpr (std::is_same_v<T, sim::PickupReservation>) {
                     SettlePickup(r);
+                } else {
+                    Transfer(r);
                 }
             },
             request);
+    }
+
+    if (tick.value() % identity_.ticks_per_checkpoint == 0) {
+        SaveCheckpoints();
     }
 
     if (tick.value() % identity_.ticks_per_snapshot != 0) {
@@ -238,191 +271,11 @@ void ZoneHost::OnTick(common::TickIndex tick) {
     }
 }
 
-// ---- economy -----------------------------------------------------------------------------------
+// ---- helpers -----------------------------------------------------------------------------------
 
 codec::ZoneAuthority ZoneHost::AuthorityFor(const Session& session) const {
     return codec::ZoneAuthority{.zone_instance = identity_.zone_instance, .epoch = session.epoch};
 }
-
-void ZoneHost::RequestAssets(const common::InstanceId& session_id) {
-    const Session& session = sessions_.at(session_id);
-    backend::v1::GetCharacterAssetsRequest request;
-    request.set_world_id(zone_.config().world_id.value());
-    request.set_character_id(session.character.value());
-    economy_.GetCharacterAssets(
-        request, [this, session_id, entity = session.entity](
-                     const std::optional<backend::v1::GetCharacterAssetsResponse>& response) {
-            OnAssets(session_id, entity, response);
-        });
-}
-
-void ZoneHost::OnAssets(const common::InstanceId& session_id, common::EntityId entity,
-                        const std::optional<backend::v1::GetCharacterAssetsResponse>& response) {
-    const auto it = sessions_.find(session_id);
-    if (it == sessions_.end() || it->second.entity != entity) {
-        return;  // the session ended while the Backend was answering
-    }
-    if (!response) {
-        ++stats_.backend_failures;
-        spdlog::warn("assets of character {} unavailable; asking again on the next economy answer",
-                     it->second.character.value());
-        return;
-    }
-    it->second.assets = codec::ToAssets(*response, zone_.rules().economy.primary_currency);
-    // A pickup that committed while its answer was lost leaves the item visible here although
-    // the Backend holds it in this inventory; the fresh read settles it.
-    std::vector<common::ItemInstanceId> held;
-    held.reserve(it->second.assets->items.size());
-    for (const codec::InventoryEntry& entry : it->second.assets->items) {
-        held.push_back(entry.instance);
-    }
-    zone_.RemoveSettledGroundItems(held);
-    SendAssets(session_id, it->second);
-}
-
-void ZoneHost::RecordKill(const sim::KillRecord& kill) {
-    const Session* session = SessionOf(kill.killer);
-    if (session == nullptr) {
-        return;  // the killer left before the kill was recorded; the grant cannot be fenced
-    }
-    const common::KillId kill_id = codec::KillIdFor(identity_.zone_instance, ++kills_minted_);
-    economy_.RecordKill(codec::ToRecordKillRequest(kill, kill_id, zone_.config().world_id,
-                                                   AuthorityFor(*session), zone_.content().version),
-                        [this, killer = kill.killer,
-                         kill_id](const std::optional<backend::v1::RecordKillResponse>& response) {
-                            OnKillRecorded(killer, kill_id, response);
-                        });
-}
-
-void ZoneHost::OnKillRecorded(common::EntityId killer, common::KillId kill_id,
-                              const std::optional<backend::v1::RecordKillResponse>& response) {
-    const auto by_entity = session_by_entity_.find(killer);
-    const common::InstanceId* session_id =
-        by_entity == session_by_entity_.end() ? nullptr : &by_entity->second;
-    if (!response) {
-        // The last attempt may have timed out after the Backend committed: the gold may be in the
-        // wallet and the drops on the Backend's ground. Re-read the killer's assets so the client
-        // at least sees the wallet; the kill id is kept in the log for reconciliation.
-        ++stats_.backend_failures;
-        spdlog::warn("kill {}: no answer after every attempt; outcome unknown", kill_id.ToHex());
-        if (session_id != nullptr) {
-            RequestAssets(*session_id);
-        }
-        return;
-    }
-    switch (response->outcome()) {
-        case backend::v1::KILL_OUTCOME_RECORDED:
-        case backend::v1::KILL_OUTCOME_ALREADY_RECORDED: {
-            const std::vector<sim::GroundItem> items = codec::ToGroundItems(*response);
-            const auto spawned = zone_.SpawnGroundItems(items);
-            if (spawned.size() != items.size()) {
-                spdlog::warn("kill {}: {} of {} items name templates this zone does not know",
-                             kill_id.ToHex(), items.size() - spawned.size(), items.size());
-            }
-            ++stats_.kills_recorded;
-            break;
-        }
-        case backend::v1::KILL_OUTCOME_STALE_AUTHORITY:
-            ++stats_.kills_refused;
-            spdlog::warn("kill {} refused: this zone does not own the killer", kill_id.ToHex());
-            if (session_id != nullptr) {
-                EvictNotOwner(*session_id);
-            }
-            return;
-        case backend::v1::KILL_OUTCOME_CONTENT_VERSION_MISMATCH:
-        case backend::v1::KILL_OUTCOME_UNKNOWN_TEMPLATE:
-        case backend::v1::KILL_OUTCOME_UNSPECIFIED:
-        default:
-            ++stats_.kills_refused;
-            spdlog::warn("kill {} refused: {}", kill_id.ToHex(),
-                         backend::v1::KillOutcome_Name(response->outcome()));
-            return;
-    }
-    if (session_id == nullptr) {
-        return;
-    }
-    Session& session = sessions_.at(*session_id);
-    if (!session.assets) {
-        RequestAssets(*session_id);
-        return;
-    }
-    // Gold only rises in this stage (kills credit, nothing spends), so the larger balance is the
-    // newer one even when two kill answers arrive out of order. Spending needs a wallet version.
-    session.assets->gold = std::max(session.assets->gold, response->gold_balance());
-    SendAssets(*session_id, session);
-}
-
-void ZoneHost::SettlePickup(const sim::PickupReservation& pickup) {
-    const Session* session = SessionOf(pickup.player);
-    if (session == nullptr) {
-        zone_.ResolvePickup(pickup, sim::PickupOutcome::kUnavailable);
-        return;
-    }
-    economy_.PickupItem(
-        codec::ToPickupItemRequest(pickup, zone_.config().world_id, AuthorityFor(*session)),
-        [this, pickup](const std::optional<backend::v1::PickupItemResponse>& response) {
-            OnPickupSettled(pickup, response);
-        });
-}
-
-void ZoneHost::OnPickupSettled(const sim::PickupReservation& pickup,
-                               const std::optional<backend::v1::PickupItemResponse>& response) {
-    const auto by_entity = session_by_entity_.find(pickup.player);
-    const common::InstanceId* session_id =
-        by_entity == session_by_entity_.end() ? nullptr : &by_entity->second;
-    if (!response) {
-        // Unknown even after the client's retries: release the reservation, and read the assets
-        // so that an item the Backend did commit disappears here and shows in the inventory.
-        ++stats_.backend_failures;
-        zone_.ResolvePickup(pickup, sim::PickupOutcome::kUnavailable);
-        if (session_id != nullptr) {
-            RequestAssets(*session_id);
-        }
-        return;
-    }
-    const sim::PickupOutcome outcome = codec::ToPickupOutcome(response->outcome());
-    zone_.ResolvePickup(pickup, outcome);
-    if (outcome != sim::PickupOutcome::kAcquired) {
-        ++stats_.pickups_refused;
-        if (outcome == sim::PickupOutcome::kNotOwner && session_id != nullptr) {
-            EvictNotOwner(*session_id);
-        } else if (outcome == sim::PickupOutcome::kUnavailable ||
-                   outcome == sim::PickupOutcome::kRequestMismatch) {
-            spdlog::warn("pickup by character {} not settled: {}", pickup.character.value(),
-                         backend::v1::PickupOutcome_Name(response->outcome()));
-        }
-        return;
-    }
-    ++stats_.pickups_acquired;
-    if (session_id == nullptr) {
-        return;
-    }
-    Session& session = sessions_.at(*session_id);
-    if (!session.assets) {
-        RequestAssets(*session_id);  // the first read failed; this answer proves the Backend is up
-        return;
-    }
-    if (const auto entry = codec::ToInventoryEntry(response->item())) {
-        const bool known = std::ranges::any_of(session.assets->items, [&](const auto& item) {
-            return item.instance == entry->instance;
-        });
-        if (!known) {
-            session.assets->items.push_back(*entry);
-        }
-    }
-    // Two pickups in flight may answer out of order; a version never goes back.
-    session.assets->version = std::max(session.assets->version, response->inventory_version());
-    SendAssets(*session_id, session);
-}
-
-void ZoneHost::EvictNotOwner(const common::InstanceId& session_id) {
-    // Another zone owns the character now (a re-entry elsewhere, or this zone's lease lapsed):
-    // nothing this session does here can be granted, so it ends and the client enters again.
-    ++stats_.not_owner_evictions;
-    Evict(session_id, internal::v1::EVICT_REASON_NOT_OWNER);
-}
-
-// ---- helpers -----------------------------------------------------------------------------------
 
 ZoneHost::Session* ZoneHost::SessionOf(common::EntityId entity) {
     const auto by_entity = session_by_entity_.find(entity);
@@ -449,16 +302,6 @@ void ZoneHost::SendToSession(const Session& session, const common::InstanceId& s
     output->set_gateway_session_id(session_id.ToWire());
     *output->mutable_message() = message;
     session.sink->Send(out);
-}
-
-void ZoneHost::SendAssets(const common::InstanceId& session_id, Session& session) {
-    if (!session.assets) {
-        return;
-    }
-    game::v1::ServerMessage message;
-    *message.mutable_inventory_update() = codec::ToInventoryUpdate(*session.assets);
-    SendToSession(session, session_id, message);
-    ++stats_.inventory_updates_sent;
 }
 
 void ZoneHost::RemoveSession(const common::InstanceId& session_id, bool despawn) {

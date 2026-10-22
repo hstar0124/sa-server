@@ -36,7 +36,8 @@ internal sealed record ZoneAssignment(WorldId WorldId, ZoneId ZoneId, InstanceId
 
 internal sealed record CharacterProfile(CharacterId Id, string Name, ClassId ClassId);
 
-internal sealed record RedeemResult(RedeemOutcome Outcome, ZoneAssignment? Zone, CharacterProfile? Character);
+/// <summary>On a grant, the checkpoint is set only when the character re-enters the zone that saved it.</summary>
+internal sealed record RedeemResult(RedeemOutcome Outcome, ZoneAssignment? Zone, CharacterProfile? Character, Checkpoint? Checkpoint);
 
 internal sealed record RedeemRequest(
     TicketId TicketId,
@@ -204,15 +205,20 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
         FOR UPDATE OF o
         """;
 
-    // Stage 3 placement: the lowest zone id with a live lease serves the whole world. Stage 8
-    // replaces this with the character's checkpointed zone and transfer state. Newest instance first,
-    // although renewal already keeps only one live instance per zone id.
+    // Placement: the zone that owns the character if its lease lives, else the zone of the last
+    // checkpoint if a live instance serves it, else the lowest zone id with a live lease. Newest
+    // instance first, although renewal already keeps only one live instance per zone id.
     private const string PickZoneSql = """
         SELECT zone_id AS "ZoneId", zone_instance_id AS "ZoneInstanceId"
         FROM game.zone_leases
-        WHERE world_id = @WorldId AND lease_expires_at > now()
+        WHERE world_id = @WorldId AND lease_expires_at > now() AND (@PreferredZoneId::integer IS NULL OR zone_id = @PreferredZoneId)
         ORDER BY zone_id, first_seen_at DESC
         LIMIT 1
+        """;
+
+    private const string CheckpointSql = """
+        SELECT zone_id AS "ZoneId", pos_x AS "X", pos_y AS "Y", owner_epoch AS "OwnerEpoch", checkpoint_version AS "Version"
+        FROM game.character_checkpoints WHERE world_id = @WorldId AND character_id = @CharacterId
         """;
 
     private const string UpsertOwnershipSql = """
@@ -274,9 +280,14 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
         }
 
         OwnershipRow? current = await connection.QuerySingleOrDefaultAsync<OwnershipRow>(Cmd(CurrentOwnershipSql, new { request.WorldId, request.CharacterId }, tx, cancellationToken));
-        ZoneRow? zone = current is { ZoneAlive: true }
-            ? new ZoneRow(current.ZoneId, current.ZoneInstanceId)
-            : await connection.QuerySingleOrDefaultAsync<ZoneRow>(Cmd(PickZoneSql, new { request.WorldId }, tx, cancellationToken));
+        Checkpoint? checkpoint = await connection.QuerySingleOrDefaultAsync<Checkpoint>(Cmd(CheckpointSql, new { request.WorldId, request.CharacterId }, tx, cancellationToken));
+        ZoneRow? zone = current is { ZoneAlive: true } ? new ZoneRow(current.ZoneId, current.ZoneInstanceId) : null;
+        if (zone is null && checkpoint is not null)
+        {
+            zone = await connection.QuerySingleOrDefaultAsync<ZoneRow>(Cmd(PickZoneSql, new { request.WorldId, PreferredZoneId = (int?)checkpoint.ZoneId.Value }, tx, cancellationToken));
+        }
+
+        zone ??= await connection.QuerySingleOrDefaultAsync<ZoneRow>(Cmd(PickZoneSql, new { request.WorldId, PreferredZoneId = (int?)null }, tx, cancellationToken));
         if (zone is null)
         {
             await tx.CommitAsync(cancellationToken);
@@ -311,11 +322,12 @@ internal sealed class WorldDirectoryRepository(NpgsqlDataSource dataSource)
         }
 
         await tx.CommitAsync(cancellationToken);
+        Checkpoint? placement = checkpoint is not null && checkpoint.ZoneId == zone.ZoneId ? checkpoint : null;
         return new RedeemResult(RedeemOutcome.Granted,
-            new ZoneAssignment(request.WorldId, zone.ZoneId, new InstanceId(zone.ZoneInstanceId), epoch), character);
+            new ZoneAssignment(request.WorldId, zone.ZoneId, new InstanceId(zone.ZoneInstanceId), epoch), character, placement);
     }
 
-    private static RedeemResult Fail(RedeemOutcome outcome) => new(outcome, null, null);
+    private static RedeemResult Fail(RedeemOutcome outcome) => new(outcome, null, null, null);
 
     private static CommandDefinition Cmd(string sql, object parameters, NpgsqlTransaction tx, CancellationToken ct)
         => new(sql, parameters, tx, cancellationToken: ct);

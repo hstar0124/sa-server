@@ -26,6 +26,31 @@ TEST(GameDataLoader, ShippedMapAndRulesAreValid) {
     EXPECT_TRUE(walkable.has_value()) << walkable.error();
 }
 
+TEST(GameDataLoader, ShippedMapsLinkToEachOtherThroughPortals) {
+    const auto meadow = LoadMap(kGameData / "maps" / "zone-1.toml");
+    const auto highlands = LoadMap(kGameData / "maps" / "zone-2.toml");
+    ASSERT_TRUE(meadow.has_value()) << meadow.error().message;
+    ASSERT_TRUE(highlands.has_value()) << highlands.error().message;
+    ASSERT_EQ(meadow->portals.size(), 1U);
+    ASSERT_EQ(highlands->portals.size(), 1U);
+    EXPECT_EQ(meadow->portals.front().to_zone, common::ZoneId{2});
+    EXPECT_EQ(highlands->portals.front().to_zone, common::ZoneId{1});
+    // Each portal's arrival is a place a body can stand in the other map, and each portal can be
+    // reached in its own.
+    const auto rules = LoadMovementRules(kGameData / "rules" / "movement.toml");
+    const auto combat = LoadCombatRules(kGameData / "rules" / "movement.toml");
+    ASSERT_TRUE(rules.has_value());
+    ASSERT_TRUE(combat.has_value());
+    EXPECT_TRUE(highlands->IsWalkable(meadow->portals.front().arrival, rules->body_radius_m));
+    EXPECT_TRUE(meadow->IsWalkable(highlands->portals.front().arrival, rules->body_radius_m));
+    EXPECT_TRUE(
+        highlands->ValidateWalkable(rules->body_radius_m, combat->monster_pack_ring_radius_m)
+            .has_value());
+    const auto content = LoadContent(kGameData);
+    ASSERT_TRUE(content.has_value());
+    EXPECT_TRUE(highlands->ValidateAgainst(*content).has_value());
+}
+
 TEST(GameDataLoader, ParsesMinimalMap) {
     const auto map = ParseMap(R"(
 [map]

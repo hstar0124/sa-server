@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package sa.backend.v1;
 
+import "backend/authority.proto";
+import "game/common.proto";
+
 option csharp_namespace = "Sa.Backend.V1";
 
 // Authoritative record of which process may act for which character (see README "소유권과 lease",
@@ -18,6 +21,15 @@ service WorldDirectory {
   rpc RenewZoneLease(RenewZoneLeaseRequest) returns (RenewZoneLeaseResponse);
   // Gateway process lease. Sessions belong to a gateway lease: when it expires they are dead.
   rpc RenewGatewayLease(RenewGatewayLeaseRequest) returns (RenewGatewayLeaseResponse);
+  // The owning zone saves where the character is. Refused when the zone no longer owns the
+  // character or when a newer checkpoint version is already stored, so a late save from the
+  // previous owner never overwrites the current position.
+  rpc SaveCheckpoint(SaveCheckpointRequest) returns (SaveCheckpointResponse);
+  // The owning zone hands the character to another zone (ADR-0010). One conditional transaction
+  // verifies the authority, requires a live lease on the destination, moves the ownership with
+  // owner_epoch + 1 and stores the arrival checkpoint. A repeated transfer_id returns the stored
+  // outcome.
+  rpc TransferCharacter(TransferCharacterRequest) returns (TransferCharacterResponse);
 }
 
 message ZoneInstanceRef {
@@ -56,11 +68,20 @@ enum RedeemOutcome {
   REDEEM_OUTCOME_EXPIRED = 8;                 // the Backend clock says the ticket is past expiry
 }
 
+// Where the character last stood, as the owning zone saved it. Absent for a character that
+// never had a checkpoint: the zone picks a spawn point.
+message Checkpoint {
+  uint32 zone_id = 1;
+  sa.game.v1.Vec2 position = 2;
+  uint64 checkpoint_version = 3;
+}
+
 message RedeemEntryTicketResponse {
   RedeemOutcome outcome = 1;
   ZoneInstanceRef zone = 2;
   uint64 owner_epoch = 3;
   CharacterProfile character = 4;
+  Checkpoint checkpoint = 5;  // only when the character re-enters the zone it was checkpointed in
 }
 
 message EndSessionRequest {
@@ -89,4 +110,48 @@ message RenewGatewayLeaseRequest {
 message RenewGatewayLeaseResponse {
   bool renewed = 1;
   uint64 lease_expires_at_ms = 2;
+}
+
+message SaveCheckpointRequest {
+  uint64 world_id = 1;
+  uint64 character_id = 2;
+  ZoneAuthority authority = 3;
+  uint32 zone_id = 4;
+  sa.game.v1.Vec2 position = 5;
+  uint64 checkpoint_version = 6;  // zone-local counter per character session; must grow
+}
+
+enum CheckpointOutcome {
+  CHECKPOINT_OUTCOME_UNSPECIFIED = 0;
+  CHECKPOINT_OUTCOME_SAVED = 1;
+  CHECKPOINT_OUTCOME_STALE_AUTHORITY = 2;  // the zone no longer owns the character
+  CHECKPOINT_OUTCOME_STALE_VERSION = 3;    // a newer checkpoint of the same owner is stored
+}
+
+message SaveCheckpointResponse {
+  CheckpointOutcome outcome = 1;
+}
+
+message TransferCharacterRequest {
+  bytes transfer_id = 1;          // 16 bytes, minted by the origin zone; retries reuse it
+  uint64 world_id = 2;
+  uint64 character_id = 3;
+  ZoneAuthority authority = 4;    // the origin's claim
+  uint32 to_zone_id = 5;
+  sa.game.v1.Vec2 arrival_position = 6;
+}
+
+enum TransferOutcome {
+  TRANSFER_OUTCOME_UNSPECIFIED = 0;
+  TRANSFER_OUTCOME_TRANSFERRED = 1;
+  TRANSFER_OUTCOME_ALREADY_TRANSFERRED = 2;  // same transfer_id seen before; the stored result follows
+  TRANSFER_OUTCOME_STALE_AUTHORITY = 3;
+  TRANSFER_OUTCOME_NO_ZONE_AVAILABLE = 4;    // no live lease serves the destination zone id
+  TRANSFER_OUTCOME_SAME_ZONE = 5;            // destination is the origin
+}
+
+message TransferCharacterResponse {
+  TransferOutcome outcome = 1;
+  ZoneInstanceRef to_zone = 2;  // on TRANSFERRED / ALREADY_TRANSFERRED
+  uint64 owner_epoch = 3;       // the destination's generation
 }

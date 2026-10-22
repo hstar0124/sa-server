@@ -13,3 +13,4 @@
 | [07 자산과 멱등성](07-economy-consistency.md) | 드롭·획득에서 Zone과 Backend의 역할, 동시 획득·요청 중복·응답 유실·낡은 Zone을 어떻게 막나 |
 | [08 확정 이벤트](08-events-and-read-models.md) | 확정된 사실을 Outbox → Kafka → Inbox로 순서대로, 한 번씩 조회 모델에 반영하는 방법 |
 | [09 킬 랭킹과 Redis](09-ranking-redis.md) | 왜 "내 순위"만 Redis로 옮겼고, 복사본이 비거나 뒤처져도 답이 틀리지 않게 하는 방법 |
+| [10 두 번째 Zone과 소유권 이전](10-zone-transfer.md) | 캐릭터를 다른 Zone으로 옮길 때 소유자를 하나로 유지하고, 응답 유실·늦은 Zone·죽은 도착 Zone을 어떻게 다루나 |

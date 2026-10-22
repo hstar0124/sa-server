@@ -6,6 +6,7 @@
 #include "link_sink.hpp"
 
 #include <asio/ip/tcp.hpp>
+#include <asio/steady_timer.hpp>
 
 #include <chrono>
 #include <memory>
@@ -28,9 +29,12 @@ public:
     };
 
     // `close_linger` bounds how long closing waits for the gateway to close its side, so a
-    // stalled gateway cannot hold up the zone's shutdown.
+    // stalled gateway cannot hold up the zone's shutdown. A link that carries nothing for
+    // `silence_timeout` is closed: the gateway pings well within it, so silence means the
+    // gateway vanished without closing, and its players would otherwise stay in the world.
     GatewayLink(asio::ip::tcp::socket socket, common::FrameLimits limits,
-                std::chrono::milliseconds close_linger, Handler& handler);
+                std::chrono::milliseconds close_linger, std::chrono::milliseconds silence_timeout,
+                Handler& handler);
 
     void Start();
     void Send(const internal::v1::ZoneToGateway& message) override;
@@ -44,7 +48,12 @@ public:
 private:
     void OnFrame(std::span<const std::byte> payload);
     void OnClosed(const std::error_code& reason);
+    void ScheduleSilenceCheck();
 
+    // Declared before the connection: it takes the socket's executor before the socket moves.
+    asio::steady_timer silence_timer_;
+    std::chrono::milliseconds silence_timeout_;
+    std::chrono::steady_clock::time_point last_heard_;
     std::shared_ptr<common::FramedConnection> connection_;
     Handler& handler_;
     std::optional<common::InstanceId> gateway_id_;  // set by LinkHello

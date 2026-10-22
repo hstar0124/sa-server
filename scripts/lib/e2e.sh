@@ -19,10 +19,11 @@ STATS_CONSUMER=character-stats
 # bot-side check while no kill reached the database.
 check_run() {
   local run_started="$1" failed=0
-  local account_prefix min_kills min_pickups
+  local account_prefix min_kills min_pickups min_zone_changes
   account_prefix="$(profile_value account_prefix)"
   min_kills="$(profile_value min_kills)"; min_kills="${min_kills:-0}"
   min_pickups="$(profile_value min_pickups)"; min_pickups="${min_pickups:-0}"
+  min_zone_changes="$(profile_value min_zone_changes)"; min_zone_changes="${min_zone_changes:-0}"
 
   # Bots have closed their sockets; give the gateway a moment to detach and end their sessions,
   # then check the directory agrees. Only this run's sessions count: a crashed viewer or dev
@@ -42,6 +43,22 @@ check_run() {
   acquired=$(psql_value "SELECT count(*) FROM game.economy_ledger WHERE kind = 'item_acquired' AND created_at >= '$run_started'")
   echo "items acquired in the ledger: $acquired (required $min_pickups)"
   if [ "$acquired" -lt "$min_pickups" ]; then echo "FAIL: pickups were not recorded by the backend"; failed=1; fi
+
+  # A crossing the bots saw is a Welcome from another zone; the Backend must have moved the
+  # ownership for each, and every character of the run must be owned by the zone it last entered,
+  # under the generation of its last transfer.
+  local transferred
+  transferred=$(psql_value "SELECT count(*) FROM game.zone_transfers WHERE outcome = 'transferred' AND created_at >= '$run_started'")
+  echo "zone transfers recorded by the backend: $transferred (required $min_zone_changes)"
+  if [ "$transferred" -lt "$min_zone_changes" ]; then echo "FAIL: zone changes were not recorded by the backend"; failed=1; fi
+  local stray
+  stray=$(psql_value "SELECT count(*) FROM (
+                        SELECT DISTINCT ON (t.world_id, t.character_id) t.world_id, t.character_id, t.to_zone_id, t.to_owner_epoch
+                        FROM game.zone_transfers t WHERE t.outcome = 'transferred' AND t.created_at >= '$run_started'
+                        ORDER BY t.world_id, t.character_id, t.created_at DESC) last
+                      JOIN game.character_ownership o USING (world_id, character_id)
+                      WHERE o.owner_epoch = last.to_owner_epoch AND o.zone_id <> last.to_zone_id")
+  if [ "$stray" != "0" ]; then echo "FAIL: $stray characters are owned elsewhere than their last transfer put them"; failed=1; fi
 
   # Every event this run's transactions wrote must reach Kafka and be applied by the statistics
   # consumer, each once (its Inbox has one row per event). Both poll, so allow them a few intervals.

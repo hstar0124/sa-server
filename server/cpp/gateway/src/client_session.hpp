@@ -38,10 +38,11 @@ public:
     void set_on_finished(std::function<void()> fn) { on_finished_ = std::move(fn); }
 
     // From the zone, via SessionRegistry.
-    void OnZoneAttached(const internal::v1::SessionAttached& attached);
-    void OnZoneRejected(const internal::v1::SessionRejected& rejected);
-    void OnZoneEvicted(const internal::v1::SessionEvicted& evicted);
-    void OnZoneOutput(const game::v1::ServerMessage& message);
+    void OnZoneAttached(common::ZoneId zone, const internal::v1::SessionAttached& attached);
+    void OnZoneRejected(common::ZoneId zone, const internal::v1::SessionRejected& rejected);
+    void OnZoneEvicted(common::ZoneId zone, const internal::v1::SessionEvicted& evicted);
+    void OnZoneTransfer(common::ZoneId zone, const internal::v1::SessionTransfer& transfer);
+    void OnZoneOutput(common::ZoneId zone, const game::v1::ServerMessage& message);
     void OnZoneLinkDown(common::ZoneId zone);
 
     [[nodiscard]] const common::InstanceId& id() const noexcept { return id_; }
@@ -55,6 +56,8 @@ private:
     void Perform(const SessionProtocol::ForwardToZone& effect);
     void Perform(const SessionProtocol::DetachFromZone& effect);
     void Perform(SessionProtocol::EndSession effect);
+    // Re-arms the idle timer for the protocol's current deadline.
+    void ScheduleIdleCheck(std::chrono::steady_clock::time_point at);
 
     common::InstanceId id_;
     std::shared_ptr<common::MessageConnection> connection_;
@@ -62,6 +65,7 @@ private:
     SessionProtocol protocol_;
     std::function<void()> on_finished_;
     asio::steady_timer hello_deadline_;
+    asio::steady_timer idle_timer_;  // one timer per session, re-armed when it fires, not per frame
     bool finished_ = false;
 };
 

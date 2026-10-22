@@ -15,13 +15,16 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     const auto wanderers = source.Require<std::uint32_t>("bots.wanderers");
     const auto fighters = source.Require<std::uint32_t>("bots.fighters");
     const auto looters = source.Require<std::uint32_t>("bots.looters");
+    const auto travelers = source.Require<std::uint32_t>("bots.travelers");
     const auto seed = source.Require<std::uint64_t>("bots.seed");
     const auto prefix = source.Require<std::string>("bots.account_prefix");
+    const auto identity_seed = source.Optional<std::uint64_t>("bots.identity_seed");
     const auto password = source.Require<std::string>("bots.password");
     const auto duration = source.Require<std::uint32_t>("run.duration_sec");
     const auto min_seeing = source.Require<std::uint32_t>("run.min_bots_seeing_others");
     const auto min_kills = source.Require<std::uint32_t>("run.min_kills");
     const auto min_pickups = source.Require<std::uint32_t>("run.min_pickups");
+    const auto min_zone_changes = source.Require<std::uint32_t>("run.min_zone_changes");
     const auto tick_hz = source.Require<std::uint32_t>("client.tick_hz");
     const auto ping = source.Require<std::uint32_t>("client.ping_interval_ms");
     const auto connect = source.Require<std::uint32_t>("client.connect_timeout_ms");
@@ -37,31 +40,36 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     const auto loot_radius = source.Require<double>("looter.loot_radius_m");
     const auto pickup_range = source.Require<double>("looter.pickup_range_m");
     const auto pickup_retry = source.Require<std::uint32_t>("looter.pickup_retry_ms");
+    const auto dwell = source.Require<std::uint32_t>("traveler.dwell_ms");
+    const auto travel_retry = source.Require<std::uint32_t>("traveler.request_retry_ms");
+    const auto portal_approach = source.Require<double>("traveler.portal_approach_m");
     if (auto err = common::FirstConfigError(
-            backend, world, class_id, wanderers, fighters, looters, seed, prefix, password,
-            duration, tick_hz, ping, connect, arrive, retarget, idle_min, idle_max, margin,
-            min_seeing, min_kills, min_pickups, engage, attack_skill, attack_range, attack_interval,
-            loot_radius, pickup_range, pickup_retry)) {
+            backend, world, class_id, wanderers, fighters, looters, travelers, seed, prefix,
+            identity_seed, password, duration, tick_hz, ping, connect, arrive, retarget, idle_min,
+            idle_max, margin, min_seeing, min_kills, min_pickups, min_zone_changes, engage,
+            attack_skill, attack_range, attack_interval, loot_radius, pickup_range, pickup_retry,
+            dwell, travel_retry, portal_approach)) {
         return std::unexpected(*err);
     }
     // Summed in 64 bits so that huge role counts cannot wrap around to a valid-looking total.
-    const std::uint64_t bots = std::uint64_t{*wanderers} + *fighters + *looters;
+    const std::uint64_t bots = std::uint64_t{*wanderers} + *fighters + *looters + *travelers;
     if (bots == 0 || bots > std::numeric_limits<std::uint32_t>::max() || *tick_hz == 0 ||
         *duration == 0) {
         return std::unexpected(common::ConfigError{
             "at least one bot, client.tick_hz and run.duration_sec must be positive"});
     }
     if (*ping == 0 || *connect == 0 || *attack_interval == 0 || *retarget == 0 ||
-        *pickup_retry == 0) {
+        *pickup_retry == 0 || *travel_retry == 0) {
         return std::unexpected(common::ConfigError{
-            "client intervals, fighter.attack_interval_ms, looter.pickup_retry_ms and "
-            "wanderer.retarget_after_ticks must be positive"});
+            "client intervals, fighter.attack_interval_ms, looter.pickup_retry_ms, "
+            "traveler.request_retry_ms and wanderer.retarget_after_ticks must be positive"});
     }
     // Written so that NaN fails too.
     const auto positive = [](double value) { return value > 0.0; };
     const auto non_negative = [](double value) { return value >= 0.0; };
     if (!positive(*arrive) || !non_negative(*margin) || !positive(*engage) ||
-        !positive(*attack_range) || !positive(*loot_radius) || !positive(*pickup_range)) {
+        !positive(*attack_range) || !positive(*loot_radius) || !positive(*pickup_range) ||
+        !positive(*portal_approach)) {
         return std::unexpected(
             common::ConfigError{"bot distances must be positive (wanderer.margin_m may be zero)"});
     }
@@ -90,13 +98,16 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     out.wanderers = *wanderers;
     out.fighters = *fighters;
     out.looters = *looters;
+    out.travelers = *travelers;
     out.seed = *seed;
     out.account_prefix = *prefix;
+    out.identity_seed = *identity_seed;
     out.password = *password;
     out.duration = std::chrono::seconds{*duration};
     out.criteria = PassCriteria{.min_bots_seeing_others = *min_seeing,
                                 .min_kills = *min_kills,
-                                .min_pickups = *min_pickups};
+                                .min_pickups = *min_pickups,
+                                .min_zone_changes = *min_zone_changes};
     out.client_tick_hz = *tick_hz;
     out.ping_interval = std::chrono::milliseconds{*ping};
     out.connect_timeout = std::chrono::milliseconds{*connect};
@@ -114,6 +125,10 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
                                    .pickup_range_m = static_cast<float>(*pickup_range),
                                    .pickup_retry = std::chrono::milliseconds{*pickup_retry},
                                    .fight = out.fighter};
+    out.traveler = bot::TravelerParams{.dwell = std::chrono::milliseconds{*dwell},
+                                       .request_retry = std::chrono::milliseconds{*travel_retry},
+                                       .portal_approach_m = static_cast<float>(*portal_approach),
+                                       .roam = out.wanderer};
     return out;
 }
 
@@ -124,10 +139,11 @@ constexpr int kNameHexDigits = 13;
 constexpr std::uint64_t kNameMask = (std::uint64_t{1} << (4 * kNameHexDigits)) - 1;
 }  // namespace
 
-BotIdentity LoadProfile::IdentityOf(std::uint32_t index) const {
+BotIdentity LoadProfile::IdentityOf(std::string_view account_prefix, std::uint64_t identity_seed,
+                                    std::uint32_t index) {
     // Both names come from one seeded generator, never from std::hash, whose values differ
     // between standard libraries.
-    std::mt19937_64 rng{seed ^ (static_cast<std::uint64_t>(index) << 32U)};
+    std::mt19937_64 rng{identity_seed ^ (static_cast<std::uint64_t>(index) << 32U)};
     const std::uint64_t account = rng();
     const std::uint64_t character = rng();
     return BotIdentity{

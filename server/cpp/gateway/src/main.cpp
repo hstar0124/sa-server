@@ -98,7 +98,9 @@ int Run(int argc, char** argv) {
                                         .frame_limits = config->zone_link_frame_limits,
                                         .reconnect_backoff = config->zone_link_reconnect_backoff,
                                         .close_linger = config->zone_link_close_linger,
-                                        .establish_timeout = config->zone_link_establish_timeout},
+                                        .establish_timeout = config->zone_link_establish_timeout,
+                                        .heartbeat_interval = config->zone_link_heartbeat_interval,
+                                        .silence_timeout = config->zone_link_silence_timeout},
             gateway_instance, registry));
     }
 
@@ -109,7 +111,8 @@ int Run(int argc, char** argv) {
         config->ticket_max_clock_skew};
     const sa::gateway::SessionProtocolConfig protocol{
         .max_messages_per_second = config->max_messages_per_second,
-        .hello_timeout = config->hello_timeout};
+        .hello_timeout = config->hello_timeout,
+        .idle_timeout = config->idle_timeout};
 
     // One session factory, two transports: the listener hands over a socket, the transport wraps
     // it.

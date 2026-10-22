@@ -1,17 +1,18 @@
 #include "zone_link.hpp"
 
-#include "sa/common/bytes.hpp"
+#include "sa/common/framed_connection.hpp"
 #include "sa/common/framing.hpp"
 #include "sa/common/testing/loopback.hpp"
 
-#include <asio/write.hpp>
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace sa::gateway {
@@ -24,8 +25,11 @@ constexpr std::uint32_t kOtherZone = 2;
 constexpr std::chrono::milliseconds kTestBackoff{10};
 constexpr std::chrono::milliseconds kTestLinger{50};
 constexpr std::chrono::milliseconds kTestEstablish{50};
+constexpr std::chrono::milliseconds kTestHeartbeat{10};
+constexpr std::chrono::milliseconds kTestSilence{50};
 
-// Accepts gateway links and answers each with a LinkWelcome naming `welcome_zone`, unless `silent`.
+// Accepts gateway links. Each LinkHello is answered with a LinkWelcome naming `welcome_zone` unless
+// `silent`, and each LinkPing with a LinkPong while `answer_pings`.
 class FakeZone {
 public:
     explicit FakeZone(asio::io_context& io)
@@ -36,8 +40,10 @@ public:
     [[nodiscard]] std::uint16_t port() const { return acceptor_.local_endpoint().port(); }
 
     std::uint32_t welcome_zone = kZone.value();
-    bool silent = false;  // accept and say nothing, like a zone stuck before its welcome
+    bool silent = false;       // accept and say nothing, like a zone stuck before its welcome
+    bool answer_pings = true;  // false: a zone host that vanished after the welcome
     int connections = 0;
+    int pings = 0;
 
 private:
     void Accept() {
@@ -46,26 +52,44 @@ private:
                 return;
             }
             ++connections;
-            if (silent) {
-                open_.push_back(std::move(socket));
-                Accept();
-                return;
-            }
-            internal::v1::ZoneToGateway welcome;
-            welcome.mutable_link_welcome()->set_zone_id(welcome_zone);
-            const std::string payload = welcome.SerializeAsString();
-            std::vector<std::byte> frame;
-            if (!common::EncodeFrame(common::AsBytes(payload), common::FrameLimits{}, frame)) {
-                throw std::logic_error{"welcome does not encode"};
-            }
-            asio::write(socket, asio::buffer(frame));
-            open_.push_back(std::move(socket));
+            auto connection = std::make_shared<common::FramedConnection>(
+                std::move(socket), common::FrameLimits{}, kTestLinger);
+            open_.push_back(connection);
+            connection->Start(common::MessageConnection::Callbacks{
+                .on_message =
+                    [this, weak = std::weak_ptr{connection}](std::span<const std::byte> payload) {
+                        if (auto c = weak.lock()) {
+                            OnFrame(*c, payload);
+                        }
+                    },
+                .on_closed = [](const std::error_code& /*reason*/) {},
+            });
             Accept();
         });
     }
 
+    void OnFrame(common::FramedConnection& connection, std::span<const std::byte> payload) {
+        internal::v1::GatewayToZone message;
+        if (!message.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+            throw std::logic_error{"the link sent an unparseable frame"};
+        }
+        internal::v1::ZoneToGateway reply;
+        if (message.has_link_hello() && !silent) {
+            reply.mutable_link_welcome()->set_zone_id(welcome_zone);
+        } else if (message.has_link_ping()) {
+            ++pings;
+            if (!answer_pings) {
+                return;
+            }
+            reply.mutable_link_pong()->set_nonce(message.link_ping().nonce());
+        } else {
+            return;
+        }
+        std::ignore = connection.Send(reply);
+    }
+
     asio::ip::tcp::acceptor acceptor_;
-    std::vector<asio::ip::tcp::socket> open_;
+    std::vector<std::shared_ptr<common::FramedConnection>> open_;
 };
 
 struct RecordingHandler final : ZoneLink::Handler {
@@ -76,10 +100,16 @@ struct RecordingHandler final : ZoneLink::Handler {
         ++ready;
     }
     void OnZoneDown(common::ZoneId /*zone*/) override { ++down; }
-    void OnSessionAttached(const internal::v1::SessionAttached& /*attached*/) override {}
-    void OnSessionRejected(const internal::v1::SessionRejected& /*rejected*/) override {}
-    void OnSessionEvicted(const internal::v1::SessionEvicted& /*evicted*/) override {}
-    void OnSessionOutput(const internal::v1::SessionOutput& /*output*/) override {}
+    void OnSessionAttached(common::ZoneId /*zone*/,
+                           const internal::v1::SessionAttached& /*attached*/) override {}
+    void OnSessionRejected(common::ZoneId /*zone*/,
+                           const internal::v1::SessionRejected& /*rejected*/) override {}
+    void OnSessionEvicted(common::ZoneId /*zone*/,
+                          const internal::v1::SessionEvicted& /*evicted*/) override {}
+    void OnSessionTransfer(common::ZoneId /*zone*/,
+                           const internal::v1::SessionTransfer& /*transfer*/) override {}
+    void OnSessionOutput(common::ZoneId /*zone*/,
+                         const internal::v1::SessionOutput& /*output*/) override {}
 };
 
 // Stops the link and runs until its connection has finished closing (the fake zone never closes,
@@ -98,7 +128,9 @@ std::shared_ptr<ZoneLink> LinkTo(asio::io_context& io, const FakeZone& zone,
                                                      .frame_limits = common::FrameLimits{},
                                                      .reconnect_backoff = kTestBackoff,
                                                      .close_linger = kTestLinger,
-                                                     .establish_timeout = kTestEstablish},
+                                                     .establish_timeout = kTestEstablish,
+                                                     .heartbeat_interval = kTestHeartbeat,
+                                                     .silence_timeout = kTestSilence},
                                       common::InstanceId::Generate(), handler);
 }
 
@@ -141,6 +173,38 @@ TEST(ZoneLink, AZoneThatNeverWelcomesIsGivenUpOnAndTriedAgain) {
     RunUntil(io, [&] { return zone.connections >= 2; });
     EXPECT_EQ(handler.ready, 0);
     EXPECT_FALSE(link->is_ready());
+    StopAndDrain(io, link);
+}
+
+// A zone that keeps answering is never mistaken for a dead one, however long the link idles.
+TEST(ZoneLink, AZoneThatAnswersPingsKeepsTheLinkThroughManySilenceWindows) {
+    asio::io_context io;
+    const FakeZone zone{io};
+    RecordingHandler handler;
+    auto link = LinkTo(io, zone, handler);
+    link->Start();
+    RunUntil(io, [&] { return handler.ready > 0; });
+    constexpr int kWindows = 4;
+    io.restart();
+    io.run_for(kTestSilence * kWindows);
+    EXPECT_GE(zone.pings, kWindows) << "pings at the heartbeat interval";
+    EXPECT_EQ(handler.down, 0);
+    EXPECT_TRUE(link->is_ready());
+    StopAndDrain(io, link);
+}
+
+// A zone host that vanished after the welcome sends nothing more. The link gives up after the
+// silence timeout, which drops the zone's sessions (OnZoneDown), and connects again.
+TEST(ZoneLink, AZoneThatFallsSilentIsDroppedAndConnectedAgain) {
+    asio::io_context io;
+    FakeZone zone{io};
+    zone.answer_pings = false;
+    RecordingHandler handler;
+    auto link = LinkTo(io, zone, handler);
+    link->Start();
+    RunUntil(io, [&] { return handler.ready > 0; });
+    RunUntil(io, [&] { return handler.down > 0 && zone.connections >= 2; });
+    EXPECT_GT(zone.pings, 0);
     StopAndDrain(io, link);
 }
 

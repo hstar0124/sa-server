@@ -36,6 +36,11 @@ RunReport RunReport::Aggregate(const std::vector<BotReport>& bots, PassCriteria 
         out.pickups_unknown += b.loot.pickups_unknown;
         out.items_held += b.loot.items_held;
         out.gold += b.loot.gold;
+        out.transfers_sent += b.transfers_sent;
+        out.transfers_accepted += b.travel.transfers_accepted;
+        out.transfers_rejected += b.travel.transfers_rejected;
+        out.transfers_unknown += b.travel.transfers_unknown;
+        out.zone_changes += b.travel.zone_changes;
         out.max_visible = std::max(out.max_visible, b.max_visible);
         rtts.insert(rtts.end(), b.ping_rtts.begin(), b.ping_rtts.end());
     }
@@ -54,7 +59,8 @@ bool RunReport::Succeeded() const noexcept {
         welcomed == bots && inputs_acked == bots && failed == 0 && kicks.empty();
     const bool enough_met = saw_another_player >= criteria.min_bots_seeing_others;
     return everyone_in && enough_met && kills >= criteria.min_kills &&
-           pickups_acquired >= criteria.min_pickups && integrity_errors == 0;
+           pickups_acquired >= criteria.min_pickups && zone_changes >= criteria.min_zone_changes &&
+           integrity_errors == 0;
 }
 
 std::string RunReport::ToText() const {
@@ -75,6 +81,10 @@ std::string RunReport::ToText() const {
         "gold={}\n",
         pickups_sent, pickups_acquired, criteria.min_pickups, pickups_rejected, pickups_unknown,
         items_held, gold);
+    text += std::format(
+        "zone changes={} (required {}) transfers sent={} accepted={} rejected={} unknown={}\n",
+        zone_changes, criteria.min_zone_changes, transfers_sent, transfers_accepted,
+        transfers_rejected, transfers_unknown);
     if (rtt_p50 && rtt_max) {
         text += std::format("ping_rtt_ms p50={} max={}\n", rtt_p50->count(), rtt_max->count());
     }

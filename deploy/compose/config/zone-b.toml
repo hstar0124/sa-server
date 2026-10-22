@@ -16,18 +16,20 @@ listen_port = 7802
 max_gateways = 8
 max_frame_bytes = 262144  # a SessionOutput wraps one client frame (<= 64 KiB) plus headers
 close_linger_ms = 1000     # bounds closing a link at shutdown when the gateway does not close its side
+silence_timeout_ms = 5000  # nothing from a gateway this long: close its link; it pings every second
 
 [backend]
 address = "localhost:5101"
 rpc_timeout_ms = 2000
 lease_renew_interval_ms = 5000   # see README "소유권과 lease": heartbeat 5 s, lease 15 s
 lease_safety_margin_ms = 2000
-economy_call_attempts = 3        # each economy call repeats safely: kill id, request key, read
+call_attempts = 3                # every call repeats safely: kill id, request key, transfer id, version
 retry_delay_ms = 500
+checkpoint_interval_ms = 15000   # a moving character's position is saved this often (ADR-0010)
 
 # Paths are relative to the working directory (repository root in development, /app in containers).
 [content]
-map_file = "game-data/maps/zone-1.toml"
+map_file = "game-data/maps/zone-2.toml"
 movement_rules_file = "game-data/rules/movement.toml"
 economy_rules_file = "game-data/rules/economy.toml"
 dir = "game-data"

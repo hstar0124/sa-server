@@ -20,6 +20,9 @@ close_linger_ms = 2000
 # From accepting a connection (WebSocket handshake included) to a valid Hello; idle sockets are
 # kicked so they cannot hold every connection slot.
 hello_timeout_ms = 5000
+# After the first message, the longest a client may stay silent before it is kicked (IDLE_TIMEOUT).
+# Clients ping every second; this catches peers that vanished without closing.
+idle_timeout_ms = 10000
 
 [ticket]
 # Shared with the Backend (WorldDirectory:TicketSigningKey). Inject via SA_GATEWAY__TICKET__SIGNING_KEY_BASE64.
@@ -37,6 +40,8 @@ lease_safety_margin_ms = 2000
 max_frame_bytes = 262144
 reconnect_backoff_ms = 1000
 establish_timeout_ms = 3000  # one attempt, connect through the zone's welcome
+heartbeat_interval_ms = 1000  # LinkPing while ready; the zones' silence timeout must exceed it
+silence_timeout_ms = 5000     # nothing from the zone for this long: drop the link and reconnect
 # Bounds closing a zone link at shutdown when the zone does not close its side.
 close_linger_ms = 1000
 

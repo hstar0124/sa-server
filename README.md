@@ -38,7 +38,7 @@ flowchart TD
 | GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory), 자산(Economy: 처치 기록·획득·조회), 킬 랭킹(Rankings). 모듈형 모놀리스 |
 | EventWorker | C# / .NET 10 | Backend가 트랜잭션 안에서 쓴 Outbox 행을 Kafka로 발행하고(캐릭터마다 순번 순서, 발행 인스턴스는 하나), 그 이벤트를 Inbox로 한 번씩 적용해 캐릭터 통계 조회 모델을 만든다. 통계에서 Redis 킬 랭킹을 유지하고, 비거나 뒤처지면 다시 채운다. 시작할 때 토픽을 만든다 |
 | 브라우저 뷰어 | JavaScript | 2D 뷰어. 같은 `.proto`를 브라우저에서 읽고 WebSocket으로 접속해 WASD로 움직이며, 다른 엔티티를 보간 버퍼로 그린다. 버퍼 길이·인위적 유실·외삽을 조절해 동기화를 눈으로 본다. 몬스터·투사체·바닥 아이템·체력 막대를 그리고, Space·E로 스킬을, F로 획득을 쓰며 전투 로그와 인벤토리·골드를 띄운다 |
-| loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장하고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 역할은 배회(Wanderer), 전투(Fighter), 획득(Looter)이다. 전투 봇은 보이는 가장 가까운 몬스터에 다가가 사거리 안에서 주기적으로 공격하고, 시전 수락·거절·처치·사망을 센다. 획득 봇은 보이는 아이템을 주우러 가고 없으면 사냥하며, 획득·거절·미확정과 인벤토리를 센다. 배회 두뇌는 Zone 안의 프로세스 봇으로도 돈다 |
+| loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장하고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 역할은 배회(Wanderer), 전투(Fighter), 획득(Looter), 이동(Traveler)이다. 전투 봇은 보이는 가장 가까운 몬스터에 다가가 사거리 안에서 주기적으로 공격하고, 시전 수락·거절·처치·사망을 센다. 획득 봇은 보이는 아이템을 주우러 가고 없으면 사냥하며, 획득·거절·미확정과 인벤토리를 센다. 이동 봇은 한동안 돌아다니다 가장 가까운 포털로 가서 다른 Zone으로 넘어가고, 넘어간 횟수를 센다. 배회 두뇌는 Zone 안의 프로세스 봇으로도 돈다 |
 
 모든 메시지는 `contracts/`의 Protobuf가 단일 출처다(ADR-0004).
 
@@ -63,13 +63,14 @@ flowchart TB
 
     subgraph zone["Zone (C++)"]
         ZT["TickRunner<br/>고정 주기 타이머, 밀린 틱 상한"]
-        ZH["ZoneHost<br/>세션 ↔ 엔티티, 스냅샷·이벤트 송신"]
-        ZS["sim::Zone<br/>이동·충돌·관심 관리·스킬·투사체·AI (순수)"]
+        ZH["ZoneHost<br/>세션 ↔ 엔티티, 스냅샷·이벤트 송신, 체크포인트·이전"]
+        ZS["sim::Zone<br/>이동·충돌·관심 관리·스킬·투사체·AI·포털 (순수)"]
         ZC["codec<br/>Protobuf ↔ 도메인 (순수)"]
         ZD["data 로더<br/>game-data TOML → 구조체"]
         ZG["GatewayLinkServer<br/>Gateway 연결 수락"]
         ZL["LeaseKeeper<br/>Backend lease 갱신"]
         ZE["EconomyClient<br/>gRPC: 처치 기록·획득, 마감 시간"]
+        ZY["DirectoryClient<br/>gRPC: 체크포인트·Zone 이전"]
         ZT --> ZS
         ZT --> ZH
         ZH --> ZC --> ZS
@@ -77,12 +78,13 @@ flowchart TB
         ZD --> ZS
         ZL -. "권위 여부" .-> ZH
         ZH --> ZE
+        ZH --> ZY
     end
 
     subgraph backend["Backend (C# / .NET)"]
         BA["Modules/Auth<br/>가입·로그인·JWT·시도 상한"]
         BC["Modules/Characters<br/>생성·목록·소유 확인·통계 조회"]
-        BW["Modules/WorldDirectory<br/>티켓 발급·소비, 세션, 소유권, lease"]
+        BW["Modules/WorldDirectory<br/>티켓 발급·소비, 세션, 소유권, lease, 체크포인트·이전"]
         BE["Modules/Economy<br/>처치 기록·획득·자산 조회, 요청 결과"]
         BR["Modules/Rankings<br/>킬 리더보드·내 순위<br/>Redis, 없거나 뒤처지면 PostgreSQL"]
         BI["Infrastructure<br/>Npgsql 풀, Outbox 쓰기, 헬스체크, CORS"]
@@ -103,7 +105,7 @@ flowchart TB
 |---|---|---|
 | 위치·속도, 관심 집합, 체력·마나, 시전·쿨타임, 투사체, 몬스터 상태, 바닥 아이템 표시와 획득 예약 | Zone | 메모리. 재시작하면 초기화 |
 | 계정, 캐릭터 | Backend | PostgreSQL |
-| 입장 티켓, 세션, 캐릭터의 소유 Zone과 소유권 세대(owner_epoch), 프로세스 lease | Backend WorldDirectory | PostgreSQL |
+| 입장 티켓, 세션, 캐릭터의 소유 Zone과 소유권 세대(owner_epoch), 프로세스 lease, 마지막 위치(체크포인트)와 Zone 이전 기록 | Backend WorldDirectory | PostgreSQL |
 | 아이템, 인벤토리, 지갑, 원장, 처치 영수증, 요청 결과 | Backend Economy | PostgreSQL |
 | 확정 이벤트(Outbox) | Backend가 쓰고, EventWorker가 발행을 표시 | PostgreSQL. Kafka는 소비자에게 전하는 통로라 짧게(24시간) 보관한다 |
 | 캐릭터 통계(조회 모델), 소비자별 적용 기록(Inbox) | EventWorker | PostgreSQL. 이벤트에서 다시 만들 수 있다 |
@@ -232,14 +234,20 @@ stateDiagram-v2
     Redeeming --> Closed : 응답 모름(RPC 실패) → Kick + EndSession
     Attaching --> InZone : Zone SessionAttached
     Attaching --> Closed : Zone 거절·링크 단절 → Kick + EndSession
+    InZone --> Transferring : 출발 Zone SessionTransfer (Backend가 이전 확정)
+    Transferring --> InZone : 도착 Zone SessionAttached
+    Transferring --> Closed : 도착 Zone 거절·링크 단절 → Kick + EndSession
     InZone --> Closed : 연결 종료·퇴출·링크 단절 → Detach + EndSession
     Closed --> [*]
 ```
 
 Gateway의 세션 로직은 I/O 없는 상태 기계라서 모든 전이를 소켓 없이 테스트한다. 세션 로직은 전송을 모른다. TCP와 WebSocket은 같은 `MessageConnection` 인터페이스 뒤에 있고, 둘 다 한 가지 TCP 바이트 스트림 구현(읽기 루프, 순서 있는 쓰기 큐, 종료 통지)을 쓴다(ADR-0004).
 
+- **Zone 이전**: 캐릭터가 포털로 다른 Zone에 가면 Backend가 한 트랜잭션에서 소유권과 세대(`owner_epoch`)를 옮기고(ADR-0010), 출발 Zone이 캐릭터를 내려놓은 뒤 Gateway에 알린다. Gateway는 입장 때 만든 부착 요청을 새 세대와 도착 위치로 바꿔 도착 Zone에 다시 보낸다. 그 사이 클라이언트가 보낸 입력은 내보내지 않고 버린다. 클라이언트는 도착 Zone의 Welcome으로 자기가 옮겨졌음을 안다.
+- **Zone별 메시지**: 세션 메시지는 그것을 실어 온 링크의 Zone ID와 함께 상태 기계에 들어가고, 세션의 현재 Zone에서 온 것만 받는다. 이전 뒤 출발 Zone의 늦은 출력이나 퇴출은 세션을 건드리지 못한다. 이전 통지도 현재 Zone이 보낸 것이고 세대가 지금보다 클 때만 따른다.
 - **입장 중에 떠난 클라이언트**: Backend의 답은 세션이 닫힌 뒤에도 상태 기계로 간다. 늦게 온 승인은 바로 세션 종료(EndSession)로 끝낸다. 그대로 두면 그 캐릭터는 이 Gateway가 사는 동안 어디로도 다시 들어오지 못한다. RPC가 실패해 결과를 모르면 Backend가 이미 커밋했을 수 있으니 세션 종료를 보낸다. 없는 세션을 끝내는 것은 아무 일도 하지 않는다.
-- **시간 제한**: 연결을 받은 때부터 정해진 시간(`protocol.hello_timeout_ms`, WebSocket 핸드셰이크 포함) 안에 올바른 Hello가 없으면 내보낸다. 아무것도 보내지 않는 소켓이 연결 상한을 채우지 못하게 하기 위해서다.
+- **시간 제한**: 연결을 받은 때부터 정해진 시간(`protocol.hello_timeout_ms`, WebSocket 핸드셰이크 포함) 안에 올바른 Hello가 없으면 내보낸다. 아무것도 보내지 않는 소켓이 연결 상한을 채우지 못하게 하기 위해서다. 말을 시작한 클라이언트도 정해진 시간(`protocol.idle_timeout_ms`, 10초) 동안 아무것도 보내지 않으면 `IDLE_TIMEOUT`으로 내보내고 세션을 끝낸다. 클라이언트는 1초마다 핑을 보내므로, 조용한 연결은 닫지 않고 사라진 상대다. 그대로 두면 TCP가 포기할 때까지(수 분) 캐릭터의 세션을 붙잡아 재입장을 막는다.
+- **Zone 링크 생존**: Gateway는 Zone 링크에 1초마다 핑을 보내고(`zone_link.heartbeat_interval_ms`), 5초 동안 아무것도 받지 못하면(`zone_link.silence_timeout_ms`) 링크를 끊고 그 Zone의 세션을 정리한 뒤 다시 연결한다. Zone도 5초 동안 Gateway에게서 아무것도 받지 못하면(`gateway_link.silence_timeout_ms`) 그 링크를 닫고 그 Gateway의 플레이어를 지운다. 그래서 전원이 나가거나 네트워크가 끊겨 닫는 신호 없이 사라진 상대도 몇 초 안에 정리된다.
 - **닫기**: 닫는 쪽은 남은 데이터를 보내고 송신만 먼저 끊은 뒤, 상대가 닫을 때까지 들어오는 바이트를 읽어 버린다. 읽지 않은 데이터를 둔 채 소켓을 닫으면 커널이 리셋을 보내 마지막 메시지(킥)가 사라질 수 있기 때문이다. 클라이언트 연결은 그 기다림에 상한(`protocol.close_linger_ms`)이 있어, 읽지 않는 클라이언트도 결국 연결과 자리를 내놓는다.
 - **종료**: SIGTERM을 받으면 새 연결을 받지 않고 모든 세션을 내보낸 뒤, 정해진 시간(RPC 마감보다 길게) 뒤에 Zone 링크를 닫는다. 이벤트 루프를 강제로 멈추지 않고 모든 연결이 닫히고 진행 중인 RPC가 답할 때까지 기다린다. 각각 상한이 있어 끝은 정해져 있고, 늦게 끝난 RPC가 사라진 이벤트 루프에 결과를 넘기는 일이 없다.
 
@@ -276,10 +284,11 @@ flowchart LR
 | 스킬 | 판정 종류(대상 지정 또는 투사체), 마나 비용, 쿨타임, 시전 시간, 사거리, 피해, 투사체 속도·반경 |
 | 몬스터 | 체력, 이동 속도, 어그로·리시 반경, 공격 사거리·피해·주기, 리스폰 시간 |
 | 몬스터 스폰 | 맵마다 템플릿, 귀환 지점, 마릿수 |
+| 포털 | 맵마다 다른 Zone으로 가는 통로: 위치, 반경, 도착 Zone, 도착 지점. 초원(Zone 1)과 고원(Zone 2)이 서로 이어진다 |
 | 콘텐츠 버전 | game-data가 시뮬레이션 결과나 보상을 바꾸면 올리는 식별자 |
 | 전투 규칙 | `rules/movement.toml`의 `[combat]`: 몬스터 판단 주기, 부활 시간, 막힘 기준, 시전 발동 때의 사거리 허용치, 귀환 도착 거리, 무리가 서는 원의 반지름 |
 
-없는 스킬을 가리키는 클래스, 속도·반경이 빠진 투사체 스킬, 모르는 템플릿이나 맵 밖을 가리키는 몬스터 스폰, NaN·무한대 같은 유한하지 않은 숫자는 로드 단계에서 거절한다. Zone을 만들 때는 플레이어 스폰 지점과 몬스터 귀환 지점이 걸을 수 있는 곳인지 이동과 같은 충돌 규칙(몸 반경만큼 장애물과 맵 가장자리에서 떨어짐)으로 본다. 벽에 붙은 스폰에서는 움직일 수 없기 때문이다.
+없는 스킬을 가리키는 클래스, 속도·반경이 빠진 투사체 스킬, 모르는 템플릿이나 맵 밖을 가리키는 몬스터 스폰, NaN·무한대 같은 유한하지 않은 숫자는 로드 단계에서 거절한다. Zone을 만들 때는 플레이어 스폰 지점, 몬스터 귀환 지점, 포털이 걸을 수 있는 곳인지 이동과 같은 충돌 규칙(몸 반경만큼 장애물과 맵 가장자리에서 떨어짐)으로 본다. 벽에 붙은 스폰에서는 움직일 수 없기 때문이다.
 
 Zone은 시작할 때 콘텐츠를 읽고 버전을 로그에 남긴다. 콘텐츠에 없는 클래스의 캐릭터는 입장 단계에서 거절한다(`UNKNOWN_CLASS`). 체력이 없는 캐릭터를 맵에 세우지 않기 위해서다.
 
@@ -423,10 +432,18 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 - Zone은 lease를 잃으면 모든 세션을 내보내고 플레이어를 지운다. 권한 없는 프로세스가 상태를 바꾸지 않는다.
 - Gateway도 lease를 잃으면 모든 세션을 내보낸다. Backend는 lease가 끝난 Gateway의 세션을 정리하고 같은 캐릭터를 다른 Gateway로 들일 수 있기 때문이다. Gateway가 보는 lease는 Backend보다 안전 여유만큼 먼저 끝나서, 내보내기가 정리보다 먼저 일어난다.
 - Gateway의 Zone 링크가 끊기면 그 Zone의 세션을 끝내고 Backend에 세션 종료를 알린다.
+- **체크포인트**: 소유 Zone이 캐릭터의 마지막 위치를 저장한다(`SaveCheckpoint`). 소유권 행과 lease로 권한을 확인하고, 세대가 같으면 버전이 커야, 세대가 다르면 새 세대만 이긴다. 그래서 이전 소유자의 늦은 저장은 현재 위치를 덮지 못한다.
+- **Zone 이전**: `TransferCharacter` 하나가 한 트랜잭션에서 출발 Zone의 권한(살아 있는 lease 포함)을 확인하고, 도착 Zone ID에 살아 있는 인스턴스가 있을 때만 소유권을 옮기며 세대를 1 올리고, 도착 지점을 체크포인트로 쓰고, 열린 세션의 세대를 맞추고, 결정을 `zone_transfers`에 남긴다(ADR-0010). 출발 Zone이 만든 이전 ID가 기본 키라, 다시 묻거나 두 번 동시에 물어도 처음 결정이 돌아오고 캐릭터는 한 번만 옮겨진다.
+- **배치**: 입장할 때 소유 Zone이 살아 있으면 그곳, 아니면 마지막 체크포인트의 Zone, 그것도 없으면 살아 있는 가장 낮은 Zone ID에 배정한다. 체크포인트의 Zone으로 들어가면 그 위치에서 시작한다. 그 위치에 몸이 들어가지 않으면(지도가 바뀐 경우 등) Zone이 스폰 지점을 쓴다.
+- **Zone의 저장 주기**: Zone은 움직인 캐릭터의 위치를 정해진 주기(`backend.checkpoint_interval_ms`)마다 저장하고, 서 있는 캐릭터는 다시 저장하지 않는다. 클라이언트가 나가거나 Gateway 링크가 끊길 때도 그 자리를 저장한다. 소유권은 세션이 끝나도 남기 때문에 이 저장이 다음 입장 위치가 된다.
+- **떠나기**: 포털 반경 안에서 `ChangeZone`을 받으면 Zone은 검증 뒤 "처리 중"으로 답하고 캐릭터를 멈춘다(이동·스킬·획득 거절). 이전 ID는 캐릭터·소유권 세대·요청 ID의 다이제스트라서, 답을 잃은 클라이언트가 같은 요청으로 다시 물으면 같은 이전을 묻게 되고 Backend는 저장된 결정을 돌려준다. 이전이 확정되면 Zone은 결과를 보내고 캐릭터를 지운 뒤 Gateway에 도착지를 알린다. 도착 Zone이 없으면 캐릭터를 풀어 준다. 권한이 없다는 답이면 세션을 끝낸다.
+- **한 캐릭터, 한 몸**: Zone은 같은 캐릭터가 이미 있으면 세대를 비교한다. 같거나 낮은 세대의 부착은 거절하고, 높은 세대가 오면 옛 세션을 내보낸다(다른 Gateway로 다시 들어왔는데 옛 Gateway의 링크가 아직 남은 경우). 포털이 자기 Zone을 가리키는 지도는 시작할 때 거절한다.
+
+이전 한 번이 어떻게 흐르는지, 응답을 잃거나 늦게 말하는 Zone이 있거나 도착 Zone이 죽을 때 소유자를 어떻게 하나로 유지하는지는 [설계 노트 10](docs/design-notes/10-zone-transfer.md)에 있다.
 
 ## 검증
 
-**end-to-end**: `scripts/e2e-local.sh` 한 번으로 PostgreSQL(compose) + Backend + Zone + Gateway를 띄우고 봇 5개를 돌린다. 종료 코드가 판정이고, 통과 조건은 아래와 같다.
+**end-to-end**: `scripts/e2e-local.sh` 한 번으로 PostgreSQL(compose) + Backend + Zone 둘 + Gateway를 띄우고 봇 5개를 돌린다. 종료 코드가 판정이고, 통과 조건은 아래와 같다.
 
 - 모든 봇이 로그인 → 티켓 → Gateway → Zone 입장을 TCP로 통과하고, 모든 봇의 이동 입력이 Zone에서 한 번 이상 처리된다.
 - 정해진 수 이상의 봇이 다른 플레이어를 본다. 몬스터나 아이템은 만남으로 치지 않는다.
@@ -442,9 +459,11 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 
 **획득 end-to-end**: `looters.toml` 프로필은 획득 봇 5개와 배회 봇 1개를 40초 동안 돌린다. 처치와 함께 정해진 수 이상의 획득이 원장에 기록되고, 획득 결과가 요청마다 한 번씩만 오며, 인벤토리 버전이 뒤로 가지 않아야 통과한다.
 
-**K3s end-to-end**: `scripts/e2e-k3s.sh`는 K3s에 올린 스택에 같은 봇 프로필을 돌리고, 위와 같은 검사(남은 세션, 처치·획득 기록, 이벤트 발행·적용, 랭킹 복사본)를 클러스터 안의 PostgreSQL에서 한다. 검사는 `scripts/lib/e2e.sh` 하나를 두 스크립트가 함께 쓴다.
+**이동 end-to-end**: `travelers.toml` 프로필은 이동 봇 5개와 배회 봇 1개를 60초 동안 돌린다. 봇이 본 Zone 이동 횟수와 Backend의 `zone_transfers`에 남은 이전이 각각 정해진 수 이상이고, 마지막 이전으로 옮겨진 캐릭터의 소유 Zone이 그 도착 Zone이어야 통과한다.
 
-**정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭·표보다 많은 드롭 거절, 만료 티켓 거절, 유니크 인덱스에서 진 Redeem도 티켓은 소비, 같은 획득 요청 두 개가 동시에 와도 효과는 한 번, 재입장 뒤 처치 재시도는 반향, lease가 끝난 Zone의 지급 거절, 재시작한 Zone이 옛 인스턴스를 대신함.
+**K3s end-to-end**: `scripts/e2e-k3s.sh`는 K3s에 올린 스택에 같은 봇 프로필을 돌리고, 위와 같은 검사(남은 세션, 처치·획득·이전 기록, 이벤트 발행·적용, 랭킹 복사본)를 클러스터 안의 PostgreSQL에서 한다. 검사는 `scripts/lib/e2e.sh` 하나를 두 스크립트가 함께 쓴다.
+
+**정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 이전 소유자의 늦은 체크포인트 거절, 이전은 한 번만(재시도·동시 중복 포함), lease가 끝난 Zone의 저장·이전 거절, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭·표보다 많은 드롭 거절, 만료 티켓 거절, 유니크 인덱스에서 진 Redeem도 티켓은 소비, 같은 획득 요청 두 개가 동시에 와도 효과는 한 번, 재입장 뒤 처치 재시도는 반향, lease가 끝난 Zone의 지급 거절, 재시작한 Zone이 옛 인스턴스를 대신함.
 
 ## 성능과 개선
 
@@ -484,7 +503,8 @@ flowchart LR
     end
     subgraph host["호스트 프로세스 (scripts/dev-stack.sh, scripts/e2e-local.sh)"]
         BE["Backend<br/>:5100 HTTP · 127.0.0.1:5101 gRPC"]
-        ZA["Zone A<br/>:7801 Gateway 링크"]
+        ZA["Zone A (초원)<br/>:7801 Gateway 링크"]
+        ZB["Zone B (고원)<br/>:7802 Gateway 링크"]
         GW["Gateway<br/>:7777 TCP · :7778 WebSocket"]
         VW["뷰어 정적 서버<br/>:8080"]
         EW["EventWorker"]
@@ -495,8 +515,10 @@ flowchart LR
     EW --> RD
     BE --> RD
     GW --> ZA
+    GW --> ZB
     GW --> BE
     ZA --> BE
+    ZB --> BE
 ```
 
 같은 이미지로 단일 노드 K3s에도 올린다(`deploy/k3s/`, 시연과 장애 연습용). 데이터 저장소와 게임 프로세스는 네임스페이스로 나누고, 마이그레이션 Job이 끝난 뒤에 서비스를 띄운다. 클라이언트가 닿는 것은 Backend HTTP와 Gateway의 NodePort뿐이다. 호출자 인증이 아직 없는 Backend의 내부 gRPC는 NetworkPolicy로 같은 네임스페이스의 파드에만 연다. Zone·Gateway는 compose와 같은 TOML을 쓰고 주소만 환경 변수로 바꾼다. 비밀 값은 배포 스크립트가 Secret으로 만든다. 게임 파드는 비루트, 읽기 전용 루트 파일 시스템, capability 없음으로 돈다.
@@ -514,13 +536,16 @@ flowchart LR
         KBE["backend<br/>NodePort 30500 · gRPC는 game 안에서만"]
         KEW["eventworker"]
         KZA["zone-a (Recreate)"]
+        KZB["zone-b (Recreate)"]
         KGW["gateway (Recreate)<br/>NodePort 30777 · 30778"]
     end
     C -->|HTTP| KBE
     C -->|TCP / WebSocket| KGW
     KGW --> KZA
+    KGW --> KZB
     KGW -->|gRPC| KBE
     KZA -->|gRPC| KBE
+    KZB -->|gRPC| KBE
     KBE --> KPG
     KEW --> KPG
     KEW --> KKF
@@ -550,6 +575,9 @@ scripts/e2e-local.sh tools/loadgen/client/profiles/fighters.toml
 # 획득 end-to-end: 획득 봇 5 + 배회 봇 1이 사냥하고 떨어진 아이템을 줍는다
 scripts/e2e-local.sh tools/loadgen/client/profiles/looters.toml
 
+# 이동 end-to-end: 이동 봇 5 + 배회 봇 1이 포털로 초원과 고원을 오간다
+scripts/e2e-local.sh tools/loadgen/client/profiles/travelers.toml
+
 # 대화형: 스택을 띄우고 브라우저 뷰어로 접속 (http://localhost:8080/tools/viewer/)
 scripts/dev-stack.sh up && scripts/viewer.sh
 scripts/dev-stack.sh down
@@ -559,7 +587,7 @@ scripts/build-images.sh
 
 # 단일 노드 K3s에 배포하고 같은 검사로 확인 (설치와 순서: deploy/k3s/README.md)
 scripts/k3s-stack.sh import && scripts/k3s-stack.sh up
-scripts/e2e-k3s.sh tools/loadgen/client/profiles/looters.toml
+scripts/e2e-k3s.sh tools/loadgen/client/profiles/travelers.toml
 scripts/k3s-stack.sh down
 
 # 시뮬레이션만 돌려보기: 네트워크 없이 프로세스 안에서 봇 200개

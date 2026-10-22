@@ -14,6 +14,8 @@ export class World {
     this.entities = new Map();  // id -> { kind, templateId, hp, maxHp, samples: [{ t, x, y, vx, vy }] }
     this.vitals = { hp: 0, maxHp: 0, mp: 0, maxMp: 0 };
     this.inventory = { items: [], capacity: 0, version: 0, gold: 0 };  // full state from the last InventoryUpdate
+    this.zoneId = 0;
+    this.portals = [];          // { id, x, y, radius, toZone } from the zone's Welcome
     this.log = [];              // last combat lines, newest first
     this.serverTick = 0;
     this.lastAckedInput = 0;
@@ -22,9 +24,22 @@ export class World {
     this.integrityErrors = 0;
   }
 
+  // Arrives on entry and again after every zone change. Everything visible belonged to one zone,
+  // and the new zone numbers its entities and acknowledges inputs on its own.
   applyWelcome(welcome) {
     this.selfId = String(welcome.entity_id);
+    this.zoneId = welcome.zone_id;
     this.mapSize = { x: welcome.map_size.x, y: welcome.map_size.y };
+    this.entities.clear();
+    this.portals = (welcome.portals ?? []).map(p => ({
+      id: p.portal_id, x: p.position.x, y: p.position.y, radius: p.radius_m, toZone: p.to_zone_id,
+    }));
+    this.lastAckedInput = 0;
+  }
+
+  // The portal whose circle covers self, or null.
+  portalInReach() {
+    return this.portals.find(p => (p.x - this.self.x) ** 2 + (p.y - this.self.y) ** 2 <= p.radius ** 2) ?? null;
   }
 
   // `lossProbability` simulates losing movement data to watch interpolation and extrapolation

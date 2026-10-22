@@ -1,8 +1,8 @@
 // Canvas rendering. Map metres -> canvas pixels with Y up.
 const COLORS = {
   grid: '#1a2027', obstacle: '#3a4452', self: '#ffd166', other: '#6ee7b7', extrap: '#f4a261', hold: '#8a94a3',
-  monster: '#ff6b6b', projectile: '#e6e9ee', item: '#c084fc', hpBack: '#2a313a', hp: '#6ee7b7',
-  hpLow: '#ff6b6b',
+  monster: '#ff6b6b', projectile: '#e6e9ee', item: '#c084fc', portal: '#38bdf8', hpBack: '#2a313a',
+  hp: '#6ee7b7', hpLow: '#ff6b6b',
 };
 const ITEM_SIZE_PX = 6;
 const GRID_STEP_M = 25;
@@ -44,6 +44,17 @@ export class Renderer {
     for (const [x0, y0, x1, y1] of obstacles) {
       const [px, py] = toPx(x0, y1);
       ctx.fillRect(px, py, (x1 - x0) * scale, (y1 - y0) * scale);
+    }
+
+    // Portals: a ring of the real radius, labelled with the destination zone.
+    ctx.strokeStyle = COLORS.portal;
+    ctx.fillStyle = COLORS.portal;
+    ctx.lineWidth = 2;
+    ctx.font = '11px sans-serif';
+    for (const portal of world.portals) {
+      const [x, y] = toPx(portal.x, portal.y);
+      ctx.beginPath(); ctx.arc(x, y, portal.radius * scale, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillText(`→ zone ${portal.toZone}`, x + 6, y - 6);
     }
 
     const modes = { interp: 0, extrap: 0, hold: 0 };

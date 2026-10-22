@@ -1,5 +1,6 @@
 #include "sa/bot/fighter.hpp"
 #include "sa/bot/looter.hpp"
+#include "sa/bot/traveler.hpp"
 #include "sa/bot/wanderer.hpp"
 #include "sa/common/config_source.hpp"
 #include "sa/common/logging.hpp"
@@ -22,6 +23,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <random>
 #include <span>
 #include <string>
 #include <string_view>
@@ -31,14 +33,23 @@ namespace {
 
 constexpr std::string_view kUsage = "usage: loadgen --profile <path/to/profile.toml>";
 
+std::uint64_t ResolveIdentitySeed(std::optional<std::uint64_t> configured) {
+    if (configured) {
+        return *configured;
+    }
+    std::random_device device;
+    return (static_cast<std::uint64_t>(device()) << 32U) | device();
+}
+
 // Phase 1, blocking HTTP before the clock starts: accounts and characters. Register and login
 // hash passwords, so this is the slow part; no ticket exists yet that could expire meanwhile.
 std::vector<std::optional<sa::loadgen::BotAccount>> Provision(
-    const sa::loadgen::LoadProfile& profile, const sa::loadgen::BackendApi& api,
-    std::vector<sa::loadgen::BotReport>& reports) {
+    const sa::loadgen::LoadProfile& profile, std::uint64_t identity_seed,
+    const sa::loadgen::BackendApi& api, std::vector<sa::loadgen::BotReport>& reports) {
     std::vector<std::optional<sa::loadgen::BotAccount>> accounts(profile.bot_count());
     for (std::uint32_t i = 0; i < profile.bot_count(); ++i) {
-        const sa::loadgen::BotIdentity identity = profile.IdentityOf(i);
+        const sa::loadgen::BotIdentity identity =
+            sa::loadgen::LoadProfile::IdentityOf(profile.account_prefix, identity_seed, i);
         reports[i].index = i;
         reports[i].username = identity.username;
         auto account = api.Provision(identity.username, profile.password, profile.world,
@@ -115,15 +126,18 @@ int Run(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     sa::common::InitLogging("loadgen", *logging);
-    spdlog::info("seed={} wanderers={} fighters={} looters={} duration={}s backend={}",
-                 profile->seed, profile->wanderers, profile->fighters, profile->looters,
-                 profile->duration.count(), profile->backend_base_url);
+    const std::uint64_t identity_seed = ResolveIdentitySeed(profile->identity_seed);
+    spdlog::info(
+        "seed={} identity_seed={} wanderers={} fighters={} looters={} travelers={} "
+        "duration={}s backend={}",
+        profile->seed, identity_seed, profile->wanderers, profile->fighters, profile->looters,
+        profile->travelers, profile->duration.count(), profile->backend_base_url);
 
     std::vector<sa::loadgen::BotReport> reports(profile->bot_count());
     std::vector<sa::loadgen::BotSession::Target> targets(
         profile->bot_count());  // valid where provisioned
     const sa::loadgen::BackendApi api{profile->backend_base_url};
-    const auto accounts = Provision(*profile, api, reports);
+    const auto accounts = Provision(*profile, identity_seed, api, reports);
     Enter(*profile, api, accounts, reports, targets);
     spdlog::info("provisioned {}/{} bots",
                  sa::loadgen::RunReport::Aggregate(reports, profile->criteria).provisioned,
@@ -146,6 +160,9 @@ int Run(int argc, char** argv) {
                 break;
             case sa::loadgen::BotRole::kLooter:
                 brain = std::make_unique<sa::bot::Looter>(profile->seed + i, profile->looter);
+                break;
+            case sa::loadgen::BotRole::kTraveler:
+                brain = std::make_unique<sa::bot::Traveler>(profile->seed + i, profile->traveler);
                 break;
         }
         sessions.push_back(std::make_shared<sa::loadgen::BotSession>(io, *profile, std::move(brain),

@@ -17,7 +17,10 @@ using game::v1::ClientMessage;
 using game::v1::ServerMessage;
 using State = SessionProtocol::State;
 
-constexpr SessionProtocolConfig kConfig{.max_messages_per_second = 10};
+constexpr SessionProtocolConfig kConfig{.max_messages_per_second = 10,
+                                        .idle_timeout = std::chrono::milliseconds{10'000}};
+constexpr common::ZoneId kZone1{1};
+constexpr common::ZoneId kZone2{2};
 
 ClientMessage PingMessage(std::uint32_t nonce) {
     ClientMessage m;
@@ -83,10 +86,27 @@ bool HasEffect(const SessionProtocol::Reaction& r) {
                                [](const auto& e) { return std::holds_alternative<E>(e); });
 }
 
+internal::v1::SessionTransfer TransferTo(common::ZoneId zone, std::uint64_t epoch) {
+    internal::v1::SessionTransfer t;
+    t.set_to_zone_id(zone.value());
+    t.set_to_zone_instance_id(common::InstanceId::Generate().ToWire());
+    t.set_owner_epoch(epoch);
+    t.mutable_arrival_position()->set_x(8.0F);
+    t.mutable_arrival_position()->set_y(100.0F);
+    return t;
+}
+
 class SessionProtocolTest : public ::testing::Test {
 protected:
     EntryTicketVerifier verifier = test::Verifier();
     SessionProtocol protocol{verifier, kConfig, common::InstanceId::Generate()};
+
+    // Drives a fresh protocol to the zone attach and returns that attach.
+    SessionProtocol::AttachToZone FirstAttach(const backend::v1::RedeemEntryTicketResponse& grant) {
+        SessionProtocol fresh{verifier, kConfig, common::InstanceId::Generate()};
+        (void)fresh.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
+        return OnlyEffect<SessionProtocol::AttachToZone>(fresh.OnRedeemResult(grant));
+    }
 
     // Drives the happy path up to the zone attach and returns the attach effect.
     SessionProtocol::AttachToZone EnterZone() {
@@ -96,7 +116,7 @@ protected:
         const auto redeem = protocol.OnRedeemResult(Granted());
         EXPECT_EQ(protocol.state(), State::kAttaching);
         const auto attach = OnlyEffect<SessionProtocol::AttachToZone>(redeem);
-        EXPECT_TRUE(protocol.OnZoneAttached(common::EntityId{5}).effects.empty());
+        EXPECT_TRUE(protocol.OnZoneAttached(kZone1, common::EntityId{5}).effects.empty());
         EXPECT_EQ(protocol.state(), State::kInZone);
         return attach;
     }
@@ -128,7 +148,8 @@ TEST_F(SessionProtocolTest, InZoneInputsAreForwardedAndOutputsPassThrough) {
 
     ServerMessage snapshot;
     snapshot.mutable_world_snapshot()->set_server_tick(42);
-    EXPECT_EQ(OnlyReply(protocol.OnZoneOutput(snapshot)).world_snapshot().server_tick(), 42U);
+    EXPECT_EQ(OnlyReply(protocol.OnZoneOutput(kZone1, snapshot)).world_snapshot().server_tick(),
+              42U);
 }
 
 TEST_F(SessionProtocolTest, DisconnectInZoneDetachesAndEndsTheSession) {
@@ -189,7 +210,7 @@ TEST_F(SessionProtocolTest, RedeemOutcomesMapToKicksAndNeverLeaveASessionDanglin
 TEST_F(SessionProtocolTest, ZoneRejectionAfterGrantEndsTheBackendSession) {
     (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
     (void)protocol.OnRedeemResult(Granted());
-    const auto reaction = protocol.OnZoneRejected(internal::v1::REJECT_REASON_ZONE_FULL);
+    const auto reaction = protocol.OnZoneRejected(kZone1, internal::v1::REJECT_REASON_ZONE_FULL);
     EXPECT_EQ(OnlyReply(reaction).kick().reason(), game::v1::KICK_REASON_ZONE_UNAVAILABLE);
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(reaction));
     EXPECT_FALSE(HasEffect<SessionProtocol::DetachFromZone>(reaction))
@@ -198,7 +219,7 @@ TEST_F(SessionProtocolTest, ZoneRejectionAfterGrantEndsTheBackendSession) {
 
 TEST_F(SessionProtocolTest, EvictionAndLinkLossKickWithoutDetaching) {
     EnterZone();
-    auto evicted = protocol.OnZoneEvicted(internal::v1::EVICT_REASON_LEASE_LOST);
+    auto evicted = protocol.OnZoneEvicted(kZone1, internal::v1::EVICT_REASON_LEASE_LOST);
     EXPECT_EQ(OnlyReply(evicted).kick().reason(), game::v1::KICK_REASON_ZONE_UNAVAILABLE);
     EXPECT_FALSE(HasEffect<SessionProtocol::DetachFromZone>(evicted));
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(evicted));
@@ -206,7 +227,7 @@ TEST_F(SessionProtocolTest, EvictionAndLinkLossKickWithoutDetaching) {
     SessionProtocol other{verifier, kConfig, common::InstanceId::Generate()};
     (void)other.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
     (void)other.OnRedeemResult(Granted());
-    (void)other.OnZoneAttached(common::EntityId{1});
+    (void)other.OnZoneAttached(kZone1, common::EntityId{1});
     const auto down = other.OnZoneLinkDown();
     EXPECT_EQ(OnlyReply(down).kick().reason(), game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(down));
@@ -222,8 +243,8 @@ TEST_F(SessionProtocolTest, AGrantArrivingAfterTheClientLeftEndsTheBackendSessio
     EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(late));
     EXPECT_FALSE(HasEffect<SessionProtocol::AttachToZone>(late));
     EXPECT_TRUE(protocol.OnRedeemResult(Granted()).effects.empty()) << "one answer per redeem";
-    EXPECT_TRUE(protocol.OnZoneAttached(common::EntityId{1}).effects.empty());
-    EXPECT_TRUE(protocol.OnZoneOutput(ServerMessage{}).replies.empty());
+    EXPECT_TRUE(protocol.OnZoneAttached(kZone1, common::EntityId{1}).effects.empty());
+    EXPECT_TRUE(protocol.OnZoneOutput(kZone1, ServerMessage{}).replies.empty());
 }
 
 TEST_F(SessionProtocolTest, ARefusalArrivingAfterTheClientLeftOwesNothing) {
@@ -291,6 +312,146 @@ TEST_F(SessionProtocolTest, RateLimitWindowResets) {
         (void)protocol.OnClientMessage(MoveMessage(i + 1), At(5'000ms));
     }
     EXPECT_FALSE(protocol.OnClientMessage(MoveMessage(99), At(6'000ms)).close) << "new window";
+}
+
+TEST_F(SessionProtocolTest, CheckpointInTheGrantBecomesTheAttachPosition) {
+    backend::v1::RedeemEntryTicketResponse granted = Granted();
+    granted.mutable_checkpoint()->set_zone_id(1);
+    granted.mutable_checkpoint()->mutable_position()->set_x(11.0F);
+    granted.mutable_checkpoint()->mutable_position()->set_y(21.0F);
+    const auto attach = FirstAttach(granted);
+    ASSERT_TRUE(attach.attach.has_position());
+    EXPECT_FLOAT_EQ(attach.attach.position().x(), 11.0F);
+    EXPECT_FLOAT_EQ(attach.attach.position().y(), 21.0F);
+    EXPECT_FALSE(FirstAttach(Granted()).attach.has_position())
+        << "without a checkpoint the zone picks a spawn";
+}
+
+TEST_F(SessionProtocolTest, TransferReattachesToTheDestinationUnderTheNewEpochAndDropsInputs) {
+    EnterZone();
+    const auto reaction = protocol.OnZoneTransfer(kZone1, TransferTo(kZone2, 2));
+    EXPECT_EQ(protocol.state(), State::kTransferring);
+    EXPECT_EQ(protocol.zone(), kZone2);
+    const auto attach = OnlyEffect<SessionProtocol::AttachToZone>(reaction);
+    EXPECT_EQ(attach.zone, kZone2);
+    EXPECT_EQ(attach.attach.owner_epoch(), 2U);
+    EXPECT_EQ(attach.attach.character_id(), 20U) << "same identity as the first attach";
+    EXPECT_EQ(attach.attach.gateway_session_id(), protocol.session_id().ToWire());
+    EXPECT_FLOAT_EQ(attach.attach.position().x(), 8.0F);
+    EXPECT_FLOAT_EQ(attach.attach.position().y(), 100.0F);
+
+    // The client keeps moving until it sees the new Welcome: no kick, no forward.
+    const auto moving = protocol.OnClientMessage(MoveMessage(7), At());
+    EXPECT_TRUE(moving.effects.empty());
+    EXPECT_TRUE(moving.replies.empty());
+    EXPECT_FALSE(moving.close);
+    EXPECT_EQ(OnlyReply(protocol.OnClientMessage(PingMessage(1), At())).pong().nonce(), 1U);
+
+    EXPECT_TRUE(protocol.OnZoneAttached(kZone2, common::EntityId{9}).effects.empty());
+    EXPECT_EQ(protocol.state(), State::kInZone);
+    EXPECT_TRUE(
+        HasEffect<SessionProtocol::ForwardToZone>(protocol.OnClientMessage(MoveMessage(8), At())));
+}
+
+TEST_F(SessionProtocolTest, AfterATransferTheOriginNoLongerSpeaksForTheSession) {
+    EnterZone();
+    (void)protocol.OnZoneTransfer(kZone1, TransferTo(kZone2, 2));
+    EXPECT_TRUE(protocol.OnZoneAttached(kZone1, common::EntityId{5}).effects.empty());
+    EXPECT_EQ(protocol.state(), State::kTransferring) << "only the destination completes the move";
+    (void)protocol.OnZoneAttached(kZone2, common::EntityId{9});
+
+    ServerMessage late;
+    late.mutable_world_snapshot()->set_server_tick(1);
+    EXPECT_TRUE(protocol.OnZoneOutput(kZone1, late).replies.empty());
+    const auto evicted = protocol.OnZoneEvicted(kZone1, internal::v1::EVICT_REASON_LEASE_LOST);
+    EXPECT_TRUE(evicted.replies.empty());
+    EXPECT_FALSE(evicted.close);
+    EXPECT_TRUE(protocol.OnZoneTransfer(kZone1, TransferTo(kZone1, 3)).effects.empty());
+    EXPECT_EQ(protocol.state(), State::kInZone);
+    EXPECT_EQ(protocol.zone(), kZone2);
+}
+
+TEST_F(SessionProtocolTest, AZoneThatDoesNotHoldTheSessionIsIgnored) {
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
+    (void)protocol.OnRedeemResult(Granted());
+    EXPECT_TRUE(
+        protocol.OnZoneRejected(kZone2, internal::v1::REJECT_REASON_ZONE_FULL).replies.empty());
+    EXPECT_TRUE(protocol.OnZoneAttached(kZone2, common::EntityId{5}).effects.empty());
+    EXPECT_EQ(protocol.state(), State::kAttaching);
+}
+
+TEST_F(SessionProtocolTest, StaleOrMalformedTransfersChangeNothing) {
+    EnterZone();
+    EXPECT_TRUE(protocol.OnZoneTransfer(kZone2, TransferTo(kZone2, 2)).effects.empty())
+        << "only the zone that holds the session hands it on";
+    EXPECT_TRUE(protocol.OnZoneTransfer(kZone1, TransferTo(kZone2, 1)).effects.empty())
+        << "same generation";
+    EXPECT_TRUE(protocol.OnZoneTransfer(kZone1, TransferTo(common::ZoneId{}, 2)).effects.empty())
+        << "no destination";
+    EXPECT_TRUE(protocol.OnZoneTransfer(kZone1, TransferTo(kZone1, 2)).effects.empty())
+        << "to itself";
+    EXPECT_EQ(protocol.state(), State::kInZone);
+    EXPECT_EQ(protocol.zone(), kZone1);
+}
+
+TEST_F(SessionProtocolTest, DestinationRefusalOrDisconnectDuringTransferCleansUp) {
+    EnterZone();
+    (void)protocol.OnZoneTransfer(kZone1, TransferTo(kZone2, 2));
+    const auto refused = protocol.OnZoneRejected(kZone2, internal::v1::REJECT_REASON_STALE_EPOCH);
+    EXPECT_EQ(OnlyReply(refused).kick().reason(), game::v1::KICK_REASON_ZONE_UNAVAILABLE);
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(refused));
+    EXPECT_EQ(protocol.state(), State::kClosed);
+
+    SessionProtocol other{verifier, kConfig, common::InstanceId::Generate()};
+    (void)other.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
+    (void)other.OnRedeemResult(Granted());
+    (void)other.OnZoneAttached(kZone1, common::EntityId{1});
+    (void)other.OnZoneTransfer(kZone1, TransferTo(kZone2, 2));
+    const auto gone = other.OnClientDisconnected();
+    ASSERT_EQ(gone.effects.size(), 2U);
+    const auto detach = std::ranges::find_if(gone.effects, [](const auto& effect) {
+        return std::holds_alternative<SessionProtocol::DetachFromZone>(effect);
+    });
+    ASSERT_NE(detach, gone.effects.end());
+    EXPECT_EQ(std::get<SessionProtocol::DetachFromZone>(*detach).zone, kZone2)
+        << "the pending attach at the destination is withdrawn";
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(gone));
+}
+
+TEST_F(SessionProtocolTest, TransferIsIgnoredUnlessInZone) {
+    EXPECT_TRUE(protocol.OnZoneTransfer(kZone1, TransferTo(kZone2, 2)).effects.empty());
+    (void)protocol.OnClientMessage(HelloMessage(test::SignedTicket({})), At());
+    (void)protocol.OnRedeemResult(Granted());
+    EXPECT_TRUE(protocol.OnZoneTransfer(kZone1, TransferTo(kZone2, 2)).effects.empty())
+        << "still attaching";
+    EXPECT_EQ(protocol.state(), State::kAttaching);
+}
+
+TEST_F(SessionProtocolTest, ASilentClientIsKickedAfterTheIdleTimeoutAndEverythingIsCleanedUp) {
+    EnterZone();  // its last message, the Hello, arrived at At()
+    EXPECT_TRUE(protocol.OnIdleCheck(At(9'999ms).monotonic).replies.empty()) << "not yet";
+    const auto idle = protocol.OnIdleCheck(At(10'000ms).monotonic);
+    EXPECT_EQ(OnlyReply(idle).kick().reason(), game::v1::KICK_REASON_IDLE_TIMEOUT);
+    EXPECT_TRUE(idle.close);
+    const auto detach = std::ranges::find_if(idle.effects, [](const auto& effect) {
+        return std::holds_alternative<SessionProtocol::DetachFromZone>(effect);
+    });
+    ASSERT_NE(detach, idle.effects.end());
+    EXPECT_EQ(std::get<SessionProtocol::DetachFromZone>(*detach).reason,
+              internal::v1::DETACH_REASON_CLIENT_IDLE);
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(idle)) << "frees the character";
+    EXPECT_EQ(protocol.state(), State::kClosed);
+    EXPECT_TRUE(protocol.OnIdleCheck(At(20'000ms).monotonic).effects.empty()) << "once";
+}
+
+TEST_F(SessionProtocolTest, AnyMessageMovesTheIdleDeadline) {
+    EXPECT_FALSE(protocol.IdleDeadline().has_value()) << "the hello deadline covers a mute socket";
+    EXPECT_TRUE(protocol.OnIdleCheck(At(60'000ms).monotonic).effects.empty());
+    EnterZone();
+    (void)protocol.OnClientMessage(PingMessage(1), At(8'000ms));
+    EXPECT_EQ(protocol.IdleDeadline(), At(18'000ms).monotonic);
+    EXPECT_TRUE(protocol.OnIdleCheck(At(12'000ms).monotonic).replies.empty());
+    EXPECT_EQ(protocol.state(), State::kInZone);
 }
 
 }  // namespace

@@ -23,6 +23,8 @@ using OwnerEpoch = StrongId<struct OwnerEpochTag>;
 // and a client names the skill it casts.
 using ClassId = StrongId<struct ClassIdTag, std::uint32_t>;
 using SkillId = StrongId<struct SkillIdTag, std::uint32_t>;
+// A way out of a zone, numbered within its map (game-data/maps).
+using PortalId = StrongId<struct PortalIdTag, std::uint32_t>;
 
 // Simulation tick counter of one zone process lifetime.
 using TickIndex = StrongId<struct TickIndexTag>;
@@ -36,5 +38,7 @@ using ItemInstanceId = OpaqueId<struct ItemInstanceIdTag>;
 using KillId = OpaqueId<struct KillIdTag>;
 // Idempotency key the Backend stores for one zone-originated command (e.g. a pickup).
 using RequestKey = OpaqueId<struct RequestKeyTag>;
+// One attempt to hand a character to another zone; the Backend stores its outcome (ADR-0010).
+using TransferId = OpaqueId<struct TransferIdTag>;
 
 }  // namespace sa::common

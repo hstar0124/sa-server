@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package sa.backend.v1;
+
+option csharp_namespace = "Sa.Backend.V1";
+
+// Which zone process claims to act for a character, and under which ownership generation. Every
+// zone-originated mutation carries it; the Backend compares it with character_ownership inside
+// the same transaction and refuses a stale claimant. Shared by the economy and the transfer calls.
+message ZoneAuthority {
+  bytes zone_instance_id = 1;
+  uint64 owner_epoch = 2;
+}

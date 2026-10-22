@@ -48,6 +48,8 @@ struct ZoneServerConfig {
     std::uint32_t link_max_gateways = 0;
     common::FrameLimits link_frame_limits;
     std::chrono::milliseconds link_close_linger{};
+    // A gateway link that carries nothing this long is closed; gateways ping well within it.
+    std::chrono::milliseconds link_silence_timeout{};
     std::uint32_t max_sessions = 0;
 
     // Backend gRPC and lease cadence (see README "소유권과 lease").
@@ -55,9 +57,12 @@ struct ZoneServerConfig {
     std::chrono::milliseconds backend_rpc_timeout{};
     std::chrono::milliseconds lease_renew_interval{};
     std::chrono::milliseconds lease_safety_margin{};
-    // RecordKill retries on transport failures (the kill id keeps the retry idempotent).
-    std::uint32_t economy_call_attempts = 0;
+    // Tries per Backend call on transport failures; every call is safe to repeat (see
+    // backend_call.hpp).
+    std::uint32_t backend_call_attempts = 0;
     std::chrono::milliseconds backend_retry_delay{};
+    // How often each session's position is saved while it moves (ADR-0010).
+    std::chrono::milliseconds checkpoint_interval{};
 
     // How long shutdown waits for evictions, detaches and lease RPCs to drain (design
     // document 16.3).
@@ -68,6 +73,12 @@ struct ZoneServerConfig {
 
     [[nodiscard]] std::uint32_t TicksPerSnapshot() const noexcept {
         return simulation_rate.hz / snapshot_rate.hz;
+    }
+    // At least one: validation refuses an interval shorter than a tick.
+    [[nodiscard]] std::uint32_t TicksPerCheckpoint() const noexcept {
+        return static_cast<std::uint32_t>(
+            std::chrono::duration_cast<sim::Duration>(checkpoint_interval) /
+            simulation_rate.Period());
     }
 
     static constexpr std::string_view kEnvPrefix = "SA_ZONE__";

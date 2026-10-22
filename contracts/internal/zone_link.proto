@@ -3,6 +3,7 @@ syntax = "proto3";
 package sa.internal.v1;
 
 import "game/client_messages.proto";
+import "game/common.proto";
 import "game/server_messages.proto";
 
 option csharp_namespace = "Sa.Internal.V1";
@@ -29,6 +30,7 @@ message ZoneToGateway {
     SessionRejected session_rejected = 11;
     SessionEvicted session_evicted = 12;
     SessionOutput session_output = 13;
+    SessionTransfer session_transfer = 14;
   }
 }
 
@@ -44,10 +46,14 @@ message LinkWelcome {
   uint32 simulation_hz = 4;
 }
 
+// Link heartbeat: the gateway pings at a fixed interval and the zone answers. Either side treats a
+// link that has carried nothing for its silence timeout as dead, so a peer that vanished without
+// closing (power loss, network partition) is noticed in seconds, not when TCP gives up.
 message LinkPing { uint64 nonce = 1; }
 message LinkPong { uint64 nonce = 1; }
 
-// Result of a successful RedeemEntryTicket; the zone materialises the character.
+// Result of a successful RedeemEntryTicket or of a zone transfer; the zone materialises the
+// character at `position` when it is set (checkpoint or arrival point), else at a spawn point.
 message SessionAttach {
   bytes gateway_session_id = 1;
   uint64 account_id = 2;
@@ -55,6 +61,7 @@ message SessionAttach {
   string character_name = 4;
   uint32 class_id = 5;
   uint64 owner_epoch = 6;
+  sa.game.v1.Vec2 position = 7;
 }
 
 enum DetachReason {
@@ -62,6 +69,7 @@ enum DetachReason {
   DETACH_REASON_CLIENT_DISCONNECTED = 1;
   DETACH_REASON_GATEWAY_SHUTDOWN = 2;
   DETACH_REASON_PROTOCOL_ERROR = 3;
+  DETACH_REASON_CLIENT_IDLE = 4;          // the client sent nothing for the gateway's idle timeout
 }
 
 message SessionDetach {
@@ -110,4 +118,15 @@ message SessionEvicted {
 message SessionOutput {
   bytes gateway_session_id = 1;
   sa.game.v1.ServerMessage message = 2;
+}
+
+// The Backend moved the character to another zone (ADR-0010): the origin zone has released it, and
+// the gateway attaches the session to the destination under the new ownership generation. The
+// client learns of the move through the destination's Welcome.
+message SessionTransfer {
+  bytes gateway_session_id = 1;
+  uint32 to_zone_id = 2;
+  bytes to_zone_instance_id = 3;
+  uint64 owner_epoch = 4;
+  sa.game.v1.Vec2 arrival_position = 5;
 }

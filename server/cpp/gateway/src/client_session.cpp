@@ -21,7 +21,8 @@ ClientSession::ClientSession(std::shared_ptr<common::MessageConnection> connecti
       connection_(std::move(connection)),
       deps_(deps),
       protocol_(deps_.verifier, deps_.protocol, id_),
-      hello_deadline_(deps.io) {}
+      hello_deadline_(deps.io),
+      idle_timer_(deps.io) {}
 
 void ClientSession::Start() {
     deps_.registry.Add(id_, weak_from_this());
@@ -35,6 +36,22 @@ void ClientSession::Start() {
     hello_deadline_.async_wait([self = shared_from_this()](const std::error_code& ec) {
         if (!ec) {
             self->Apply(self->protocol_.OnHelloDeadline());
+        }
+    });
+    ScheduleIdleCheck(std::chrono::steady_clock::now() + deps_.protocol.idle_timeout);
+}
+
+void ClientSession::ScheduleIdleCheck(std::chrono::steady_clock::time_point at) {
+    idle_timer_.expires_at(at);
+    idle_timer_.async_wait([self = shared_from_this()](const std::error_code& ec) {
+        if (ec || self->finished_) {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        self->Apply(self->protocol_.OnIdleCheck(now));
+        if (self->protocol_.state() != SessionProtocol::State::kClosed) {
+            self->ScheduleIdleCheck(
+                self->protocol_.IdleDeadline().value_or(now + self->deps_.protocol.idle_timeout));
         }
     });
 }
@@ -62,6 +79,7 @@ void ClientSession::OnClosed(const std::error_code& reason) {
     }
     finished_ = true;
     hello_deadline_.cancel();
+    idle_timer_.cancel();
     spdlog::debug("session {} closed ({})", id_.ToHex(), reason ? reason.message() : "orderly");
     Apply(protocol_.OnClientDisconnected());
     deps_.registry.Remove(id_);
@@ -70,19 +88,28 @@ void ClientSession::OnClosed(const std::error_code& reason) {
     }
 }
 
-void ClientSession::OnZoneAttached(const internal::v1::SessionAttached& attached) {
-    Apply(protocol_.OnZoneAttached(common::EntityId{attached.entity_id()}));
+void ClientSession::OnZoneAttached(common::ZoneId zone,
+                                   const internal::v1::SessionAttached& attached) {
+    Apply(protocol_.OnZoneAttached(zone, common::EntityId{attached.entity_id()}));
 }
-void ClientSession::OnZoneRejected(const internal::v1::SessionRejected& rejected) {
-    spdlog::info("session {} rejected by zone: {}", id_.ToHex(),
+void ClientSession::OnZoneRejected(common::ZoneId zone,
+                                   const internal::v1::SessionRejected& rejected) {
+    spdlog::info("session {} rejected by zone {}: {}", id_.ToHex(), zone.value(),
                  internal::v1::RejectReason_Name(rejected.reason()));
-    Apply(protocol_.OnZoneRejected(rejected.reason()));
+    Apply(protocol_.OnZoneRejected(zone, rejected.reason()));
 }
-void ClientSession::OnZoneEvicted(const internal::v1::SessionEvicted& evicted) {
-    Apply(protocol_.OnZoneEvicted(evicted.reason()));
+void ClientSession::OnZoneEvicted(common::ZoneId zone,
+                                  const internal::v1::SessionEvicted& evicted) {
+    Apply(protocol_.OnZoneEvicted(zone, evicted.reason()));
 }
-void ClientSession::OnZoneOutput(const game::v1::ServerMessage& message) {
-    Apply(protocol_.OnZoneOutput(message));
+void ClientSession::OnZoneTransfer(common::ZoneId zone,
+                                   const internal::v1::SessionTransfer& transfer) {
+    spdlog::info("session {} moving from zone {} to zone {} (epoch {})", id_.ToHex(), zone.value(),
+                 transfer.to_zone_id(), transfer.owner_epoch());
+    Apply(protocol_.OnZoneTransfer(zone, transfer));
+}
+void ClientSession::OnZoneOutput(common::ZoneId zone, const game::v1::ServerMessage& message) {
+    Apply(protocol_.OnZoneOutput(zone, message));
 }
 void ClientSession::OnZoneLinkDown(common::ZoneId zone) {
     if (protocol_.zone() == zone) {

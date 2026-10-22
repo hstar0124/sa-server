@@ -58,6 +58,9 @@ void Zone::ApplyCast(const CastCommand& command) {
 
 RejectReason Zone::ValidateCast(const Player& player, const SkillDefinition& skill,
                                 const SkillTarget& target) const {
+    if (player.departing) {
+        return RejectReason::kTransferInProgress;
+    }
     if (!player.vitals.IsAlive()) {
         return RejectReason::kDead;
     }

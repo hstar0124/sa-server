@@ -33,6 +33,33 @@ bool MapData::IsWalkable(common::Vec2 point, float body_radius_m) const noexcept
     });
 }
 
+namespace {
+
+// Each portal: an id, a positive radius, a destination, a position inside the map, a unique id.
+std::expected<void, std::string> ValidatePortals(const MapData& map) {
+    const common::Aabb bounds = map.Bounds();
+    for (std::size_t i = 0; i < map.portals.size(); ++i) {
+        const Portal& portal = map.portals[i];
+        // Written so that a NaN radius fails too.
+        if (portal.id.IsNone() || !(portal.radius_m > 0.0F) || portal.to_zone.IsNone()) {
+            return std::unexpected(
+                std::format("portal {} needs an id, a positive radius and a destination", i));
+        }
+        if (!bounds.Contains(portal.position)) {
+            return std::unexpected(std::format("portal {} lies outside the map", i));
+        }
+        for (std::size_t j = 0; j < i; ++j) {
+            if (map.portals[j].id == portal.id) {
+                return std::unexpected(
+                    std::format("portal id {} is used twice", portal.id.value()));
+            }
+        }
+    }
+    return {};
+}
+
+}  // namespace
+
 std::expected<void, std::string> MapData::Validate() const {
     if (size.x <= 0.0F || size.y <= 0.0F) {
         return std::unexpected("map size must be positive");
@@ -67,7 +94,7 @@ std::expected<void, std::string> MapData::Validate() const {
             return std::unexpected(std::format("spawn point {} lies outside the map", i));
         }
     }
-    return {};
+    return ValidatePortals(*this);
 }
 
 std::expected<void, std::string> MapData::ValidateWalkable(float body_radius_m,
@@ -89,7 +116,21 @@ std::expected<void, std::string> MapData::ValidateWalkable(float body_radius_m,
             }
         }
     }
+    for (std::size_t i = 0; i < portals.size(); ++i) {
+        if (!IsWalkable(portals[i].position, body_radius_m)) {
+            return std::unexpected(std::format("portal {} stands where no body can reach it", i));
+        }
+    }
     return {};
+}
+
+const Portal* MapData::FindPortal(PortalId id) const noexcept {
+    for (const Portal& portal : portals) {
+        if (portal.id == id) {
+            return &portal;
+        }
+    }
+    return nullptr;
 }
 
 std::expected<void, std::string> MapData::ValidateAgainst(const ContentBundle& content) const {

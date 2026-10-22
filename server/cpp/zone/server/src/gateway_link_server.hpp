@@ -20,7 +20,8 @@ struct GatewayLinkServerConfig {
     std::uint16_t listen_port = 0;
     std::uint32_t max_gateways = 0;
     common::FrameLimits frame_limits;
-    std::chrono::milliseconds close_linger{};  // bounds closing a link at shutdown
+    std::chrono::milliseconds close_linger{};     // bounds closing a link at shutdown
+    std::chrono::milliseconds silence_timeout{};  // a link that carries nothing this long is dead
 };
 
 // Accepts gateway connections and keeps the live links so shutdown can close them.

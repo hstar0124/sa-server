@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <memory>
+#include <span>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -25,6 +26,7 @@ namespace {
 using common::testing::RunUntil;
 
 constexpr std::chrono::milliseconds kTestHelloTimeout{20};
+constexpr std::chrono::milliseconds kTestIdleTimeout{1000};
 constexpr std::chrono::milliseconds kTestRpcTimeout{100};
 constexpr std::uint32_t kTestRate = 10;
 
@@ -35,6 +37,11 @@ public:
     explicit FakeConnection(asio::io_context& io) : io_(io) {}
 
     void Start(Callbacks callbacks) override { callbacks_ = std::move(callbacks); }
+    // A frame from the client, as the transport would hand it over.
+    void Deliver(const game::v1::ClientMessage& message) const {
+        const std::string bytes = message.SerializeAsString();
+        callbacks_.on_message(std::as_bytes(std::span{bytes}));
+    }
     std::expected<void, common::SendError> Send(
         const google::protobuf::MessageLite& message) override {
         if (closed_) {
@@ -88,14 +95,17 @@ protected:
     ZoneRouter zones;
     SessionRegistry registry;
 
+    SessionProtocolConfig protocol{.max_messages_per_second = kTestRate,
+                                   .hello_timeout = kTestHelloTimeout,
+                                   .idle_timeout = kTestIdleTimeout};
+
     [[nodiscard]] ClientSession::Dependencies Deps() {
-        return ClientSession::Dependencies{
-            .io = io,
-            .verifier = verifier,
-            .protocol = {.max_messages_per_second = kTestRate, .hello_timeout = kTestHelloTimeout},
-            .directory = directory,
-            .zones = zones,
-            .registry = registry};
+        return ClientSession::Dependencies{.io = io,
+                                           .verifier = verifier,
+                                           .protocol = protocol,
+                                           .directory = directory,
+                                           .zones = zones,
+                                           .registry = registry};
     }
 
     struct Opened {
@@ -124,6 +134,20 @@ TEST_F(ClientSessionTest, AConnectionThatNeverSaysHelloIsKickedAtTheDeadline) {
     const auto [connection, session] = Open();
     RunUntil(io, [&] { return registry.size() == 0; });  // kicked, closed and finished
     EXPECT_EQ(KickIn(*connection), game::v1::KICK_REASON_PROTOCOL_ERROR);
+}
+
+// Once a client has spoken, going silent ends the session: the timer the session arms is what
+// turns the protocol's idle rule into a kick.
+TEST_F(ClientSessionTest, AClientThatFallsSilentIsKickedForIdleness) {
+    protocol.hello_timeout = std::chrono::seconds{5};
+    protocol.idle_timeout = std::chrono::milliseconds{20};
+    const auto [connection, session] = Open();
+    game::v1::ClientMessage ping;
+    ping.mutable_ping()->set_nonce(1);
+    connection->Deliver(ping);
+    ASSERT_TRUE(connection->sent().front().has_pong());
+    RunUntil(io, [&] { return registry.size() == 0; });
+    EXPECT_EQ(KickIn(*connection), game::v1::KICK_REASON_IDLE_TIMEOUT);
 }
 
 TEST_F(ClientSessionTest, ClosingAllKicksEverySessionWithTheGivenReason) {
