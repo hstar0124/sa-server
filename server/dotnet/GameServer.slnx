@@ -8,4 +8,7 @@
   <Project Path="EventWorker/EventWorker.csproj" />
   <Project Path="GameBackend/GameBackend.csproj" />
   <Project Path="Migrator/Migrator.csproj" />
+  <Folder Name="/tools/">
+    <Project Path="../../tools/httpbench/httpbench.csproj" />
+  </Folder>
 </Solution>

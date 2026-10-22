@@ -4,6 +4,7 @@ using Sa.GameBackend.Infrastructure.Http;
 using Sa.GameBackend.Modules.Auth;
 using Sa.GameBackend.Modules.Characters;
 using Sa.GameBackend.Modules.Economy;
+using Sa.GameBackend.Modules.Rankings;
 using Sa.GameBackend.Modules.WorldDirectory;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -17,6 +18,7 @@ builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddCharactersModule(builder.Configuration);
 builder.Services.AddWorldDirectoryModule(builder.Configuration);
 builder.Services.AddEconomyModule();
+builder.Services.AddRankingsModule(builder.Configuration);
 
 builder.Services.AddGrpc();
 builder.Services.AddProblemDetails();
@@ -35,6 +37,7 @@ app.UseAuthorization();
 
 app.MapAuthEndpoints();
 app.MapCharacterEndpoints();
+app.MapRankingEndpoints();
 app.UseWorldDirectoryModule();
 app.UseEconomyModule();
 

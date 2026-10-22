@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Lives outside server/dotnet; share its compiler policy explicitly. -->
+  <Import Project="$(MSBuildThisFileDirectory)../../server/dotnet/Directory.Build.props" />
+
+  <!-- Small closed-loop HTTP load tool for the measurements in docs/reports: N clients, each
+       requesting as fast as the server answers, with latency percentiles. Kept in the repository
+       so a report's numbers can be reproduced with the same tool. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Sa.HttpBench</RootNamespace>
+    <AssemblyName>httpbench</AssemblyName>
+  </PropertyGroup>
+
+</Project>

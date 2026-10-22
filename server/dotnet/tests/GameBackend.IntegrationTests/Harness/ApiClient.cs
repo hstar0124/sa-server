@@ -46,6 +46,12 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
     public Task<HttpResponseMessage> GetStatsAsync(long worldId, long characterId)
         => SendAsync(HttpMethod.Get, $"/api/v1/worlds/{worldId}/characters/{characterId}/stats", body: null);
 
+    public Task<HttpResponseMessage> GetKillRankingAsync(long worldId, int? top = null)
+        => SendAsync(HttpMethod.Get, top is null ? $"/api/v1/worlds/{worldId}/rankings/kills" : $"/api/v1/worlds/{worldId}/rankings/kills?top={top}", body: null);
+
+    public Task<HttpResponseMessage> GetRankAsync(long worldId, long characterId)
+        => SendAsync(HttpMethod.Get, $"/api/v1/worlds/{worldId}/characters/{characterId}/rank", body: null);
+
     public Task<HttpResponseMessage> EnterAsync(long worldId, long characterId)
         => SendAsync(HttpMethod.Post, $"/api/v1/worlds/{worldId}/characters/{characterId}/enter", body: null);
 
@@ -101,4 +107,8 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
     public sealed record EnterResponse(string EntryTicket, GatewayEndpoint Gateway, DateTimeOffset ExpiresAt);
 
     public sealed record StatsResponse(long Kills, long ItemsAcquired, long GoldEarned, long AsOfEventSeq);
+
+    public sealed record RankingEntryResponse(long Rank, long CharacterId, string Name, long Kills);
+
+    public sealed record CharacterRankResponse(long Rank, long Kills);
 }
