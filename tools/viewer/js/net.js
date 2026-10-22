@@ -71,6 +71,18 @@ export class GatewayLink {
     return this.requestId;
   }
 
+  // Asks to leave through a portal. The answer is PENDING, then the destination zone's Welcome.
+  // A retry after an unknown outcome passes the same request id, so the zone asks the Backend
+  // about the same transfer.
+  sendChangeZone(portalId, requestId = null) {
+    if (requestId === null) {
+      this.requestId += 1;
+      requestId = this.requestId;
+    }
+    this.#send({ change_zone: { request_id: requestId, portal_id: portalId } });
+    return requestId;
+  }
+
   #send(body) {
     if (this.socket?.readyState !== WebSocket.OPEN) return;
     const message = this.contracts.ClientMessage.create(body);
