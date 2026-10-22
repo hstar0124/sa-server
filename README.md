@@ -438,9 +438,11 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 - **떠나기**: 포털 반경 안에서 `ChangeZone`을 받으면 Zone은 검증 뒤 "처리 중"으로 답하고 캐릭터를 멈춘다(이동·스킬·획득 거절). 이전 ID는 캐릭터·소유권 세대·요청 ID의 다이제스트라서, 답을 잃은 클라이언트가 같은 요청으로 다시 물으면 같은 이전을 묻게 되고 Backend는 저장된 결정을 돌려준다. 이전이 확정되면 Zone은 결과를 보내고 캐릭터를 지운 뒤 Gateway에 도착지를 알린다. 도착 Zone이 없으면 캐릭터를 풀어 준다. 권한이 없다는 답이면 세션을 끝낸다.
 - **한 캐릭터, 한 몸**: Zone은 같은 캐릭터가 이미 있으면 세대를 비교한다. 같거나 낮은 세대의 부착은 거절하고, 높은 세대가 오면 옛 세션을 내보낸다(다른 Gateway로 다시 들어왔는데 옛 Gateway의 링크가 아직 남은 경우). 포털이 자기 Zone을 가리키는 지도는 시작할 때 거절한다.
 
+이전 한 번이 어떻게 흐르는지, 응답을 잃거나 늦게 말하는 Zone이 있거나 도착 Zone이 죽을 때 소유자를 어떻게 하나로 유지하는지는 [설계 노트 10](docs/design-notes/10-zone-transfer.md)에 있다.
+
 ## 검증
 
-**end-to-end**: `scripts/e2e-local.sh` 한 번으로 PostgreSQL(compose) + Backend + Zone + Gateway를 띄우고 봇 5개를 돌린다. 종료 코드가 판정이고, 통과 조건은 아래와 같다.
+**end-to-end**: `scripts/e2e-local.sh` 한 번으로 PostgreSQL(compose) + Backend + Zone 둘 + Gateway를 띄우고 봇 5개를 돌린다. 종료 코드가 판정이고, 통과 조건은 아래와 같다.
 
 - 모든 봇이 로그인 → 티켓 → Gateway → Zone 입장을 TCP로 통과하고, 모든 봇의 이동 입력이 Zone에서 한 번 이상 처리된다.
 - 정해진 수 이상의 봇이 다른 플레이어를 본다. 몬스터나 아이템은 만남으로 치지 않는다.
@@ -456,7 +458,9 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 
 **획득 end-to-end**: `looters.toml` 프로필은 획득 봇 5개와 배회 봇 1개를 40초 동안 돌린다. 처치와 함께 정해진 수 이상의 획득이 원장에 기록되고, 획득 결과가 요청마다 한 번씩만 오며, 인벤토리 버전이 뒤로 가지 않아야 통과한다.
 
-**K3s end-to-end**: `scripts/e2e-k3s.sh`는 K3s에 올린 스택에 같은 봇 프로필을 돌리고, 위와 같은 검사(남은 세션, 처치·획득 기록, 이벤트 발행·적용, 랭킹 복사본)를 클러스터 안의 PostgreSQL에서 한다. 검사는 `scripts/lib/e2e.sh` 하나를 두 스크립트가 함께 쓴다.
+**이동 end-to-end**: `travelers.toml` 프로필은 이동 봇 5개와 배회 봇 1개를 60초 동안 돌린다. 봇이 본 Zone 이동 횟수와 Backend의 `zone_transfers`에 남은 이전이 각각 정해진 수 이상이고, 마지막 이전으로 옮겨진 캐릭터의 소유 Zone이 그 도착 Zone이어야 통과한다.
+
+**K3s end-to-end**: `scripts/e2e-k3s.sh`는 K3s에 올린 스택에 같은 봇 프로필을 돌리고, 위와 같은 검사(남은 세션, 처치·획득·이전 기록, 이벤트 발행·적용, 랭킹 복사본)를 클러스터 안의 PostgreSQL에서 한다. 검사는 `scripts/lib/e2e.sh` 하나를 두 스크립트가 함께 쓴다.
 
 **정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 이전 소유자의 늦은 체크포인트 거절, 이전은 한 번만(재시도·동시 중복 포함), lease가 끝난 Zone의 저장·이전 거절, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭·표보다 많은 드롭 거절, 만료 티켓 거절, 유니크 인덱스에서 진 Redeem도 티켓은 소비, 같은 획득 요청 두 개가 동시에 와도 효과는 한 번, 재입장 뒤 처치 재시도는 반향, lease가 끝난 Zone의 지급 거절, 재시작한 Zone이 옛 인스턴스를 대신함.
 
@@ -498,7 +502,8 @@ flowchart LR
     end
     subgraph host["호스트 프로세스 (scripts/dev-stack.sh, scripts/e2e-local.sh)"]
         BE["Backend<br/>:5100 HTTP · 127.0.0.1:5101 gRPC"]
-        ZA["Zone A<br/>:7801 Gateway 링크"]
+        ZA["Zone A (초원)<br/>:7801 Gateway 링크"]
+        ZB["Zone B (고원)<br/>:7802 Gateway 링크"]
         GW["Gateway<br/>:7777 TCP · :7778 WebSocket"]
         VW["뷰어 정적 서버<br/>:8080"]
         EW["EventWorker"]
@@ -509,8 +514,10 @@ flowchart LR
     EW --> RD
     BE --> RD
     GW --> ZA
+    GW --> ZB
     GW --> BE
     ZA --> BE
+    ZB --> BE
 ```
 
 같은 이미지로 단일 노드 K3s에도 올린다(`deploy/k3s/`, 시연과 장애 연습용). 데이터 저장소와 게임 프로세스는 네임스페이스로 나누고, 마이그레이션 Job이 끝난 뒤에 서비스를 띄운다. 클라이언트가 닿는 것은 Backend HTTP와 Gateway의 NodePort뿐이다. 호출자 인증이 아직 없는 Backend의 내부 gRPC는 NetworkPolicy로 같은 네임스페이스의 파드에만 연다. Zone·Gateway는 compose와 같은 TOML을 쓰고 주소만 환경 변수로 바꾼다. 비밀 값은 배포 스크립트가 Secret으로 만든다. 게임 파드는 비루트, 읽기 전용 루트 파일 시스템, capability 없음으로 돈다.
@@ -528,13 +535,16 @@ flowchart LR
         KBE["backend<br/>NodePort 30500 · gRPC는 game 안에서만"]
         KEW["eventworker"]
         KZA["zone-a (Recreate)"]
+        KZB["zone-b (Recreate)"]
         KGW["gateway (Recreate)<br/>NodePort 30777 · 30778"]
     end
     C -->|HTTP| KBE
     C -->|TCP / WebSocket| KGW
     KGW --> KZA
+    KGW --> KZB
     KGW -->|gRPC| KBE
     KZA -->|gRPC| KBE
+    KZB -->|gRPC| KBE
     KBE --> KPG
     KEW --> KPG
     KEW --> KKF
@@ -564,6 +574,9 @@ scripts/e2e-local.sh tools/loadgen/client/profiles/fighters.toml
 # 획득 end-to-end: 획득 봇 5 + 배회 봇 1이 사냥하고 떨어진 아이템을 줍는다
 scripts/e2e-local.sh tools/loadgen/client/profiles/looters.toml
 
+# 이동 end-to-end: 이동 봇 5 + 배회 봇 1이 포털로 초원과 고원을 오간다
+scripts/e2e-local.sh tools/loadgen/client/profiles/travelers.toml
+
 # 대화형: 스택을 띄우고 브라우저 뷰어로 접속 (http://localhost:8080/tools/viewer/)
 scripts/dev-stack.sh up && scripts/viewer.sh
 scripts/dev-stack.sh down
@@ -573,7 +586,7 @@ scripts/build-images.sh
 
 # 단일 노드 K3s에 배포하고 같은 검사로 확인 (설치와 순서: deploy/k3s/README.md)
 scripts/k3s-stack.sh import && scripts/k3s-stack.sh up
-scripts/e2e-k3s.sh tools/loadgen/client/profiles/looters.toml
+scripts/e2e-k3s.sh tools/loadgen/client/profiles/travelers.toml
 scripts/k3s-stack.sh down
 
 # 시뮬레이션만 돌려보기: 네트워크 없이 프로세스 안에서 봇 200개

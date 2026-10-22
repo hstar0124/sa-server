@@ -50,6 +50,7 @@
 | [44](44-gateway-transfer.md) | Gateway 이전: 도착 Zone 재부착, Zone별 세션 메시지 | 8 | |
 | [45](45-zone-transfer.md) | Zone 이전: 포털, 출발, 체크포인트 주기, Gateway로 넘기기 | 8 | |
 | [46](46-loadgen-traveler.md) | Traveler 봇과 뷰어 포털 | 8 | |
+| [47](47-zone-b-deploy.md) | Zone B 배포, 이동 end-to-end, 설계 노트 10 | 8 | |
 
 ## 형식
 
