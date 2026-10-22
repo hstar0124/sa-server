@@ -16,6 +16,7 @@ BACKEND_NODE_PORT=30500  # deploy/k3s/game/backend.yaml, Service backend-public 
 psql_value() {
   kubectl -n data exec statefulset/postgres -- sh -c 'psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' psql "$1"
 }
+redis_cli() { kubectl -n data exec statefulset/redis -- redis-cli "$@"; }
 . scripts/lib/e2e.sh
 
 ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')

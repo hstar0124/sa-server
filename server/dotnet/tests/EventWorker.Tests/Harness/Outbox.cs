@@ -3,7 +3,7 @@ using Google.Protobuf;
 using Npgsql;
 using Sa.Events.V1;
 using Sa.EventWorker.Publishing;
-using Sa.EventWorker.Topics;
+using Sa.Shared.Events;
 
 namespace Sa.EventWorker.Tests.Harness;
 
@@ -25,7 +25,7 @@ internal static class Outbox
     /// writing transaction's start time; the Backend's rows take <c>now()</c>.
     /// </summary>
     public static async Task<byte[]> AppendAsync(string connectionString, long aggregateId, long seq, IMessage payload,
-        string aggregateType = TopicRouting.CharacterAggregate, DateTime? occurredAt = null)
+        string aggregateType = AggregateTypes.Character, DateTime? occurredAt = null)
     {
         byte[] eventId = Guid.NewGuid().ToByteArray();
         await using var connection = new NpgsqlConnection(connectionString);
@@ -67,7 +67,7 @@ internal static class Outbox
         EventType = payload.Descriptor.Name,
         SchemaVersion = 1,
         WorldId = World,
-        AggregateType = TopicRouting.CharacterAggregate,
+        AggregateType = AggregateTypes.Character,
         AggregateId = (ulong)characterId,
         AggregateSeq = seq,
         Payload = payload.ToByteString(),

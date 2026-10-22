@@ -17,6 +17,7 @@ flowchart TD
     P["PostgreSQL"]
     E["C# EventWorker"]
     K["Kafka"]
+    R["Redis (랭킹 복사본)"]
 
     C <-->|"게임 입력과 결과 (길이 프리픽스 TCP / WebSocket)"| G
     C <-->|"HTTP: 가입·로그인·캐릭터·입장 티켓"| B
@@ -26,6 +27,8 @@ flowchart TD
     B <--> P
     E -->|"Outbox 읽기, Inbox·조회 모델 쓰기"| P
     E <-->|"확정 이벤트 발행·소비"| K
+    E -->|"킬 랭킹 쓰기"| R
+    B -->|"킬 랭킹 읽기"| R
 ```
 
 | 프로그램 | 언어 | 책임 |
@@ -33,7 +36,7 @@ flowchart TD
 | GameGateway | C++23 | 연결, 프레이밍, 티켓 검증, 세션 상태 기계, Zone 라우팅, 유량 제한 |
 | ZoneServer | C++23 | 지역 시뮬레이션(이동·충돌·전투·몬스터 AI·관심 관리), 드롭 굴림·바닥 아이템·획득 예약과 Backend 정산, 세션 표, Backend lease 유지 |
 | GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory), 자산(Economy: 처치 기록·획득·조회), 킬 랭킹(Rankings). 모듈형 모놀리스 |
-| EventWorker | C# / .NET 10 | Backend가 트랜잭션 안에서 쓴 Outbox 행을 Kafka로 발행하고(캐릭터마다 순번 순서, 발행 인스턴스는 하나), 그 이벤트를 Inbox로 한 번씩 적용해 캐릭터 통계 조회 모델을 만든다. 시작할 때 토픽을 만든다 |
+| EventWorker | C# / .NET 10 | Backend가 트랜잭션 안에서 쓴 Outbox 행을 Kafka로 발행하고(캐릭터마다 순번 순서, 발행 인스턴스는 하나), 그 이벤트를 Inbox로 한 번씩 적용해 캐릭터 통계 조회 모델을 만든다. 통계에서 Redis 킬 랭킹을 유지하고, 비거나 뒤처지면 다시 채운다. 시작할 때 토픽을 만든다 |
 | 브라우저 뷰어 | JavaScript | 2D 뷰어. 같은 `.proto`를 브라우저에서 읽고 WebSocket으로 접속해 WASD로 움직이며, 다른 엔티티를 보간 버퍼로 그린다. 버퍼 길이·인위적 유실·외삽을 조절해 동기화를 눈으로 본다. 몬스터·투사체·바닥 아이템·체력 막대를 그리고, Space·E로 스킬을, F로 획득을 쓰며 전투 로그와 인벤토리·골드를 띄운다 |
 | loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장하고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 역할은 배회(Wanderer), 전투(Fighter), 획득(Looter)이다. 전투 봇은 보이는 가장 가까운 몬스터에 다가가 사거리 안에서 주기적으로 공격하고, 시전 수락·거절·처치·사망을 센다. 획득 봇은 보이는 아이템을 주우러 가고 없으면 사냥하며, 획득·거절·미확정과 인벤토리를 센다. 배회 두뇌는 Zone 안의 프로세스 봇으로도 돈다 |
 
@@ -81,7 +84,7 @@ flowchart TB
         BC["Modules/Characters<br/>생성·목록·소유 확인·통계 조회"]
         BW["Modules/WorldDirectory<br/>티켓 발급·소비, 세션, 소유권, lease"]
         BE["Modules/Economy<br/>처치 기록·획득·자산 조회, 요청 결과"]
-        BR["Modules/Rankings<br/>킬 리더보드·내 순위"]
+        BR["Modules/Rankings<br/>킬 리더보드·내 순위<br/>Redis, 없거나 뒤처지면 PostgreSQL"]
         BI["Infrastructure<br/>Npgsql 풀, Outbox 쓰기, 헬스체크, CORS"]
         BA --> BI
         BC --> BI
@@ -104,6 +107,7 @@ flowchart TB
 | 아이템, 인벤토리, 지갑, 원장, 처치 영수증, 요청 결과 | Backend Economy | PostgreSQL |
 | 확정 이벤트(Outbox) | Backend가 쓰고, EventWorker가 발행을 표시 | PostgreSQL. Kafka는 소비자에게 전하는 통로라 짧게(24시간) 보관한다 |
 | 캐릭터 통계(조회 모델), 소비자별 적용 기록(Inbox) | EventWorker | PostgreSQL. 이벤트에서 다시 만들 수 있다 |
+| 킬 랭킹 | EventWorker가 쓰고 Backend가 읽음 | Redis Sorted Set. 통계의 복사본이라 디스크에 두지 않는다 |
 
 규칙은 DB 제약으로도 지킨다. 티켓 소비는 조건부 UPDATE, 캐릭터당 활성 세션 하나는 부분 유일 인덱스, 소유권 변경은 같은 트랜잭션. 코드가 지키던 나머지 규칙도 제약으로 건다. 캐릭터를 월드·계정과 함께 가리키는 행은 복합 외래 키로 그 캐릭터의 것과 맞아야 하고, 소유 Zone은 같은 월드·Zone ID의 lease다. 원장 행은 재화 이동이거나 아이템 이동 중 하나로 온전해야 하고, 칸 번호·세대·템플릿 id의 범위와 요청 범위·해시 길이가 정해져 있다. Backend 코드를 거치지 않은 쓰기도 이름 붙은 제약에서 거절되는지 통합 테스트가 확인한다.
 
@@ -374,7 +378,8 @@ EventWorker가 Outbox를 Kafka의 `game.character-events.v1`로 내보낸다. �
 - **한 번만**: Inbox 행 삽입과 통계 갱신이 한 트랜잭션이고, 커밋한 뒤에 Kafka 오프셋을 커밋한다. 그 사이에 죽어 같은 메시지가 다시 와도 Inbox의 기본 키가 막는다.
 - **막히지 않게**: 디코딩할 수 없거나 DB 제약이 거절하는 메시지는 실패 토픽(`game.failed-events.v1`)으로 보내고 넘어간다. DB나 브로커에 닿지 않을 때만 같은 메시지를 잠시 뒤 다시 읽는다.
 - **읽는 곳**: Backend의 `GET /api/v1/worlds/{w}/characters/{c}/stats`. 자기 캐릭터만 보이고, 자산보다 조금 늦게 따라온다(결국 일치). 응답의 `asOfEventSeq`가 어디까지 반영됐는지 알려 준다.
-- **킬 랭킹**: 같은 통계로 상위 N명(`GET /api/v1/worlds/{w}/rankings/kills?top=N`)과 한 캐릭터의 순위(`GET /api/v1/worlds/{w}/characters/{c}/rank`)를 답한다. 동점은 캐릭터 ID가 낮은 쪽이 앞이다. 지금은 PostgreSQL 인덱스로 읽는다. 상위 N명은 규모와 무관하지만, 순위는 앞선 행을 세므로 캐릭터 수에 비례한다([보고서 01](docs/reports/01-ranking.md)).
+- **킬 랭킹**: 상위 N명(`GET /api/v1/worlds/{w}/rankings/kills?top=N`)과 한 캐릭터의 순위(`GET /api/v1/worlds/{w}/characters/{c}/rank`)를 답한다. 동점은 캐릭터 ID가 낮은 쪽이 앞이다. PostgreSQL에서는 순위가 앞선 행을 세므로 캐릭터 수에 비례했다. 그래서 EventWorker가 통계의 복사본을 Redis Sorted Set에 두고, Backend는 거기서 읽는다(ADR-0009). 점수는 처치 수 그대로이고, 동점 순서는 멤버 인코딩(`long.MaxValue − ID`, 19자리)으로 PostgreSQL과 같게 맞췄다. 키에는 인코딩 버전이 있다.
+- **복사본 유지**: 소비자가 통계를 커밋한 뒤 처치 합계를 `GT`로 쓴다(늦은 옛 값이 새 값을 낮추지 못한다). 시작할 때, 키가 없을 때, 쓰기가 실패했을 때 그 월드를 통계에서 다시 채운다. Backend는 키나 캐릭터가 없거나 Redis에 닿지 않으면 PostgreSQL로 답한다. 그래서 Redis의 상태는 답의 속도만 바꾼다. 왜 이렇게 했는지는 [설계 노트 09](docs/design-notes/09-ranking-redis.md), 숫자는 [보고서 01](docs/reports/01-ranking.md)에 있다.
 
 왜 이렇게 나눴는지, 순서와 중복을 어떻게 증명했는지는 [설계 노트 08](docs/design-notes/08-events-and-read-models.md)에 있다.
 
@@ -428,6 +433,7 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 - 봇의 월드 모델이 센 모순이 0이다. 모순은 모르는 엔티티의 갱신, 이미 보이는 엔티티의 재등장, 자기 자신이 시야에 등장, 입력 순번이나 서버 틱의 역행, 입장 전 스냅샷, 다른 엔티티를 자기라고 부르는 스냅샷, 보낸 적 없거나 이미 답을 받은 요청의 결과, 버전이 뒤로 간 인벤토리다.
 - 끝난 뒤 이 실행의 계정에 열린 세션이 0이다.
 - 이 실행의 트랜잭션이 쓴 Outbox 이벤트가 모두 Kafka로 발행되고, 통계 소비자가 각각 한 번씩 적용한다.
+- 이 실행이 건드린 캐릭터마다 Redis 킬 랭킹의 점수가 통계의 처치 수와 같다.
 - 프로필이 처치나 획득을 요구하면 그만큼의 처치 영수증과 원장의 획득 행이 Backend DB에 있다. 봇이 본 것만으로는 판정하지 않는다.
 
 스크립트는 같은 포트에 다른 스택이 떠 있으면 시작하지 않는다. 각 프로세스는 고정 대기 대신 준비 로그를 기다리고, Zone 시드를 고정해 실행을 재현할 수 있다.
@@ -436,7 +442,7 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 
 **획득 end-to-end**: `looters.toml` 프로필은 획득 봇 5개와 배회 봇 1개를 40초 동안 돌린다. 처치와 함께 정해진 수 이상의 획득이 원장에 기록되고, 획득 결과가 요청마다 한 번씩만 오며, 인벤토리 버전이 뒤로 가지 않아야 통과한다.
 
-**K3s end-to-end**: `scripts/e2e-k3s.sh`는 K3s에 올린 스택에 같은 봇 프로필을 돌리고, 위와 같은 DB 검사(남은 세션, 처치·획득 기록, 이벤트 발행·적용)를 클러스터 안의 PostgreSQL에서 한다. 검사는 `scripts/lib/e2e.sh` 하나를 두 스크립트가 함께 쓴다.
+**K3s end-to-end**: `scripts/e2e-k3s.sh`는 K3s에 올린 스택에 같은 봇 프로필을 돌리고, 위와 같은 검사(남은 세션, 처치·획득 기록, 이벤트 발행·적용, 랭킹 복사본)를 클러스터 안의 PostgreSQL에서 한다. 검사는 `scripts/lib/e2e.sh` 하나를 두 스크립트가 함께 쓴다.
 
 **정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭·표보다 많은 드롭 거절, 만료 티켓 거절, 유니크 인덱스에서 진 Redeem도 티켓은 소비, 같은 획득 요청 두 개가 동시에 와도 효과는 한 번, 재입장 뒤 처치 재시도는 반향, lease가 끝난 Zone의 지급 거절, 재시작한 Zone이 옛 인스턴스를 대신함.
 
@@ -446,8 +452,9 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 
 | 측정 | 결과 | 보고서 |
 |---|---|---|
-| 킬 랭킹 상위 20 (PostgreSQL, 캐릭터 100만) | 13,832 req/s, p99 2.35 ms. 규모와 무관 | [01](docs/reports/01-ranking.md) |
-| 최하위 캐릭터의 순위 (PostgreSQL) | 10만: 615 req/s, p99 40 ms → 100만: 62 req/s, p99 325 ms. 캐릭터 수에 비례 | [01](docs/reports/01-ranking.md) |
+| 킬 랭킹 상위 20 (캐릭터 100만) | PostgreSQL 13,469 req/s, p99 2.5 ms / Redis 15,619 req/s, p99 2.0 ms. 둘 다 규모와 무관 | [01](docs/reports/01-ranking.md) |
+| 최하위 캐릭터의 순위 (PostgreSQL) | 10만: 679 req/s, p99 36 ms → 100만: 62 req/s, p99 344 ms. 캐릭터 수에 비례 | [01](docs/reports/01-ranking.md) |
+| 최하위 캐릭터의 순위 (Redis Sorted Set) | 10만·100만 모두 약 47,000 req/s, p99 0.88 ms. 100만에서 PostgreSQL의 약 760배 | [01](docs/reports/01-ranking.md) |
 
 ## 기술 선택
 
@@ -457,13 +464,14 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 | C# / .NET 10, ASP.NET Core, Npgsql + Dapper | 인증·API·트랜잭션. SQL을 그대로 리뷰한다(ADR-0007) |
 | Protobuf, gRPC | C++와 C#의 단일 계약, 타입 있는 내부 호출(ADR-0004) |
 | PostgreSQL | 티켓·세션·소유권을 한 트랜잭션과 제약으로 검증 |
+| Redis 7.4(Sorted Set), StackExchange.Redis | 킬 랭킹의 "내 순위"를 캐릭터 수와 무관하게 답한다. 잰 병목에만 쓰고, 복사본으로 둔다(ADR-0009) |
 | Kafka(KRaft 단일 노드), Confluent.Kafka | 확정 이벤트를 소비자에게 순서대로 전한다. 캐릭터가 키라 한 캐릭터의 이벤트는 한 파티션에 순번대로 쌓인다 |
 
 라이브러리 버전은 vcpkg baseline(C++)과 `Directory.Packages.props`·잠금 파일(.NET), 도구 버전은 CI 설정과 `global.json`에 고정한다.
 
 ## 빌드
 
-지금은 미니 PC 한 대에서 PostgreSQL과 Kafka를 compose로 띄우고 나머지는 호스트 프로세스로 돌린다. 프로세스마다 컨테이너 이미지도 있다(`deploy/docker/`). C++ 셋은 개발 장비와 같은 Rocky Linux 9·gcc-toolset-14·vcpkg baseline에서 release 프리셋으로 빌드하고, 고정 uid의 비루트로 실행한다. .NET 셋은 잠금 파일로 복원해 공식 런타임 이미지에 올린다. 설정과 비밀 값은 이미지에 넣지 않는다.
+지금은 미니 PC 한 대에서 PostgreSQL·Kafka·Redis를 compose로 띄우고 나머지는 호스트 프로세스로 돌린다. 프로세스마다 컨테이너 이미지도 있다(`deploy/docker/`). C++ 셋은 개발 장비와 같은 Rocky Linux 9·gcc-toolset-14·vcpkg baseline에서 release 프리셋으로 빌드하고, 고정 uid의 비루트로 실행한다. .NET 셋은 잠금 파일로 복원해 공식 런타임 이미지에 올린다. 설정과 비밀 값은 이미지에 넣지 않는다.
 
 C++ 프로세스(Zone, Gateway, 봇)의 설정은 TOML과 환경 변수로 읽고 시작할 때 검증한다. 기본값은 키가 없을 때만 쓴다. 타입이 틀린 값, 잘못된 환경 변수, 0이 되면 안 되는 한도와 간격은 시작을 막는다. Backend는 설정 파일에 연결 문자열과 서명 키를 두지 않는다. 환경 변수나 user-secrets로 주고, 빠지면 시작하지 않는다. 내부 gRPC(입장·lease·경제)는 호출자 인증이 아직 없어서 기본으로 127.0.0.1에서만 듣는다. Zone·Gateway가 다른 호스트에 있는 배포는 `Kestrel__Endpoints__Grpc__Url`로 바꾼다.
 
@@ -472,6 +480,7 @@ flowchart LR
     subgraph compose["docker compose"]
         PG[("PostgreSQL 17")]
         KF[("Kafka 3.9 :9092")]
+        RD[("Redis 7.4 :6379")]
     end
     subgraph host["호스트 프로세스 (scripts/dev-stack.sh, scripts/e2e-local.sh)"]
         BE["Backend<br/>:5100 HTTP · 127.0.0.1:5101 gRPC"]
@@ -483,6 +492,8 @@ flowchart LR
     BE --> PG
     EW --> PG
     EW --> KF
+    EW --> RD
+    BE --> RD
     GW --> ZA
     GW --> BE
     ZA --> BE
@@ -496,6 +507,7 @@ flowchart LR
     subgraph data["namespace data (game에서만 접근)"]
         KPG[("postgres StatefulSet")]
         KKF[("kafka StatefulSet")]
+        KRD[("redis StatefulSet")]
     end
     subgraph game["namespace game"]
         KMG["migrator Job"]
@@ -512,6 +524,8 @@ flowchart LR
     KBE --> KPG
     KEW --> KPG
     KEW --> KKF
+    KEW --> KRD
+    KBE --> KRD
     KMG --> KPG
 ```
 
@@ -557,10 +571,10 @@ SA_ZONE__DEV__LOCAL_BOTS=200 build/dev/server/cpp/zone/server/zone_server --conf
 ```
 contracts/         Protobuf 계약 (game / backend / events / internal)
 server/cpp/        common, gateway, zone(sim + data + server)
-server/dotnet/     Contracts, GameBackend, EventWorker, Migrator, tests
+server/dotnet/     Contracts, GameBackend, EventWorker, Migrator, Shared(두 프로세스의 약속: 집합 이름, Redis 키), tests
 database/          SQL 마이그레이션
 game-data/         맵·이동·전투·경제 규칙, 클래스·스킬·몬스터, 아이템·드롭, 콘텐츠 버전
-deploy/compose/    로컬 PostgreSQL·Kafka와 프로세스 설정
+deploy/compose/    로컬 PostgreSQL·Kafka·Redis와 프로세스 설정
 deploy/docker/     프로세스별 컨테이너 이미지(C++ 셋, .NET 셋)
 deploy/k3s/        단일 노드 K3s 매니페스트(kustomize: data, migrate, game)
 tools/loadgen/     봇 두뇌(bot/)와 네트워크 봇 클라이언트(client/, 프로필)

@@ -4,16 +4,12 @@ using Sa.GameBackend.Common;
 
 namespace Sa.GameBackend.Modules.Rankings;
 
-internal sealed record RankingEntry(long Rank, CharacterId CharacterId, string Name, long Kills);
-
-internal sealed record CharacterRank(long Rank, long Kills);
-
 /// <summary>
 /// Kill ranking over the character statistics read model (<c>character_projections</c>, kept by
 /// the EventWorker from confirmed events). Ties break by the lower character id, so ranks are total
 /// and stable. Both queries walk the (world, kills, character) index.
 /// </summary>
-internal sealed class RankingRepository(NpgsqlDataSource dataSource)
+internal sealed class RankingRepository(NpgsqlDataSource dataSource) : IRankingSource
 {
     private const string TopSql = """
         SELECT row_number() OVER (ORDER BY p.kills DESC, p.character_id) AS "Rank",
@@ -40,6 +36,11 @@ internal sealed class RankingRepository(NpgsqlDataSource dataSource)
         GROUP BY mine.kills
         """;
 
+    private const string NamesSql = """
+        SELECT character_id AS "CharacterId", name AS "Name"
+        FROM game.characters WHERE world_id = @WorldId AND character_id = ANY(@Ids)
+        """;
+
     public async Task<IReadOnlyList<RankingEntry>> TopAsync(WorldId worldId, int top, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
@@ -48,11 +49,21 @@ internal sealed class RankingRepository(NpgsqlDataSource dataSource)
         return rows.ToList();
     }
 
-    /// <summary>Null when the character has no statistics row yet: nothing recorded, so no rank.</summary>
     public async Task<CharacterRank?> RankOfAsync(WorldId worldId, CharacterId characterId, CancellationToken cancellationToken)
     {
         await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
         return await connection.QuerySingleOrDefaultAsync<CharacterRank>(
             new CommandDefinition(RankSql, new { WorldId = worldId, CharacterId = characterId }, cancellationToken: cancellationToken));
     }
+
+    /// <summary>Names of the given characters of one world, for a page read from elsewhere.</summary>
+    public async Task<IReadOnlyDictionary<CharacterId, string>> NamesAsync(WorldId worldId, IReadOnlyList<CharacterId> characterIds, CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        IEnumerable<NameRow> rows = await connection.QueryAsync<NameRow>(new CommandDefinition(
+            NamesSql, new { WorldId = worldId, Ids = characterIds.Select(id => id.Value).ToArray() }, cancellationToken: cancellationToken));
+        return rows.ToDictionary(r => r.CharacterId, r => r.Name);
+    }
+
+    private sealed record NameRow(CharacterId CharacterId, string Name);
 }

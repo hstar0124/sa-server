@@ -10,11 +10,13 @@
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Dapper" />
+    <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="Confluent.Kafka" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Contracts/Contracts.csproj" />
+    <ProjectReference Include="../Shared/Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>

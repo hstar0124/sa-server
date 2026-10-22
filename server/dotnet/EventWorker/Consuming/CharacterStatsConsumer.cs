@@ -4,7 +4,9 @@ using Microsoft.Extensions.Options;
 using Npgsql;
 using Sa.Events.V1;
 using Sa.EventWorker.Publishing;
+using Sa.EventWorker.Ranking;
 using Sa.EventWorker.Topics;
+using StackExchange.Redis;
 
 namespace Sa.EventWorker.Consuming;
 
@@ -17,6 +19,7 @@ namespace Sa.EventWorker.Consuming;
 /// </summary>
 internal sealed partial class CharacterStatsConsumer(
     ProjectionStore store,
+    RankingWriter ranking,
     IEventProducer producer,
     IOptions<KafkaOptions> kafka,
     IOptions<ConsumerOptions> options,
@@ -27,12 +30,15 @@ internal sealed partial class CharacterStatsConsumer(
     private long _applied;
     private long _duplicates;
     private long _rejected;
+    private long _rankingFailures;
 
     public long Applied => Interlocked.Read(ref _applied);
 
     public long Duplicates => Interlocked.Read(ref _duplicates);
 
     public long Rejected => Interlocked.Read(ref _rejected);
+
+    public long RankingFailures => Interlocked.Read(ref _rankingFailures);
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
         // Consume() blocks; keep it off the thread pool's shared workers.
@@ -100,9 +106,14 @@ internal sealed partial class CharacterStatsConsumer(
 
         try
         {
-            ApplyOutcome outcome = await store.ApplyAsync(options.Value.GroupId, envelope, ct);
-            Interlocked.Increment(ref outcome == ApplyOutcome.Duplicate ? ref _duplicates : ref _applied);
-            return outcome;
+            ApplyResult result = await store.ApplyAsync(options.Value.GroupId, envelope, ct);
+            Interlocked.Increment(ref result.Outcome == ApplyOutcome.Duplicate ? ref _duplicates : ref _applied);
+            if (result.Kills is { } kills)
+            {
+                await RankAsync((long)envelope.WorldId, (long)envelope.AggregateId, kills);
+            }
+
+            return result.Outcome;
         }
         catch (InvalidProtocolBufferException ex)
         {
@@ -112,6 +123,22 @@ internal sealed partial class CharacterStatsConsumer(
         {
             // A constraint refused the row (an unknown character, a negative count): retrying cannot help.
             return await RejectAsync(message.Key, envelope, $"{ex.ConstraintName}: {ex.MessageText}", ct);
+        }
+    }
+
+    // The statistics are committed by now, so the offset is committed whatever happens here. A lost
+    // Redis write marks the world behind, and the reconciler refills it from the statistics.
+    private async Task RankAsync(long worldId, long characterId, long kills)
+    {
+        try
+        {
+            await ranking.UpdateAsync(worldId, characterId, kills);
+        }
+        catch (RedisException ex)
+        {
+            Interlocked.Increment(ref _rankingFailures);
+            ranking.MarkBehind(worldId);
+            LogRankingFailed(characterId, ex.Message);
         }
     }
 
@@ -131,6 +158,9 @@ internal sealed partial class CharacterStatsConsumer(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "message at {Offset} not applied: {Reason}; retrying")]
     private partial void LogRetry(string offset, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "ranking update for character {CharacterId} failed: {Reason}; the reconciler refills the world")]
+    private partial void LogRankingFailed(long characterId, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "event {EventId} ({EventType}) rejected to the failed topic: {Reason}")]
     private partial void LogRejected(string eventId, string eventType, string reason);

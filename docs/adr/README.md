@@ -12,3 +12,4 @@
 | [0006](0006-bot-client-first.md) | 시드 기반 봇 클라이언트를 첫 클라이언트로 | Accepted |
 | [0007](0007-backend-data-access-and-modules.md) | Backend는 단일 어셈블리 모듈형 모놀리스, Npgsql+Dapper, SQL 마이그레이션 | Accepted |
 | [0008](0008-pure-simulation-core.md) | Zone 시뮬레이션은 시계·난수 주입형 순수 라이브러리 | Accepted |
+| [0009](0009-redis-only-for-measured-bottlenecks.md) | Redis는 측정된 병목(랭킹의 내 순위)에만, 복사본으로 | Accepted |

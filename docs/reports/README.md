@@ -4,4 +4,4 @@
 
 | 보고서 | 질문 |
 |---|---|
-| [01 킬 랭킹](01-ranking.md) | PostgreSQL만으로 랭킹이 버티는가, 어디서 무너지는가 |
+| [01 킬 랭킹](01-ranking.md) | PostgreSQL만으로 랭킹이 버티는가, 어디서 무너지는가, Redis Sorted Set으로 무엇이 바뀌나 |

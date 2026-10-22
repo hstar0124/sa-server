@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts or stops the local stack for interactive use (viewer, manual testing):
-# PostgreSQL and Kafka in compose, then the EventWorker, Backend, Zone A and Gateway as host processes.
+# PostgreSQL, Kafka and Redis in compose, then the EventWorker, Backend, Zone A and Gateway as host processes.
 #
 #   scripts/dev-stack.sh up | down | status
 #
@@ -78,7 +78,7 @@ down() {
       rm -f "$DEV_DIR/$name.pid"
     fi
   done
-  echo "stack down (PostgreSQL and Kafka left running in compose)"
+  echo "stack down (PostgreSQL, Kafka and Redis left running in compose)"
 }
 
 status() {

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Options;
 using Sa.Events.V1;
+using Aggregate = Sa.Shared.Events.AggregateTypes;
 
 namespace Sa.EventWorker.Topics;
 
@@ -10,12 +11,9 @@ namespace Sa.EventWorker.Topics;
 /// </summary>
 internal sealed class TopicRouting(IOptions<KafkaOptions> options)
 {
-    /// <summary>The aggregate type the Backend writes for character events (its <c>EventAggregate.Character</c>).</summary>
-    public const string CharacterAggregate = "character";
-
     private readonly Dictionary<string, string> _topics = new(StringComparer.Ordinal)
     {
-        [CharacterAggregate] = options.Value.CharacterEvents.Name,
+        [Aggregate.Character] = options.Value.CharacterEvents.Name,
     };
 
     /// <summary>The aggregate types the publisher sends; rows of any other type are a programming error and stay unpublished.</summary>
