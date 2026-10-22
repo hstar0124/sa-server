@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package sa.backend.v1;
 
+import "backend/authority.proto";
 import "game/common.proto";
 
 option csharp_namespace = "Sa.Backend.V1";
@@ -20,12 +21,6 @@ service Economy {
   rpc PickupItem(PickupItemRequest) returns (PickupItemResponse);
   // Inventory and wallet, read by the zone on entry and by clients for their UI.
   rpc GetCharacterAssets(GetCharacterAssetsRequest) returns (GetCharacterAssetsResponse);
-}
-
-// Which zone process claims to act for the character, and under which ownership generation.
-message ZoneAuthority {
-  bytes zone_instance_id = 1;
-  uint64 owner_epoch = 2;
 }
 
 message DropRoll {
