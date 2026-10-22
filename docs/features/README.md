@@ -46,6 +46,7 @@
 | [40](40-backend-ranking-baseline.md) | 킬 랭킹 기준선: PostgreSQL로 리더보드와 내 순위, 그리고 측정 | 7 | 0.5.0 |
 | [41](41-redis-ranking.md) | Redis 킬 랭킹: 측정된 병목만 옮기고, 복사본은 늘 통계로 되돌린다 | 7 | 0.5.0 |
 | [42](42-transfer-schema-contracts.md) | 지역 이전의 바탕: ADR-0010, 계약, 체크포인트·이전 스키마, 포털과 두 번째 맵 | 8 | |
+| [43](43-backend-transfer.md) | Backend 이전: 체크포인트, 한 트랜잭션의 Zone 이전, 체크포인트를 보는 배치 | 8 | |
 
 ## 형식
 

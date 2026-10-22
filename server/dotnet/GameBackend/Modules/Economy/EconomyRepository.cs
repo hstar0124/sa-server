@@ -11,9 +11,6 @@ using Sa.GameBackend.Infrastructure.Outbox;
 
 namespace Sa.GameBackend.Modules.Economy;
 
-/// <summary>Which zone process claims to act for a character, and under which ownership generation (see README "소유권과 lease").</summary>
-internal sealed record ZoneAuthority(InstanceId ZoneInstanceId, OwnerEpoch OwnerEpoch);
-
 internal sealed record DropRoll(ItemTemplateId ItemTemplateId, float X, float Y);
 
 internal sealed record RecordKillCommand(

@@ -14,6 +14,7 @@ internal static class WorldDirectoryModule
         services.AddSingleton<IValidateOptions<WorldDirectoryOptions>, WorldDirectoryOptionsValidator>();
 
         services.AddSingleton<WorldDirectoryRepository>();
+        services.AddSingleton<PlacementRepository>();
         services.AddSingleton<EntryTicketIssuer>();
         return services;
     }
