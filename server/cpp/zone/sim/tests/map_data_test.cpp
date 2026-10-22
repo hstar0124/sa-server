@@ -72,4 +72,48 @@ TEST(MovementRules, LeaveRadiusMustNotBeSmallerThanEnterRadius) {
 }
 
 }  // namespace
+TEST(MapData, PortalsNeedAnIdRadiusDestinationAndAPositionInsideTheMap) {
+    MapData map = test::OpenField();
+    map.portals.push_back(Portal{.id = PortalId{1},
+                                 .position = {99.0F, 50.0F},
+                                 .radius_m = 3.0F,
+                                 .to_zone = common::ZoneId{2},
+                                 .arrival = {5.0F, 50.0F}});
+    EXPECT_TRUE(map.Validate().has_value());
+    EXPECT_EQ(map.FindPortal(PortalId{1})->to_zone, common::ZoneId{2});
+    EXPECT_EQ(map.FindPortal(PortalId{9}), nullptr);
+
+    MapData duplicate = map;
+    duplicate.portals.push_back(map.portals.front());
+    EXPECT_FALSE(duplicate.Validate().has_value());
+
+    MapData outside = map;
+    outside.portals.front().position = {150.0F, 50.0F};
+    EXPECT_FALSE(outside.Validate().has_value());
+
+    MapData flat = map;
+    flat.portals.front().radius_m = 0.0F;
+    EXPECT_FALSE(flat.Validate().has_value());
+
+    MapData unmeasured = map;  // `radius <= 0` is false for NaN; the check must not be written so
+    unmeasured.portals.front().radius_m = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FALSE(unmeasured.Validate().has_value());
+}
+
+TEST(MapData, APortalMustStandWhereABodyCanReachIt) {
+    constexpr float kBodyRadius = 0.5F;
+    constexpr float kRingRadius = 1.0F;
+    MapData map = test::OpenField();
+    map.portals.push_back(Portal{.id = PortalId{1},
+                                 .position = {50.0F, 25.0F},
+                                 .radius_m = 3.0F,
+                                 .to_zone = common::ZoneId{2},
+                                 .arrival = {5.0F, 50.0F}});
+    EXPECT_TRUE(map.ValidateWalkable(kBodyRadius, kRingRadius).has_value());
+
+    map.obstacles.push_back(common::Aabb{.min = {45.0F, 20.0F}, .max = {55.0F, 30.0F}});
+    ASSERT_TRUE(map.Validate().has_value());
+    EXPECT_FALSE(map.ValidateWalkable(kBodyRadius, kRingRadius).has_value());
+}
+
 }  // namespace sa::zone::sim

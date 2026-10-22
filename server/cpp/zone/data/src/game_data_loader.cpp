@@ -59,6 +59,26 @@ std::expected<sim::MapData, LoadError> MapFromTable(const toml::table& table) {
     if (!monsters) {
         return std::unexpected(monsters.error());
     }
+    auto portals =
+        ForEachTable(table, "portals", [&](const toml::table& t) -> std::expected<void, LoadError> {
+            const auto id = RequireU32(t, "id");
+            const auto position = RequirePair(t, "position");
+            const auto radius = RequireFloat(t, "radius_m");
+            const auto to_zone = RequireU32(t, "to_zone_id");
+            const auto arrival = RequirePair(t, "arrival");
+            if (auto err = FirstError(id, position, radius, to_zone, arrival)) {
+                return std::unexpected(LoadError{"portals: " + err->message});
+            }
+            map.portals.push_back(sim::Portal{.id = sim::PortalId{*id},
+                                              .position = {(*position)[0], (*position)[1]},
+                                              .radius_m = *radius,
+                                              .to_zone = common::ZoneId{*to_zone},
+                                              .arrival = {(*arrival)[0], (*arrival)[1]}});
+            return {};
+        });
+    if (!portals) {
+        return std::unexpected(portals.error());
+    }
     if (auto valid = map.Validate(); !valid) {
         return std::unexpected(LoadError{"invalid map: " + valid.error()});
     }
