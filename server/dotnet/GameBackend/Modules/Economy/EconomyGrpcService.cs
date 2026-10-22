@@ -2,6 +2,7 @@ using Google.Protobuf;
 using Grpc.Core;
 using Sa.Backend.V1;
 using Sa.GameBackend.Common;
+using ZoneAuthority = Sa.GameBackend.Common.ZoneAuthority;
 
 namespace Sa.GameBackend.Modules.Economy;
 
@@ -10,7 +11,7 @@ internal sealed class EconomyGrpcService(EconomyRepository repository) : Sa.Back
 {
     public override async Task<RecordKillResponse> RecordKill(RecordKillRequest request, ServerCallContext context)
     {
-        if (!KillId.TryFrom(request.KillId.Span, out KillId killId) || !TryAuthority(request.Authority, out ZoneAuthority authority))
+        if (!KillId.TryFrom(request.KillId.Span, out KillId killId) || !ZoneAuthority.TryFrom(request.Authority, out ZoneAuthority authority))
         {
             throw new RpcException(new Status(StatusCode.InvalidArgument, "kill_id and authority.zone_instance_id must be 16 bytes"));
         }
@@ -46,7 +47,7 @@ internal sealed class EconomyGrpcService(EconomyRepository repository) : Sa.Back
     {
         if (!RequestId.TryFrom(request.RequestId.Span, out RequestId requestId)
             || !ItemInstanceId.TryFrom(request.ItemInstanceId.Span, out ItemInstanceId itemId)
-            || !TryAuthority(request.Authority, out ZoneAuthority authority))
+            || !ZoneAuthority.TryFrom(request.Authority, out ZoneAuthority authority))
         {
             throw new RpcException(new Status(StatusCode.InvalidArgument, "request_id, item_instance_id and authority.zone_instance_id must be 16 bytes"));
         }
@@ -75,18 +76,6 @@ internal sealed class EconomyGrpcService(EconomyRepository repository) : Sa.Back
         response.Items.AddRange(assets.Items.Select(Map));
         response.Wallet.AddRange(assets.Wallet.Select(w => new Sa.Backend.V1.WalletEntry { Currency = w.Currency, Balance = (ulong)w.Balance }));
         return response;
-    }
-
-    private static bool TryAuthority(Sa.Backend.V1.ZoneAuthority? proto, out ZoneAuthority authority)
-    {
-        authority = null!;
-        if (proto is null || !InstanceId.TryFrom(proto.ZoneInstanceId.Span, out InstanceId zone))
-        {
-            return false;
-        }
-
-        authority = new ZoneAuthority(zone, new OwnerEpoch((long)proto.OwnerEpoch));
-        return true;
     }
 
     private static Sa.Backend.V1.InventoryItem Map(InventoryItem item) => new()
