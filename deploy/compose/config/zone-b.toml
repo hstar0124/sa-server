@@ -27,7 +27,7 @@ retry_delay_ms = 500
 
 # Paths are relative to the working directory (repository root in development, /app in containers).
 [content]
-map_file = "game-data/maps/zone-1.toml"
+map_file = "game-data/maps/zone-2.toml"
 movement_rules_file = "game-data/rules/movement.toml"
 economy_rules_file = "game-data/rules/economy.toml"
 dir = "game-data"

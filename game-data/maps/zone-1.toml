@@ -23,6 +23,15 @@ spawn_points = [
   [180.0, 180.0],
 ]
 
+# Portals to other zones: stand within radius_m and send ChangeZone(portal_id). The character
+# appears at `arrival` in the destination map.
+[[portals]]
+id = 1
+position = [196.0, 100.0]
+radius_m = 4.0
+to_zone_id = 2
+arrival = [8.0, 100.0]
+
 # Monster spawn points: template, home position, and how many share that home.
 [[monster_spawns]]
 template_id = 101
