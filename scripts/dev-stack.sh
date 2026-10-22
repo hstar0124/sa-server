@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Starts or stops the local stack for interactive use (viewer, manual testing):
-# PostgreSQL, Kafka and Redis in compose, then the EventWorker, Backend, Zone A and Gateway as host processes.
+# PostgreSQL, Kafka and Redis in compose, then the EventWorker, Backend, Zone A, Zone B and Gateway
+# as host processes.
 #
 #   scripts/dev-stack.sh up | down | status
 #
@@ -31,7 +32,7 @@ wait_log() {  # file pattern
 
 up() {
   # A second `up` would orphan the first set of processes and fail to bind anyway.
-  for name in eventworker backend zone-a gateway; do
+  for name in eventworker backend zone-a zone-b gateway; do
     if running "$name"; then echo "$name is already running; run '$0 down' first"; exit 1; fi
   done
   load_env
@@ -53,20 +54,23 @@ up() {
   echo $! > "$DEV_DIR/backend.pid"
   for _ in $(seq 1 60); do curl -sf localhost:5100/health/ready >/dev/null 2>&1 && break; sleep 0.5; done
   curl -sf localhost:5100/health/ready >/dev/null || { echo "backend not ready"; tail -20 "$DEV_DIR/backend.log"; exit 1; }
-  "$BUILD/server/cpp/zone/server/zone_server" --config deploy/compose/config/zone-a.toml >"$DEV_DIR/zone-a.log" 2>&1 &
-  echo $! > "$DEV_DIR/zone-a.pid"
-  wait_log "$DEV_DIR/zone-a.log" "zone lease acquired"
+  for zone in zone-a zone-b; do
+    "$BUILD/server/cpp/zone/server/zone_server" --config "deploy/compose/config/$zone.toml" >"$DEV_DIR/$zone.log" 2>&1 &
+    echo $! > "$DEV_DIR/$zone.pid"
+    wait_log "$DEV_DIR/$zone.log" "zone lease acquired"
+  done
   SA_GATEWAY__TICKET__SIGNING_KEY_BASE64="$TICKET_KEY" \
     "$BUILD/server/cpp/gateway/gateway" --config deploy/compose/config/gateway.toml >"$DEV_DIR/gateway.log" 2>&1 &
   echo $! > "$DEV_DIR/gateway.pid"
-  wait_log "$DEV_DIR/gateway.log" "link ready"
-  echo "stack up. logs in $DEV_DIR. backend :5100/:5101, gateway tcp :7777 ws :7778, zone link :7801, kafka :9092"
+  wait_log "$DEV_DIR/gateway.log" "zone 1 link ready"
+  wait_log "$DEV_DIR/gateway.log" "zone 2 link ready"
+  echo "stack up. logs in $DEV_DIR. backend :5100/:5101, gateway tcp :7777 ws :7778, zone links :7801 :7802, kafka :9092"
 }
 
 down() {
-  # Gateway first so it ends sessions at the Backend, then zone, then backend, and the EventWorker
-  # last so it publishes what they wrote.
-  for name in gateway zone-a backend eventworker; do
+  # Gateway first so it ends sessions at the Backend, then the zones, then backend, and the
+  # EventWorker last so it publishes what they wrote.
+  for name in gateway zone-a zone-b backend eventworker; do
     if [ -f "$DEV_DIR/$name.pid" ]; then
       pid=$(cat "$DEV_DIR/$name.pid")
       kill -TERM "$pid" 2>/dev/null || true
@@ -82,7 +86,7 @@ down() {
 }
 
 status() {
-  for name in eventworker backend zone-a gateway; do
+  for name in eventworker backend zone-a zone-b gateway; do
     if [ -f "$DEV_DIR/$name.pid" ] && kill -0 "$(cat "$DEV_DIR/$name.pid")" 2>/dev/null; then echo "$name: running"; else echo "$name: stopped"; fi
   done
 }

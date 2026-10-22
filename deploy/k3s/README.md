@@ -14,7 +14,7 @@
 | `game` | `backend` Deployment, Service `backend`(5100/5101), `backend-public`(NodePort 30500) | HTTP는 노드 밖으로, gRPC는 클러스터 안으로만 |
 | `game` | NetworkPolicy `backend-grpc-from-game-only` | 호출자 인증이 아직 없는 내부 gRPC(5101)는 같은 네임스페이스의 파드만 |
 | `game` | `eventworker` Deployment | Outbox 발행자와 통계 소비자. 발행자 락이 있어 롤링 업데이트로 잠깐 둘이 떠도 안전하다 |
-| `game` | `zone-a` Deployment(Recreate), Service `zone-a`(7801) | 절대 둘이 뜨지 않는다. 재시작은 새 인스턴스 ID |
+| `game` | `zone-a`·`zone-b` Deployment(Recreate), Service `zone-a`(7801)·`zone-b`(7802) | 초원과 고원. 각각 절대 둘이 뜨지 않는다. 재시작은 새 인스턴스 ID. 캐릭터는 포털로 오간다 |
 | `game` | `gateway` Deployment(Recreate), Service `gateway`(NodePort 30777 TCP, 30778 WebSocket) | 클라이언트가 닿는 유일한 게임 프로세스 |
 
 - **설정**: Zone·Gateway의 TOML은 `deploy/compose/config/`의 파일 그대로다. 매니페스트는 주소만 환경 변수로 바꾼다(`SA_ZONE__BACKEND__ADDRESS`, 배열 항목은 `SA_GATEWAY__ZONES__0__ADDRESS`처럼 번호로). ConfigMap 이름에 내용 해시가 붙어, 파일이 바뀌면 그 파일을 쓰는 파드가 다시 뜬다. 디렉터리 밖 파일을 읽으므로 렌더링에 `--load-restrictor LoadRestrictionsNone`이 필요하다.
@@ -61,4 +61,4 @@ scripts/k3s-stack.sh down
 
 ## 아직 없는 것
 
-Zone B, 관측(Prometheus·Grafana), 외부 백업·복원.
+관측(Prometheus·Grafana), 외부 백업·복원.
