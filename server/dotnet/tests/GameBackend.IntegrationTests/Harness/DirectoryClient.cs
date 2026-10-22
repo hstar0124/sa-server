@@ -44,6 +44,28 @@ internal sealed class DirectoryClient : IDisposable
         return await _client.RedeemEntryTicketAsync(request);
     }
 
+    public async Task<SaveCheckpointResponse> SaveCheckpointAsync(long worldId, long characterId, ZoneAuthority authority, uint zoneId, float x, float y, ulong version)
+        => await _client.SaveCheckpointAsync(new SaveCheckpointRequest
+        {
+            WorldId = (ulong)worldId,
+            CharacterId = (ulong)characterId,
+            Authority = authority,
+            ZoneId = zoneId,
+            Position = new Sa.Game.V1.Vec2 { X = x, Y = y },
+            CheckpointVersion = version,
+        });
+
+    public async Task<TransferCharacterResponse> TransferAsync(long worldId, long characterId, ZoneAuthority authority, uint toZoneId, byte[]? transferId = null, float x = 1, float y = 2)
+        => await _client.TransferCharacterAsync(new TransferCharacterRequest
+        {
+            TransferId = ByteString.CopyFrom(transferId ?? NewInstanceId()),
+            WorldId = (ulong)worldId,
+            CharacterId = (ulong)characterId,
+            Authority = authority,
+            ToZoneId = toZoneId,
+            ArrivalPosition = new Sa.Game.V1.Vec2 { X = x, Y = y },
+        });
+
     public async Task<EndSessionResponse> EndSessionAsync(byte[] sessionId, string reason = "test")
         => await _client.EndSessionAsync(new EndSessionRequest { GatewaySessionId = ByteString.CopyFrom(sessionId), Reason = reason });
 

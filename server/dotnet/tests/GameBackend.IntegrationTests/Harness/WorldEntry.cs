@@ -2,8 +2,11 @@ using Sa.Backend.V1;
 
 namespace Sa.GameBackend.IntegrationTests.Harness;
 
-/// <summary>A character that has entered the world: the zone that owns it and the epoch of that ownership.</summary>
-internal sealed record EnteredCharacter(long CharacterId, RedeemEntryTicketResponse Grant)
+/// <summary>
+/// A character that has entered the world: the zone that owns it and the epoch of that ownership,
+/// the account that owns it and the gateway session it entered with.
+/// </summary>
+internal sealed record EnteredCharacter(long CharacterId, RedeemEntryTicketResponse Grant, ApiClient Owner, byte[] SessionId)
 {
     public ZoneAuthority Authority => EconomyClient.AuthorityOf(Grant);
 }
@@ -25,8 +28,9 @@ internal static class WorldEntry
     {
         ApiClient owner = await api.AsNewAccountAsync(Unique.Username());
         (byte[] ticket, long characterId) = await owner.CreateCharacterAndEnterAsync(worldId, Unique.CharacterName());
-        RedeemEntryTicketResponse grant = await directory.RedeemAsync(ticket, gateway, DirectoryClient.NewInstanceId());
+        byte[] sessionId = DirectoryClient.NewInstanceId();
+        RedeemEntryTicketResponse grant = await directory.RedeemAsync(ticket, gateway, sessionId);
         Assert.Equal(RedeemOutcome.Granted, grant.Outcome);
-        return new EnteredCharacter(characterId, grant);
+        return new EnteredCharacter(characterId, grant, owner, sessionId);
     }
 }
