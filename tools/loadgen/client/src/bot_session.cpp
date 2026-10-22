@@ -111,12 +111,20 @@ void BotSession::OnFrame(std::span<const std::byte> payload) {
 void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
     using game::v1::ServerMessage;
     switch (message.body_case()) {
-        case ServerMessage::kWelcome:
+        case ServerMessage::kWelcome: {
+            const bool first = !world_.welcomed();
             world_.OnWelcome(message.welcome());
             report_.welcomed = true;
-            ScheduleTick();
-            SchedulePing();
+            report_.travel = world_.travel();
+            if (first) {
+                ScheduleTick();
+                SchedulePing();
+            } else {
+                departure_.reset();  // the crossing landed
+                spdlog::debug("bot {} now in zone {}", report_.index, world_.zone().value());
+            }
             return;
+        }
         case ServerMessage::kWorldSnapshot:
             world_.OnSnapshot(message.world_snapshot());
             report_.snapshots = world_.snapshots();
@@ -138,9 +146,16 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
             Stop();
             return;
         case ServerMessage::kCommandResult:
+            if (const auto status = message.command_result().status();
+                departure_ == common::RequestId{message.command_result().request_id()} &&
+                (status == game::v1::COMMAND_STATUS_ACCEPTED ||
+                 status == game::v1::COMMAND_STATUS_REJECTED)) {
+                departure_.reset();  // decided; the next attempt is a new request
+            }
             world_.OnCommandResult(message.command_result());
             report_.combat = world_.combat();
             report_.loot = world_.loot();
+            report_.travel = world_.travel();
             report_.integrity = world_.integrity();
             return;
         case ServerMessage::kCombatEvent:
@@ -184,6 +199,8 @@ void BotSession::Tick() {
                                        .self_hp = world_.self_hp(),
                                        .self_max_hp = world_.self_max_hp(),
                                        .visible = world_.Visible(),
+                                       .portals = world_.portals(),
+                                       .zone = world_.zone(),
                                        .tick = common::TickIndex{world_.server_tick()},
                                        .tick_hz = world_.simulation_hz()};
     const bot::Intent intent = brain_->Decide(observation);
@@ -224,6 +241,22 @@ void BotSession::Tick() {
         if (connection_->Send(pickup).has_value()) {
             ++report_.pickups_sent;
         }
+    }
+    if (intent.change_zone) {
+        SendChangeZone(*intent.change_zone);
+    }
+}
+
+void BotSession::SendChangeZone(common::PortalId portal) {
+    if (!departure_) {
+        departure_ = common::RequestId{++next_request_id_};
+    }
+    game::v1::ClientMessage change;
+    change.mutable_change_zone()->set_request_id(departure_->value());
+    change.mutable_change_zone()->set_portal_id(portal.value());
+    world_.ExpectResult(*departure_, RequestKind::kChangeZone);
+    if (connection_->Send(change).has_value()) {
+        ++report_.transfers_sent;
     }
 }
 

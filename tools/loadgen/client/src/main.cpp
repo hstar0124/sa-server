@@ -1,5 +1,6 @@
 #include "sa/bot/fighter.hpp"
 #include "sa/bot/looter.hpp"
+#include "sa/bot/traveler.hpp"
 #include "sa/bot/wanderer.hpp"
 #include "sa/common/config_source.hpp"
 #include "sa/common/logging.hpp"
@@ -127,10 +128,10 @@ int Run(int argc, char** argv) {
     sa::common::InitLogging("loadgen", *logging);
     const std::uint64_t identity_seed = ResolveIdentitySeed(profile->identity_seed);
     spdlog::info(
-        "seed={} identity_seed={} wanderers={} fighters={} looters={} duration={}s "
-        "backend={}",
+        "seed={} identity_seed={} wanderers={} fighters={} looters={} travelers={} "
+        "duration={}s backend={}",
         profile->seed, identity_seed, profile->wanderers, profile->fighters, profile->looters,
-        profile->duration.count(), profile->backend_base_url);
+        profile->travelers, profile->duration.count(), profile->backend_base_url);
 
     std::vector<sa::loadgen::BotReport> reports(profile->bot_count());
     std::vector<sa::loadgen::BotSession::Target> targets(
@@ -159,6 +160,9 @@ int Run(int argc, char** argv) {
                 break;
             case sa::loadgen::BotRole::kLooter:
                 brain = std::make_unique<sa::bot::Looter>(profile->seed + i, profile->looter);
+                break;
+            case sa::loadgen::BotRole::kTraveler:
+                brain = std::make_unique<sa::bot::Traveler>(profile->seed + i, profile->traveler);
                 break;
         }
         sessions.push_back(std::make_shared<sa::loadgen::BotSession>(io, *profile, std::move(brain),

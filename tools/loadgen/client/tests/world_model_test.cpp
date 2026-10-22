@@ -219,5 +219,62 @@ TEST(WorldModel, FlagsEarlySnapshotsGoingBackInTimeAndAForeignSelf) {
     EXPECT_EQ(i.self_mismatch, 1U) << "only the snapshot that named someone else";
 }
 
+TEST(WorldModel, ASecondWelcomeIsANewZoneWithItsOwnPortalsTicksAndInputs) {
+    WorldModel model;
+    game::v1::Welcome meadow = WelcomeFor(1);
+    meadow.set_zone_id(1);
+    meadow.set_server_tick(500);
+    auto* gate = meadow.add_portals();
+    gate->set_portal_id(1);
+    gate->mutable_position()->set_x(95.0F);
+    gate->set_radius_m(3.0F);
+    gate->set_to_zone_id(2);
+    model.OnWelcome(meadow);
+    ASSERT_EQ(model.portals().size(), 1U);
+    EXPECT_EQ(model.portals().front().id, common::PortalId{1});
+    EXPECT_EQ(model.portals().front().to_zone, common::ZoneId{2});
+    game::v1::WorldSnapshot seen = Snapshot(510, 40);
+    seen.add_spawned()->set_entity_id(2);
+    model.OnSnapshot(seen);
+
+    game::v1::Welcome highlands = WelcomeFor(7);
+    highlands.set_zone_id(2);
+    highlands.set_server_tick(30);
+    model.OnWelcome(highlands);
+    EXPECT_EQ(model.zone(), common::ZoneId{2});
+    EXPECT_EQ(model.self(), common::EntityId{7});
+    EXPECT_TRUE(model.portals().empty());
+    EXPECT_EQ(model.visible_count(), 0U) << "what was seen belonged to the old zone";
+    EXPECT_EQ(model.travel().zone_changes, 1U);
+
+    game::v1::WorldSnapshot there = Snapshot(31, 41);
+    there.mutable_self()->set_entity_id(7);
+    there.add_spawned()->set_entity_id(2);  // another zone's entity 2
+    model.OnSnapshot(there);
+    EXPECT_EQ(model.integrity().Total(), 0U)
+        << "a lower tick, a re-used entity id and a fresh input count are not contradictions";
+}
+
+TEST(WorldModel, CountsChangeZoneVerdicts) {
+    WorldModel model;
+    model.OnWelcome(WelcomeFor(1));
+    for (std::uint64_t id = 1; id <= 3; ++id) {
+        model.ExpectResult(common::RequestId{id}, RequestKind::kChangeZone);
+    }
+    const auto answer = [&](std::uint64_t id, game::v1::CommandStatus status) {
+        game::v1::CommandResult result;
+        result.set_request_id(id);
+        result.set_status(status);
+        model.OnCommandResult(result);
+    };
+    answer(1, game::v1::COMMAND_STATUS_PENDING);
+    answer(1, game::v1::COMMAND_STATUS_ACCEPTED);
+    answer(2, game::v1::COMMAND_STATUS_REJECTED);
+    answer(3, game::v1::COMMAND_STATUS_UNKNOWN);
+    EXPECT_EQ(model.travel().transfers_accepted, 1U);
+    EXPECT_EQ(model.travel().transfers_rejected, 1U);
+    EXPECT_EQ(model.travel().transfers_unknown, 1U);
+}
+
 }  // namespace
 }  // namespace sa::loadgen

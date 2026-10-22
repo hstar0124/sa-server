@@ -113,5 +113,20 @@ TEST(RunReport, RequiresTheConfiguredPickupsAndCountsThemAcrossBots) {
             .Succeeded());
 }
 
+TEST(RunReport, RequiresTheConfiguredZoneChanges) {
+    BotReport traveler = Good(0);
+    traveler.transfers_sent = 3;
+    traveler.travel.transfers_accepted = 2;
+    traveler.travel.transfers_unknown = 1;
+    traveler.travel.zone_changes = 2;
+    const RunReport short_of_it =
+        RunReport::Aggregate({traveler}, {.min_bots_seeing_others = 0, .min_zone_changes = 3});
+    EXPECT_FALSE(short_of_it.Succeeded());
+    EXPECT_NE(short_of_it.ToText().find("zone changes=2 (required 3)"), std::string::npos);
+    EXPECT_TRUE(
+        RunReport::Aggregate({traveler}, {.min_bots_seeing_others = 0, .min_zone_changes = 2})
+            .Succeeded());
+}
+
 }  // namespace
 }  // namespace sa::loadgen

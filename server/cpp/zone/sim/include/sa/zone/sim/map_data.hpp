@@ -2,7 +2,6 @@
 
 #include "sa/common/geometry.hpp"
 #include "sa/common/ids.hpp"
-#include "sa/common/strong_id.hpp"
 #include "sa/zone/sim/content.hpp"
 
 #include <cstdint>
@@ -20,7 +19,7 @@ struct MonsterSpawn {
     std::uint32_t count = 0;
 };
 
-using PortalId = common::StrongId<struct PortalIdTag, std::uint32_t>;
+using common::PortalId;
 
 // A way out of this zone (ADR-0010). A character inside `radius_m` of `position` may ask to leave;
 // it appears at `arrival` in the map of `to_zone`.

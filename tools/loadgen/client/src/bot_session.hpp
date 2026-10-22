@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace sa::loadgen {
@@ -45,6 +46,7 @@ private:
     void OnServerMessage(const game::v1::ServerMessage& message);
     void ScheduleTick();
     void Tick();
+    void SendChangeZone(common::PortalId portal);
     void SchedulePing();
     void Ping();
     void Fail(std::string what);
@@ -62,6 +64,10 @@ private:
     WorldModel world_;
     std::uint32_t next_input_seq_ = 1;
     std::uint64_t next_request_id_ = 0;
+    // The ChangeZone the zone has not decided yet. Asking again repeats it under the same request
+    // id, as the protocol asks of a client: after a lost answer the zone then asks the Backend
+    // about the same transfer instead of starting another.
+    std::optional<common::RequestId> departure_;
     std::uint32_t ping_nonce_ = 0;
     std::chrono::steady_clock::time_point ping_sent_at_;
     bool stopped_ = false;
