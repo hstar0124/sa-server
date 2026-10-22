@@ -22,6 +22,7 @@
 | [016](016-k3s-pods-unreachable-and-images-collected.md) | 해결 | 38 K3s 배포 | K3s에서 파드끼리 닿지 않고, 반입한 이미지가 지워짐 |
 | [017](017-gateway-zone-link-connect-without-a-deadline.md) | 해결 | 38 K3s 배포 | Gateway의 Zone 링크 연결에 기한이 없어 2분 넘게 멈춤 |
 | [018](018-e2e-bots-reuse-characters-across-runs.md) | 해결 | 45 Zone 이전 | 봇이 실행마다 같은 캐릭터를 다시 써서 end-to-end가 이전 실행에 좌우됨 |
+| [019](019-silent-peers-held-until-tcp-gives-up.md) | 해결 | 48 연결 생존 확인 | 닫지 않고 사라진 상대를 TCP가 포기할 때까지 붙잡음 |
 
 ## 형식
 
