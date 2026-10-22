@@ -6,7 +6,9 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY server/dotnet/ server/dotnet/
 COPY contracts/ contracts/
-RUN dotnet restore server/dotnet/GameServer.slnx --locked-mode \
+# Only the three published projects (and what they reference): the solution also lists tests and
+# tools that are not in this context.
+RUN for project in GameBackend EventWorker Migrator; do dotnet restore "server/dotnet/$project" --locked-mode; done \
     && dotnet publish server/dotnet/GameBackend -c Release --no-restore -o /out/backend \
     && dotnet publish server/dotnet/EventWorker -c Release --no-restore -o /out/eventworker \
     && dotnet publish server/dotnet/Migrator -c Release --no-restore -o /out/migrator

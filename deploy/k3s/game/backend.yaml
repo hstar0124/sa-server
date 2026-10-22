@@ -58,6 +58,8 @@ spec:
             # address and network-policy.yaml admits only pods of this namespace.
             - name: Kestrel__Endpoints__Grpc__Url
               value: http://0.0.0.0:5101
+            - name: Redis__ConnectionString
+              value: redis.data.svc:6379,abortConnect=false
             - name: Database__ConnectionString
               valueFrom:
                 secretKeyRef:

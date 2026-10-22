@@ -8,6 +8,7 @@
 |---|---|---|
 | `data` | `postgres` StatefulSet, local-path 볼륨 20Gi | 내구성 설정은 PostgreSQL 기본값 |
 | `data` | `kafka` StatefulSet, 볼륨 10Gi | KRaft 단일 노드, 복제 없음, 보관 24시간·2 GiB |
+| `data` | `redis` StatefulSet | 킬 랭킹의 복사본. 디스크에 아무것도 두지 않고 메모리 상한과 noeviction. 재시작하면 EventWorker가 다시 채운다 |
 | `data` | NetworkPolicy `data-from-game-only` | `game` 네임스페이스만 닿는다 |
 | `game` | `migrator` Job | `database/migrations` 적용. 다시 돌리면 아무것도 하지 않는다 |
 | `game` | `backend` Deployment, Service `backend`(5100/5101), `backend-public`(NodePort 30500) | HTTP는 노드 밖으로, gRPC는 클러스터 안으로만 |

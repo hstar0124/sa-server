@@ -1,5 +1,5 @@
-# Local development loop (ADR-0002): PostgreSQL and a single-node Kafka. Named volumes live under
-# /var/lib/docker (the 500 GiB LV).
+# Local development loop (ADR-0002): PostgreSQL, a single-node Kafka and Redis. Named volumes live
+# under /var/lib/docker (the 500 GiB LV).
 name: sa
 
 services:
@@ -72,6 +72,24 @@ services:
       resources:
         limits:
           memory: 1g
+
+  # Rebuildable data only (ADR-0009): the kill ranking, a copy of the statistics. Nothing on disk, a
+  # fixed memory ceiling and noeviction, so a full Redis is a loud write error, not a silent loss.
+  redis:
+    image: redis:7.4-alpine
+    container_name: sa-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 384m
 
 volumes:
   pgdata:
