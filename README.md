@@ -232,12 +232,17 @@ stateDiagram-v2
     Redeeming --> Closed : 응답 모름(RPC 실패) → Kick + EndSession
     Attaching --> InZone : Zone SessionAttached
     Attaching --> Closed : Zone 거절·링크 단절 → Kick + EndSession
+    InZone --> Transferring : 출발 Zone SessionTransfer (Backend가 이전 확정)
+    Transferring --> InZone : 도착 Zone SessionAttached
+    Transferring --> Closed : 도착 Zone 거절·링크 단절 → Kick + EndSession
     InZone --> Closed : 연결 종료·퇴출·링크 단절 → Detach + EndSession
     Closed --> [*]
 ```
 
 Gateway의 세션 로직은 I/O 없는 상태 기계라서 모든 전이를 소켓 없이 테스트한다. 세션 로직은 전송을 모른다. TCP와 WebSocket은 같은 `MessageConnection` 인터페이스 뒤에 있고, 둘 다 한 가지 TCP 바이트 스트림 구현(읽기 루프, 순서 있는 쓰기 큐, 종료 통지)을 쓴다(ADR-0004).
 
+- **Zone 이전**: 캐릭터가 포털로 다른 Zone에 가면 Backend가 한 트랜잭션에서 소유권과 세대(`owner_epoch`)를 옮기고(ADR-0010), 출발 Zone이 캐릭터를 내려놓은 뒤 Gateway에 알린다. Gateway는 입장 때 만든 부착 요청을 새 세대와 도착 위치로 바꿔 도착 Zone에 다시 보낸다. 그 사이 클라이언트가 보낸 입력은 내보내지 않고 버린다. 클라이언트는 도착 Zone의 Welcome으로 자기가 옮겨졌음을 안다.
+- **Zone별 메시지**: 세션 메시지는 그것을 실어 온 링크의 Zone ID와 함께 상태 기계에 들어가고, 세션의 현재 Zone에서 온 것만 받는다. 이전 뒤 출발 Zone의 늦은 출력이나 퇴출은 세션을 건드리지 못한다. 이전 통지도 현재 Zone이 보낸 것이고 세대가 지금보다 클 때만 따른다.
 - **입장 중에 떠난 클라이언트**: Backend의 답은 세션이 닫힌 뒤에도 상태 기계로 간다. 늦게 온 승인은 바로 세션 종료(EndSession)로 끝낸다. 그대로 두면 그 캐릭터는 이 Gateway가 사는 동안 어디로도 다시 들어오지 못한다. RPC가 실패해 결과를 모르면 Backend가 이미 커밋했을 수 있으니 세션 종료를 보낸다. 없는 세션을 끝내는 것은 아무 일도 하지 않는다.
 - **시간 제한**: 연결을 받은 때부터 정해진 시간(`protocol.hello_timeout_ms`, WebSocket 핸드셰이크 포함) 안에 올바른 Hello가 없으면 내보낸다. 아무것도 보내지 않는 소켓이 연결 상한을 채우지 못하게 하기 위해서다.
 - **닫기**: 닫는 쪽은 남은 데이터를 보내고 송신만 먼저 끊은 뒤, 상대가 닫을 때까지 들어오는 바이트를 읽어 버린다. 읽지 않은 데이터를 둔 채 소켓을 닫으면 커널이 리셋을 보내 마지막 메시지(킥)가 사라질 수 있기 때문이다. 클라이언트 연결은 그 기다림에 상한(`protocol.close_linger_ms`)이 있어, 읽지 않는 클라이언트도 결국 연결과 자리를 내놓는다.

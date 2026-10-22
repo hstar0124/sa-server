@@ -57,27 +57,38 @@ void SessionRegistry::OnZoneDown(common::ZoneId zone) {
     }
 }
 
-void SessionRegistry::OnSessionAttached(const internal::v1::SessionAttached& attached) {
+void SessionRegistry::OnSessionAttached(common::ZoneId zone,
+                                        const internal::v1::SessionAttached& attached) {
     if (auto session = Find(attached.gateway_session_id())) {
-        session->OnZoneAttached(attached);
+        session->OnZoneAttached(zone, attached);
     }
 }
 
-void SessionRegistry::OnSessionRejected(const internal::v1::SessionRejected& rejected) {
+void SessionRegistry::OnSessionRejected(common::ZoneId zone,
+                                        const internal::v1::SessionRejected& rejected) {
     if (auto session = Find(rejected.gateway_session_id())) {
-        session->OnZoneRejected(rejected);
+        session->OnZoneRejected(zone, rejected);
     }
 }
 
-void SessionRegistry::OnSessionEvicted(const internal::v1::SessionEvicted& evicted) {
+void SessionRegistry::OnSessionEvicted(common::ZoneId zone,
+                                       const internal::v1::SessionEvicted& evicted) {
     if (auto session = Find(evicted.gateway_session_id())) {
-        session->OnZoneEvicted(evicted);
+        session->OnZoneEvicted(zone, evicted);
     }
 }
 
-void SessionRegistry::OnSessionOutput(const internal::v1::SessionOutput& output) {
+void SessionRegistry::OnSessionTransfer(common::ZoneId zone,
+                                        const internal::v1::SessionTransfer& transfer) {
+    if (auto session = Find(transfer.gateway_session_id())) {
+        session->OnZoneTransfer(zone, transfer);
+    }
+}
+
+void SessionRegistry::OnSessionOutput(common::ZoneId zone,
+                                      const internal::v1::SessionOutput& output) {
     if (auto session = Find(output.gateway_session_id())) {
-        session->OnZoneOutput(output.message());
+        session->OnZoneOutput(zone, output.message());
     }
 }
 

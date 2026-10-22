@@ -65,6 +65,9 @@ SessionProtocol::Reaction SessionProtocol::OnClientMessage(const ClientMessage& 
         case ClientMessage::kCastSkill:
         case ClientMessage::kPickupItem:
         case ClientMessage::kChangeZone:
+            if (state_ == State::kTransferring) {
+                return {};  // sent before the client saw the new Welcome; nothing to punish
+            }
             if (state_ != State::kInZone) {
                 return Kick(game::v1::KICK_REASON_PROTOCOL_ERROR);
             }
@@ -126,6 +129,10 @@ SessionProtocol::Reaction SessionProtocol::OnRedeemResult(
     attach.set_character_name(response.character().name());
     attach.set_class_id(response.character().class_id());
     attach.set_owner_epoch(response.owner_epoch());
+    if (response.has_checkpoint()) {
+        *attach.mutable_position() = response.checkpoint().position();
+    }
+    attach_ = attach;
     return Reaction{.effects = {AttachToZone{.zone = *zone_, .attach = std::move(attach)}}};
 }
 
@@ -143,16 +150,36 @@ SessionProtocol::Reaction SessionProtocol::OnRedeemFailed() {
 
 // ---- zone -------------------------------------------------------------------------------------
 
-SessionProtocol::Reaction SessionProtocol::OnZoneAttached(common::EntityId /*entity*/) {
-    if (state_ != State::kAttaching) {
+SessionProtocol::Reaction SessionProtocol::OnZoneAttached(common::ZoneId from,
+                                                          common::EntityId /*entity*/) {
+    if (!FromCurrentZone(from) || (state_ != State::kAttaching && state_ != State::kTransferring)) {
         return {};
     }
     state_ = State::kInZone;
     return {};
 }
 
-SessionProtocol::Reaction SessionProtocol::OnZoneRejected(internal::v1::RejectReason /*reason*/) {
-    if (state_ != State::kAttaching) {
+SessionProtocol::Reaction SessionProtocol::OnZoneTransfer(
+    common::ZoneId from, const internal::v1::SessionTransfer& transfer) {
+    // Only the zone that holds the session may hand it on, only once it is in, and only to a newer
+    // generation somewhere else: anything else is a stale or confused zone, and changes nothing.
+    const common::ZoneId to{transfer.to_zone_id()};
+    if (!FromCurrentZone(from) || state_ != State::kInZone || !attach_ || to.IsNone() ||
+        to == from || transfer.owner_epoch() <= attach_->owner_epoch()) {
+        return {};
+    }
+    // The origin has already dropped the character: no detach is owed to it. The destination is
+    // attached under the Backend's new generation; its SessionAttached completes the move.
+    zone_ = to;
+    state_ = State::kTransferring;
+    attach_->set_owner_epoch(transfer.owner_epoch());
+    *attach_->mutable_position() = transfer.arrival_position();
+    return Reaction{.effects = {AttachToZone{.zone = to, .attach = *attach_}}};
+}
+
+SessionProtocol::Reaction SessionProtocol::OnZoneRejected(common::ZoneId from,
+                                                          internal::v1::RejectReason /*reason*/) {
+    if (!FromCurrentZone(from) || (state_ != State::kAttaching && state_ != State::kTransferring)) {
         return {};
     }
     // Nothing to detach: the zone never admitted us. The Backend session must still end.
@@ -160,8 +187,9 @@ SessionProtocol::Reaction SessionProtocol::OnZoneRejected(internal::v1::RejectRe
     return Kick(game::v1::KICK_REASON_ZONE_UNAVAILABLE);
 }
 
-SessionProtocol::Reaction SessionProtocol::OnZoneEvicted(internal::v1::EvictReason /*reason*/) {
-    if (state_ != State::kInZone && state_ != State::kAttaching) {
+SessionProtocol::Reaction SessionProtocol::OnZoneEvicted(common::ZoneId from,
+                                                         internal::v1::EvictReason /*reason*/) {
+    if (!FromCurrentZone(from) || !AttachedOrAttaching()) {
         return {};
     }
     // The zone already dropped us; no detach is owed.
@@ -170,15 +198,16 @@ SessionProtocol::Reaction SessionProtocol::OnZoneEvicted(internal::v1::EvictReas
 }
 
 SessionProtocol::Reaction SessionProtocol::OnZoneLinkDown() {
-    if (state_ != State::kInZone && state_ != State::kAttaching) {
+    if (!AttachedOrAttaching()) {
         return {};
     }
     zone_.reset();
     return Kick(game::v1::KICK_REASON_SERVICE_UNAVAILABLE);
 }
 
-SessionProtocol::Reaction SessionProtocol::OnZoneOutput(const ServerMessage& message) {
-    if (state_ != State::kInZone) {
+SessionProtocol::Reaction SessionProtocol::OnZoneOutput(common::ZoneId from,
+                                                        const ServerMessage& message) {
+    if (!FromCurrentZone(from) || state_ != State::kInZone) {
         return {};
     }
     return Reaction{.replies = {message}};
@@ -221,7 +250,7 @@ SessionProtocol::Reaction SessionProtocol::Kick(game::v1::KickReason reason,
 
 void SessionProtocol::Teardown(Reaction& reaction, internal::v1::DetachReason detach_reason,
                                std::string end_reason) {
-    if (zone_ && (state_ == State::kInZone || state_ == State::kAttaching)) {
+    if (zone_ && AttachedOrAttaching()) {
         reaction.effects.emplace_back(DetachFromZone{.zone = *zone_, .reason = detach_reason});
     }
     if (session_granted_) {

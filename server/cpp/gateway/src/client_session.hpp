@@ -38,10 +38,11 @@ public:
     void set_on_finished(std::function<void()> fn) { on_finished_ = std::move(fn); }
 
     // From the zone, via SessionRegistry.
-    void OnZoneAttached(const internal::v1::SessionAttached& attached);
-    void OnZoneRejected(const internal::v1::SessionRejected& rejected);
-    void OnZoneEvicted(const internal::v1::SessionEvicted& evicted);
-    void OnZoneOutput(const game::v1::ServerMessage& message);
+    void OnZoneAttached(common::ZoneId zone, const internal::v1::SessionAttached& attached);
+    void OnZoneRejected(common::ZoneId zone, const internal::v1::SessionRejected& rejected);
+    void OnZoneEvicted(common::ZoneId zone, const internal::v1::SessionEvicted& evicted);
+    void OnZoneTransfer(common::ZoneId zone, const internal::v1::SessionTransfer& transfer);
+    void OnZoneOutput(common::ZoneId zone, const game::v1::ServerMessage& message);
     void OnZoneLinkDown(common::ZoneId zone);
 
     [[nodiscard]] const common::InstanceId& id() const noexcept { return id_; }
