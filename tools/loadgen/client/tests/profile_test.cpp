@@ -66,6 +66,7 @@ TEST(LoadProfile, ParsesAndDefaultsGatewayOverrideToEmpty) {
     EXPECT_EQ(profile->fighter.attack_interval, std::chrono::milliseconds{900})
         << "kept as wall time; the fighter converts it with the server's tick rate";
     EXPECT_EQ(profile->seed, 7U);
+    EXPECT_FALSE(profile->identity_seed.has_value()) << "absent: fresh accounts every run";
     EXPECT_FALSE(profile->gateway_host.has_value());
     EXPECT_EQ(profile->duration.count(), 5);
     EXPECT_EQ(profile->wanderer.idle_ticks_max, 10U);
@@ -120,14 +121,12 @@ TEST(LoadProfile, TheShippedProfilesLoadWithoutAGatewayOverride) {
     }
 }
 
-TEST(LoadProfile, BotIdentitiesAreStablePerSeedAndValidNames) {
-    LoadProfile profile;
-    profile.seed = 7;
-    profile.account_prefix = "bot";
-    const BotIdentity first = profile.IdentityOf(0);
-    EXPECT_EQ(profile.IdentityOf(0).username, first.username) << "same seed and index";
-    EXPECT_EQ(profile.IdentityOf(0).character_name, first.character_name);
-    EXPECT_NE(profile.IdentityOf(1).character_name, first.character_name);
+TEST(LoadProfile, BotIdentitiesAreStablePerIdentitySeedAndValidNames) {
+    const BotIdentity first = LoadProfile::IdentityOf("bot", 7, 0);
+    EXPECT_EQ(LoadProfile::IdentityOf("bot", 7, 0).username, first.username)
+        << "same identity seed and index";
+    EXPECT_EQ(LoadProfile::IdentityOf("bot", 7, 0).character_name, first.character_name);
+    EXPECT_NE(LoadProfile::IdentityOf("bot", 7, 1).character_name, first.character_name);
     EXPECT_TRUE(first.username.starts_with("bot_"));
     // The Backend's name rule: 2-16 letters or digits.
     EXPECT_GE(first.character_name.size(), 2U);
@@ -135,8 +134,8 @@ TEST(LoadProfile, BotIdentitiesAreStablePerSeedAndValidNames) {
     EXPECT_TRUE(std::ranges::all_of(first.character_name, [](char c) {
         return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
     }));
-    profile.seed = 8;
-    EXPECT_NE(profile.IdentityOf(0).username, first.username) << "another seed, other accounts";
+    EXPECT_NE(LoadProfile::IdentityOf("bot", 8, 0).username, first.username)
+        << "another identity seed, other accounts";
 }
 
 }  // namespace

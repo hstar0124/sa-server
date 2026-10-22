@@ -17,6 +17,7 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     const auto looters = source.Require<std::uint32_t>("bots.looters");
     const auto seed = source.Require<std::uint64_t>("bots.seed");
     const auto prefix = source.Require<std::string>("bots.account_prefix");
+    const auto identity_seed = source.Optional<std::uint64_t>("bots.identity_seed");
     const auto password = source.Require<std::string>("bots.password");
     const auto duration = source.Require<std::uint32_t>("run.duration_sec");
     const auto min_seeing = source.Require<std::uint32_t>("run.min_bots_seeing_others");
@@ -38,10 +39,10 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     const auto pickup_range = source.Require<double>("looter.pickup_range_m");
     const auto pickup_retry = source.Require<std::uint32_t>("looter.pickup_retry_ms");
     if (auto err = common::FirstConfigError(
-            backend, world, class_id, wanderers, fighters, looters, seed, prefix, password,
-            duration, tick_hz, ping, connect, arrive, retarget, idle_min, idle_max, margin,
-            min_seeing, min_kills, min_pickups, engage, attack_skill, attack_range, attack_interval,
-            loot_radius, pickup_range, pickup_retry)) {
+            backend, world, class_id, wanderers, fighters, looters, seed, prefix, identity_seed,
+            password, duration, tick_hz, ping, connect, arrive, retarget, idle_min, idle_max,
+            margin, min_seeing, min_kills, min_pickups, engage, attack_skill, attack_range,
+            attack_interval, loot_radius, pickup_range, pickup_retry)) {
         return std::unexpected(*err);
     }
     // Summed in 64 bits so that huge role counts cannot wrap around to a valid-looking total.
@@ -92,6 +93,7 @@ std::expected<LoadProfile, common::ConfigError> LoadProfile::FromConfig(
     out.looters = *looters;
     out.seed = *seed;
     out.account_prefix = *prefix;
+    out.identity_seed = *identity_seed;
     out.password = *password;
     out.duration = std::chrono::seconds{*duration};
     out.criteria = PassCriteria{.min_bots_seeing_others = *min_seeing,
@@ -124,10 +126,11 @@ constexpr int kNameHexDigits = 13;
 constexpr std::uint64_t kNameMask = (std::uint64_t{1} << (4 * kNameHexDigits)) - 1;
 }  // namespace
 
-BotIdentity LoadProfile::IdentityOf(std::uint32_t index) const {
+BotIdentity LoadProfile::IdentityOf(std::string_view account_prefix, std::uint64_t identity_seed,
+                                    std::uint32_t index) {
     // Both names come from one seeded generator, never from std::hash, whose values differ
     // between standard libraries.
-    std::mt19937_64 rng{seed ^ (static_cast<std::uint64_t>(index) << 32U)};
+    std::mt19937_64 rng{identity_seed ^ (static_cast<std::uint64_t>(index) << 32U)};
     const std::uint64_t account = rng();
     const std::uint64_t character = rng();
     return BotIdentity{
