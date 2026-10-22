@@ -45,6 +45,7 @@
 | [39](39-stage-6-wrap-up.md) | 6단계 마무리: 남은 계획 정리와 완료 표기 | 6 | 0.4.0 |
 | [40](40-backend-ranking-baseline.md) | 킬 랭킹 기준선: PostgreSQL로 리더보드와 내 순위, 그리고 측정 | 7 | 0.5.0 |
 | [41](41-redis-ranking.md) | Redis 킬 랭킹: 측정된 병목만 옮기고, 복사본은 늘 통계로 되돌린다 | 7 | 0.5.0 |
+| [42](42-transfer-schema-contracts.md) | 지역 이전의 바탕: ADR-0010, 계약, 체크포인트·이전 스키마, 포털과 두 번째 맵 | 8 | |
 
 ## 형식
 
