@@ -1,0 +1,69 @@
+# Zone B: the highlands, shaped like Zone A. One simulation process, never two (Recreate); characters
+# arrive through the portals, and ownership moves through the Backend, never by Kubernetes alone.
+apiVersion: v1
+kind: Service
+metadata:
+  name: zone-b
+spec:
+  selector:
+    app: zone-b
+  ports:
+    - name: link
+      port: 7802
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zone-b
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: zone-b
+  template:
+    metadata:
+      labels:
+        app: zone-b
+    spec:
+      # Longer than the zone's [shutdown] grace, so it evicts its sessions before being killed.
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: zone
+          image: sa/zone:dev
+          imagePullPolicy: IfNotPresent
+          args: ["--config", "/etc/sa/zone.toml"]
+          env:
+            - name: SA_ZONE__BACKEND__ADDRESS
+              value: backend.game.svc:5101
+          ports:
+            - name: link
+              containerPort: 7802
+          readinessProbe:
+            tcpSocket:
+              port: link
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/sa
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: zone-b-config

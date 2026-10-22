@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Runs the whole stack locally (PostgreSQL, Kafka and Redis in compose, the rest as host processes) and
-# drives it with the loadgen smoke profile. Exit code is the verdict of the bots and of the checks
+# Runs the whole stack locally (PostgreSQL, Kafka and Redis in compose, the rest as host processes,
+# both zones) and drives it with the loadgen smoke profile. Exit code is the verdict of the bots and of the checks
 # that follow them in the database.
 #
 #   scripts/e2e-local.sh [profile.toml]
@@ -22,7 +22,7 @@ JWT_KEY="${SA_JWT_KEY:-$(openssl rand -base64 32)}"
 
 # Fixed so a run is reproducible end to end (ADR-0006): the bots already use the profile's seed.
 ZONE_SEED="${SA_E2E_ZONE_SEED:-1}"
-STACK_PORTS=(5100 5101 7777 7778 7801)
+STACK_PORTS=(5100 5101 7777 7778 7801 7802)
 
 psql_value() { docker exec sa-postgres psql -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"; }
 redis_cli() { docker exec sa-redis redis-cli "$@"; }
@@ -38,7 +38,7 @@ done
 
 pids=()
 # Orderly shutdown in reverse start order: gateway first (it ends sessions at the Backend), then
-# zone, then backend, then the EventWorker. Each pid is recorded as soon as it starts, so a failed
+# the zones, then backend, then the EventWorker. Each pid is recorded as soon as it starts, so a failed
 # start still cleans up.
 cleanup() {
   for pid in "${pids[@]:-}"; do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done
@@ -68,15 +68,20 @@ pids=("$!" "${pids[@]}")
 wait_for "the backend" curl -sf localhost:5100/health/ready >/dev/null 2>&1 \
   || { cat "$RUN_DIR/backend.log"; exit 1; }
 
-SA_ZONE__ZONE__RNG_SEED="$ZONE_SEED" \
-  "$BUILD/server/cpp/zone/server/zone_server" --config deploy/compose/config/zone-a.toml >"$RUN_DIR/zone-a.log" 2>&1 &
-pids=("$!" "${pids[@]}")
-wait_for "the zone lease" grep -q "zone lease acquired" "$RUN_DIR/zone-a.log" || { cat "$RUN_DIR/zone-a.log"; exit 1; }
+for zone in zone-a zone-b; do
+  SA_ZONE__ZONE__RNG_SEED="$ZONE_SEED" \
+    "$BUILD/server/cpp/zone/server/zone_server" --config "deploy/compose/config/$zone.toml" >"$RUN_DIR/$zone.log" 2>&1 &
+  pids=("$!" "${pids[@]}")
+  wait_for "the $zone lease" grep -q "zone lease acquired" "$RUN_DIR/$zone.log" || { cat "$RUN_DIR/$zone.log"; exit 1; }
+done
 
 SA_GATEWAY__TICKET__SIGNING_KEY_BASE64="$TICKET_KEY" \
   "$BUILD/server/cpp/gateway/gateway" --config deploy/compose/config/gateway.toml >"$RUN_DIR/gateway.log" 2>&1 &
 pids=("$!" "${pids[@]}")
-wait_for "the gateway's zone link" grep -q "link ready" "$RUN_DIR/gateway.log" || { cat "$RUN_DIR/gateway.log"; exit 1; }
+for zone_id in 1 2; do
+  wait_for "the gateway's zone $zone_id link" grep -q "zone $zone_id link ready" "$RUN_DIR/gateway.log" \
+    || { cat "$RUN_DIR/gateway.log"; exit 1; }
+done
 
 run_started="$(psql_value "SELECT now()")"
 set +e

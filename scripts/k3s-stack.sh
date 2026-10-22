@@ -77,12 +77,14 @@ up() {
     --from-literal=Auth__CredentialAttemptsPerMinutePerAddress=6000 \
     --dry-run=client -o yaml | kubectl apply -f -
   kustomize deploy/k3s/game | kubectl apply -f -
-  for d in eventworker backend zone-a gateway; do
+  for d in eventworker backend zone-a zone-b gateway; do
     kubectl -n game rollout status deployment/$d --timeout="$ROLLOUT_TIMEOUT"
   done
   wait_log zone-a "zone lease acquired"
+  wait_log zone-b "zone lease acquired"
   wait_log gateway "gateway lease acquired"
-  wait_log gateway "link ready"
+  wait_log gateway "zone 1 link ready"
+  wait_log gateway "zone 2 link ready"
   # A rolled-out pod is not yet a reachable NodePort; clients start right after this script.
   for _ in $(seq 1 60); do curl -sf "http://$ip:$BACKEND_NODE_PORT/health/ready" >/dev/null && break; sleep 0.5; done
   curl -sf "http://$ip:$BACKEND_NODE_PORT/health/ready" >/dev/null || { echo "backend not reachable on $ip:$BACKEND_NODE_PORT"; exit 1; }

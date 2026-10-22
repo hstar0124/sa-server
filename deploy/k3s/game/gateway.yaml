@@ -49,6 +49,8 @@ spec:
               value: backend.game.svc:5101
             - name: SA_GATEWAY__ZONES__0__ADDRESS  # [[zones]] zone_id = 1
               value: zone-a.game.svc
+            - name: SA_GATEWAY__ZONES__1__ADDRESS  # [[zones]] zone_id = 2
+              value: zone-b.game.svc
             - name: SA_GATEWAY__TICKET__SIGNING_KEY_BASE64
               valueFrom:
                 secretKeyRef:
