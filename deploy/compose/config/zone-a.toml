@@ -16,6 +16,7 @@ listen_port = 7801
 max_gateways = 8
 max_frame_bytes = 262144  # a SessionOutput wraps one client frame (<= 64 KiB) plus headers
 close_linger_ms = 1000     # bounds closing a link at shutdown when the gateway does not close its side
+silence_timeout_ms = 5000  # nothing from a gateway this long: close its link; it pings every second
 
 [backend]
 address = "localhost:5101"

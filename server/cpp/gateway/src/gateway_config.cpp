@@ -16,6 +16,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const auto max_msgs = source.Require<std::uint32_t>("protocol.max_messages_per_second");
     const auto client_linger = source.Require<std::uint32_t>("protocol.close_linger_ms");
     const auto hello_timeout = source.Require<std::uint32_t>("protocol.hello_timeout_ms");
+    const auto idle_timeout = source.Require<std::uint32_t>("protocol.idle_timeout_ms");
     const auto key_b64 = source.Require<std::string>("ticket.signing_key_base64");
     const auto key_id = source.Require<std::uint32_t>("ticket.key_id");
     const auto skew = source.Require<std::uint32_t>("ticket.max_clock_skew_ms");
@@ -27,11 +28,13 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const auto backoff = source.Require<std::uint32_t>("zone_link.reconnect_backoff_ms");
     const auto link_linger = source.Require<std::uint32_t>("zone_link.close_linger_ms");
     const auto establish = source.Require<std::uint32_t>("zone_link.establish_timeout_ms");
+    const auto heartbeat = source.Require<std::uint32_t>("zone_link.heartbeat_interval_ms");
+    const auto silence = source.Require<std::uint32_t>("zone_link.silence_timeout_ms");
     const auto shutdown_grace = source.Require<std::uint32_t>("shutdown.grace_ms");
-    if (auto err = common::FirstConfigError(address, port, max_connections, max_msgs, client_linger,
-                                            hello_timeout, key_b64, key_id, skew, backend_address,
-                                            rpc_timeout, renew, margin, link_frame, backoff,
-                                            link_linger, establish, shutdown_grace)) {
+    if (auto err = common::FirstConfigError(
+            address, port, max_connections, max_msgs, client_linger, hello_timeout, idle_timeout,
+            key_b64, key_id, skew, backend_address, rpc_timeout, renew, margin, link_frame, backoff,
+            link_linger, establish, heartbeat, silence, shutdown_grace)) {
         return std::unexpected(*err);
     }
     auto logging = common::LoggingConfig::FromConfig(source);
@@ -50,11 +53,16 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
                         common::kHmacSha256Bytes)});
     }
     if (*max_msgs == 0 || *rpc_timeout == 0 || *renew == 0 || *client_linger == 0 ||
-        *link_linger == 0 || *hello_timeout == 0 || *backoff == 0 || *establish == 0 ||
-        *max_connections == 0) {
+        *link_linger == 0 || *hello_timeout == 0 || *idle_timeout == 0 || *backoff == 0 ||
+        *establish == 0 || *heartbeat == 0 || *max_connections == 0) {
+        return std::unexpected(
+            common::ConfigError{"rates, intervals, timeouts, zone_link.reconnect_backoff_ms and "
+                                "listen.max_connections must be positive"});
+    }
+    // The heartbeat is what keeps a healthy link from looking silent.
+    if (*silence <= *heartbeat) {
         return std::unexpected(common::ConfigError{
-            "rates, intervals, zone_link.reconnect_backoff_ms, zone_link.establish_timeout_ms and "
-            "listen.max_connections must be positive"});
+            "zone_link.silence_timeout_ms must exceed zone_link.heartbeat_interval_ms"});
     }
     if (*shutdown_grace <= *rpc_timeout) {
         return std::unexpected(common::ConfigError{
@@ -96,6 +104,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     out.max_messages_per_second = *max_msgs;
     out.client_close_linger = std::chrono::milliseconds{*client_linger};
     out.hello_timeout = std::chrono::milliseconds{*hello_timeout};
+    out.idle_timeout = std::chrono::milliseconds{*idle_timeout};
     out.ticket_key = std::move(*key);
     out.ticket_key_id = TicketKeyId{*key_id};
     out.ticket_max_clock_skew = std::chrono::milliseconds{*skew};
@@ -107,6 +116,8 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     out.zone_link_reconnect_backoff = std::chrono::milliseconds{*backoff};
     out.zone_link_close_linger = std::chrono::milliseconds{*link_linger};
     out.zone_link_establish_timeout = std::chrono::milliseconds{*establish};
+    out.zone_link_heartbeat_interval = std::chrono::milliseconds{*heartbeat};
+    out.zone_link_silence_timeout = std::chrono::milliseconds{*silence};
     out.shutdown_grace = std::chrono::milliseconds{*shutdown_grace};
     out.logging = *logging;
 

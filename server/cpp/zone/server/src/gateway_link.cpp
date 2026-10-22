@@ -5,12 +5,17 @@
 namespace sa::zone {
 
 GatewayLink::GatewayLink(asio::ip::tcp::socket socket, common::FrameLimits limits,
-                         std::chrono::milliseconds close_linger, Handler& handler)
-    : connection_(
+                         std::chrono::milliseconds close_linger,
+                         std::chrono::milliseconds silence_timeout, Handler& handler)
+    : silence_timer_(socket.get_executor()),
+      silence_timeout_(silence_timeout),
+      connection_(
           std::make_shared<common::FramedConnection>(std::move(socket), limits, close_linger)),
       handler_(handler) {}
 
 void GatewayLink::Start() {
+    last_heard_ = std::chrono::steady_clock::now();
+    ScheduleSilenceCheck();
     connection_->Start(common::MessageConnection::Callbacks{
         .on_message = [self =
                            shared_from_this()](std::span<const std::byte> p) { self->OnFrame(p); },
@@ -26,7 +31,24 @@ void GatewayLink::Send(const internal::v1::ZoneToGateway& message) {
 }
 
 void GatewayLink::Close() {
+    silence_timer_.cancel();
     connection_->Close();
+}
+
+void GatewayLink::ScheduleSilenceCheck() {
+    silence_timer_.expires_at(last_heard_ + silence_timeout_);
+    silence_timer_.async_wait([self = shared_from_this()](const std::error_code& ec) {
+        if (ec || self->closed_notified_) {
+            return;
+        }
+        if (std::chrono::steady_clock::now() - self->last_heard_ < self->silence_timeout_) {
+            self->ScheduleSilenceCheck();  // heard something since the timer was armed
+            return;
+        }
+        spdlog::warn("gateway link {} silent for {} ms; closing", self->PeerAddress(),
+                     self->silence_timeout_.count());
+        self->connection_->Abort();
+    });
 }
 
 void GatewayLink::OnFrame(std::span<const std::byte> payload) {
@@ -36,6 +58,7 @@ void GatewayLink::OnFrame(std::span<const std::byte> payload) {
         connection_->Abort();
         return;
     }
+    last_heard_ = std::chrono::steady_clock::now();
     using internal::v1::GatewayToZone;
     if (!gateway_id_ && message.body_case() != GatewayToZone::kLinkHello) {
         spdlog::warn("gateway link {}: message before LinkHello, closing", PeerAddress());
@@ -83,6 +106,7 @@ void GatewayLink::OnClosed(const std::error_code& reason) {
         return;
     }
     closed_notified_ = true;
+    silence_timer_.cancel();
     spdlog::info("gateway link {} closed ({})", PeerAddress(),
                  reason ? reason.message() : "orderly");
     handler_.OnLinkClosed(*this);

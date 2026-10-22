@@ -46,6 +46,9 @@ message LinkWelcome {
   uint32 simulation_hz = 4;
 }
 
+// Link heartbeat: the gateway pings at a fixed interval and the zone answers. Either side treats a
+// link that has carried nothing for its silence timeout as dead, so a peer that vanished without
+// closing (power loss, network partition) is noticed in seconds, not when TCP gives up.
 message LinkPing { uint64 nonce = 1; }
 message LinkPong { uint64 nonce = 1; }
 
@@ -66,6 +69,7 @@ enum DetachReason {
   DETACH_REASON_CLIENT_DISCONNECTED = 1;
   DETACH_REASON_GATEWAY_SHUTDOWN = 2;
   DETACH_REASON_PROTOCOL_ERROR = 3;
+  DETACH_REASON_CLIENT_IDLE = 4;          // the client sent nothing for the gateway's idle timeout
 }
 
 message SessionDetach {

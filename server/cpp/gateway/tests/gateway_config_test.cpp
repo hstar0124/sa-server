@@ -67,5 +67,14 @@ TEST(GatewayConfig, AZoneLinkFrameTooSmallForAClientFrameIsRefused) {
     EXPECT_NE(config.error().message.find("zone_link.max_frame_bytes"), std::string::npos);
 }
 
+TEST(GatewayConfig, ASilenceTimeoutNoLongerThanTheHeartbeatIsRefused) {
+    std::string text = ShippedConfigWithKey();
+    const std::string silence = "silence_timeout_ms = 5000";
+    text.replace(text.find(silence), silence.size(), "silence_timeout_ms = 1000");
+    const auto config = Parse(text);
+    ASSERT_FALSE(config.has_value()) << "every healthy link would look silent";
+    EXPECT_NE(config.error().message.find("zone_link.silence_timeout_ms"), std::string::npos);
+}
+
 }  // namespace
 }  // namespace sa::gateway

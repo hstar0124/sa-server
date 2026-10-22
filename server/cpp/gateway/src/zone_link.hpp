@@ -29,6 +29,11 @@ struct ZoneLinkConfig {
     // whose SYN goes unanswered waits for the kernel's retries (over two minutes), and a zone that
     // accepts but never welcomes holds the link forever.
     std::chrono::milliseconds establish_timeout{};
+    // While ready the link pings the zone at this interval and gives the link up when nothing at
+    // all (pong, session traffic) has arrived for the silence timeout. Without it a zone host that
+    // vanished without closing keeps its sessions attached until TCP gives up, minutes later.
+    std::chrono::milliseconds heartbeat_interval{};
+    std::chrono::milliseconds silence_timeout{};
 };
 
 // Persistent connection from this gateway to one zone, carrying all sessions routed there.
@@ -78,6 +83,8 @@ private:
     void OnClosed(const std::error_code& ec);
     void ScheduleReconnect(const std::string& why);
     void OnEstablishDeadline();
+    void ScheduleHeartbeat();
+    void OnHeartbeat();
     void Send(const internal::v1::GatewayToZone& message);
 
     asio::io_context& io_;
@@ -90,6 +97,9 @@ private:
     std::shared_ptr<asio::ip::tcp::socket> connecting_;
     asio::steady_timer backoff_timer_;
     asio::steady_timer establish_timer_;
+    asio::steady_timer heartbeat_timer_;
+    std::chrono::steady_clock::time_point last_heard_;  // last frame from the zone
+    std::uint64_t ping_nonce_ = 0;
     std::shared_ptr<common::FramedConnection> connection_;
     State state_ = State::kStopped;
     std::uint32_t consecutive_failures_ = 0;  // first failure is a warning, the rest are debug
