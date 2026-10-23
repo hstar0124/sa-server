@@ -25,6 +25,9 @@ public:
     void Start(Callbacks callbacks) override;
     [[nodiscard]] std::expected<void, SendError> Send(
         const google::protobuf::MessageLite& message) override;
+    // Frames and queues bytes a caller already serialized (e.g. the zone's snapshot encoder), with
+    // the same limits as Send().
+    [[nodiscard]] std::expected<void, SendError> SendPayload(std::span<const std::byte> payload);
     void Close() override { stream_->Close(); }
     void Abort() override { stream_->Abort(); }
     [[nodiscard]] bool is_open() const override { return stream_->is_open(); }
