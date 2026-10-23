@@ -25,8 +25,22 @@ public sealed class ProjectionStoreTests(InfrastructureFixture infra)
         Assert.Equal(ApplyOutcome.Duplicate, (await store.ApplyAsync(Consumer, kill, CancellationToken.None)).Outcome);
         Assert.Equal(ApplyOutcome.Duplicate, (await store.ApplyAsync(Consumer, kill, CancellationToken.None)).Outcome);
 
-        Assert.Equal(new Characters.Stats(Kills: 1, ItemsAcquired: 1, GoldEarned: 3, LastEventSeq: 2), await Characters.StatsAsync(infra.ConnectionString, character));
+        Assert.Equal(new Characters.Stats(Kills: 1, ItemsAcquired: 1, GoldEarned: 3, TradesCompleted: 0, LastEventSeq: 2), await Characters.StatsAsync(infra.ConnectionString, character));
         Assert.Equal(1, await Characters.InboxCountAsync(infra.ConnectionString, Consumer, kill.EventId.ToByteArray()));
+    }
+
+    [Fact]
+    public async Task A_settled_trade_counts_once_for_the_character_and_moves_no_earned_gold()
+    {
+        long character = await Characters.CreateAsync(infra.ConnectionString);
+        var store = new ProjectionStore(infra.DataSource);
+        EventEnvelope traded = Outbox.Envelope(character, 1, Outbox.Traded(character, goldReceived: 4));
+
+        Assert.Equal(ApplyOutcome.Applied, (await store.ApplyAsync(Consumer, traded, CancellationToken.None)).Outcome);
+        Assert.Equal(ApplyOutcome.Duplicate, (await store.ApplyAsync(Consumer, traded, CancellationToken.None)).Outcome);
+
+        Assert.Equal(new Characters.Stats(Kills: 0, ItemsAcquired: 0, GoldEarned: 0, TradesCompleted: 1, LastEventSeq: 1),
+            await Characters.StatsAsync(infra.ConnectionString, character));
     }
 
     [Fact]

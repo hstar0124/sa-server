@@ -106,7 +106,7 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
 
     public sealed record EnterResponse(string EntryTicket, GatewayEndpoint Gateway, DateTimeOffset ExpiresAt);
 
-    public sealed record StatsResponse(long Kills, long ItemsAcquired, long GoldEarned, long AsOfEventSeq);
+    public sealed record StatsResponse(long Kills, long ItemsAcquired, long GoldEarned, long TradesCompleted, long AsOfEventSeq);
 
     public sealed record RankingEntryResponse(long Rank, long CharacterId, string Name, long Kills);
 

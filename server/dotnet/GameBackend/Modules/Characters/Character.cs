@@ -8,7 +8,7 @@ internal sealed record Character(CharacterId Id, WorldId WorldId, AccountId Acco
 /// Statistics the EventWorker derives from the character's confirmed events. They trail the ledger
 /// by the time the events take to arrive; <see cref="AsOfEventSeq"/> says how far they have come.
 /// </summary>
-internal sealed record CharacterStats(long Kills, long ItemsAcquired, long GoldEarned, long AsOfEventSeq);
+internal sealed record CharacterStats(long Kills, long ItemsAcquired, long GoldEarned, long TradesCompleted, long AsOfEventSeq);
 
 /// <summary>Mirrored by the characters_name_format CHECK constraint.</summary>
 internal static class CharacterRules

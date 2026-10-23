@@ -118,15 +118,15 @@ public sealed class CharacterTests(PostgresFixture postgres) : IDisposable
 
         HttpResponseMessage fresh = await owner.GetStatsAsync(World, characterId);
         await Db.ExecuteAsync(postgres.ConnectionString,
-            "INSERT INTO game.character_projections (world_id, character_id, kills, items_acquired, gold_earned, last_event_seq) VALUES (@World, @characterId, 4, 2, 13, 6)",
+            "INSERT INTO game.character_projections (world_id, character_id, kills, items_acquired, gold_earned, trades_completed, last_event_seq) VALUES (@World, @characterId, 4, 2, 13, 3, 6)",
             new { World, characterId });
         HttpResponseMessage projected = await owner.GetStatsAsync(World, characterId);
         HttpResponseMessage intruder = await other.GetStatsAsync(World, characterId);
         HttpResponseMessage otherWorld = await owner.GetStatsAsync(OtherWorld, characterId);
 
         Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
-        Assert.Equal(new ApiClient.StatsResponse(0, 0, 0, 0), await fresh.Content.ReadFromJsonAsync<ApiClient.StatsResponse>());
-        Assert.Equal(new ApiClient.StatsResponse(4, 2, 13, 6), await projected.Content.ReadFromJsonAsync<ApiClient.StatsResponse>());
+        Assert.Equal(new ApiClient.StatsResponse(0, 0, 0, 0, 0), await fresh.Content.ReadFromJsonAsync<ApiClient.StatsResponse>());
+        Assert.Equal(new ApiClient.StatsResponse(4, 2, 13, 3, 6), await projected.Content.ReadFromJsonAsync<ApiClient.StatsResponse>());
         Assert.Equal(HttpStatusCode.NotFound, intruder.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, otherWorld.StatusCode);
     }

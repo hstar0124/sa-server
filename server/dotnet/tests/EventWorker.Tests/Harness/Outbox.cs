@@ -89,4 +89,13 @@ internal static class Outbox
         ItemTemplateId = SlimeGel,
         InventoryVersion = version,
     };
+
+    public static TradeCompleted Traded(long characterId, ulong goldReceived) => new()
+    {
+        TradeId = ByteString.CopyFrom(Guid.NewGuid().ToByteArray()),
+        CharacterId = (ulong)characterId,
+        CounterpartyId = (ulong)characterId + 1,
+        GoldReceived = goldReceived,
+        InventoryVersion = 1,
+    };
 }

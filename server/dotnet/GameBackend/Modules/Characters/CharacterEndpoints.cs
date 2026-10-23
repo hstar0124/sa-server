@@ -18,9 +18,9 @@ internal sealed record CharacterResponse(long CharacterId, long WorldId, string 
         => new(character.Id.Value, character.WorldId.Value, character.Name, character.ClassId.Value);
 }
 
-internal sealed record CharacterStatsResponse(long Kills, long ItemsAcquired, long GoldEarned, long AsOfEventSeq)
+internal sealed record CharacterStatsResponse(long Kills, long ItemsAcquired, long GoldEarned, long TradesCompleted, long AsOfEventSeq)
 {
-    public static CharacterStatsResponse From(CharacterStats stats) => new(stats.Kills, stats.ItemsAcquired, stats.GoldEarned, stats.AsOfEventSeq);
+    public static CharacterStatsResponse From(CharacterStats stats) => new(stats.Kills, stats.ItemsAcquired, stats.GoldEarned, stats.TradesCompleted, stats.AsOfEventSeq);
 }
 
 internal static class CharacterEndpoints
