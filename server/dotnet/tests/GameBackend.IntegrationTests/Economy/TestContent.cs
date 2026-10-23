@@ -11,6 +11,8 @@ internal static class TestContent
 
     public static int InventoryCapacity { get; } = Read<EconomyFile>(Path.Combine("rules", "economy.toml")).Inventory.Capacity;
 
+    public static string PrimaryCurrency { get; } = Read<EconomyFile>(Path.Combine("rules", "economy.toml")).Currency.Primary;
+
     private static T Read<T>(string relative)
         where T : class
         => TomlSerializer.Deserialize<T>(File.ReadAllText(Path.Combine(RepositoryPaths.GameData, relative)), TomlSerializerOptions.Default)
@@ -32,11 +34,20 @@ internal static class TestContent
     {
         [TomlPropertyName("inventory")]
         public InventorySection Inventory { get; set; } = new();
+
+        [TomlPropertyName("currency")]
+        public CurrencySection Currency { get; set; } = new();
     }
 
     private sealed class InventorySection
     {
         [TomlPropertyName("capacity")]
         public int Capacity { get; set; }
+    }
+
+    private sealed class CurrencySection
+    {
+        [TomlPropertyName("primary")]
+        public string Primary { get; set; } = string.Empty;
     }
 }
