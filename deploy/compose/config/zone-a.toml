@@ -21,6 +21,10 @@ silence_timeout_ms = 5000  # nothing from a gateway this long: close its link; i
 # bytes; the remaining sessions wait for a later tick, longest-waiting first. Nothing is dropped:
 # a view carries everything since that player's previous one. Proposal, see docs/reports/03.
 snapshot_budget_bytes = 4194304
+# TCP segment ceiling on these links. A link's receive window starts near 55 KB and grows with
+# traffic; loopback segments are 64 KB, and while one does not fit the sender only probes, backing
+# off to seconds, until the link is closed as silent (docs/issues/021). 16 KiB always fits.
+max_segment_bytes = 16384
 
 [backend]
 address = "localhost:5101"
