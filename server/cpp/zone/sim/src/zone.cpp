@@ -295,8 +295,11 @@ void Zone::RecomputeInterest(common::EntityId self, Player& player) {
     const float enter_sq = rules_.movement.aoi_enter_radius_m * rules_.movement.aoi_enter_radius_m;
     const float leave_sq = rules_.movement.aoi_leave_radius_m * rules_.movement.aoi_leave_radius_m;
 
-    std::vector<common::EntityId> next;
-    next.reserve(player.interest.size());
+    // Candidates in range, each with the distance it is ranked by. An entity already visible is
+    // ranked one hysteresis band closer, so at the view cap a newcomer has to be clearly nearer to
+    // push it out, and the edge of a crowd does not trade places every tick.
+    const float band = rules_.movement.aoi_leave_radius_m - rules_.movement.aoi_enter_radius_m;
+    ranked_.clear();
     for (const common::EntityId candidate : scratch_) {
         if (candidate == self) {
             continue;
@@ -308,11 +311,28 @@ void Zone::RecomputeInterest(common::EntityId self, Player& player) {
         const float d_sq = common::DistanceSq(player.position, *position);
         const bool was_visible = SortedContains(player.interest, candidate);
         if (d_sq <= enter_sq || (was_visible && d_sq <= leave_sq)) {
-            next.push_back(candidate);
+            const float d = std::sqrt(d_sq);
+            ranked_.push_back(Ranked{.id = candidate, .rank = was_visible ? d - band : d});
         }
     }
-    std::ranges::sort(next);
-    player.interest = std::move(next);
+    KeepNearest(ranked_, rules_.movement.aoi_max_entities);
+    player.interest.clear();
+    for (const Ranked& r : ranked_) {
+        player.interest.push_back(r.id);
+    }
+    std::ranges::sort(player.interest);
+}
+
+void Zone::KeepNearest(std::vector<Ranked>& ranked, std::size_t limit) {
+    if (ranked.size() <= limit) {
+        return;
+    }
+    // Ties go to the lower id, so two zones with the same state keep the same entities.
+    const auto by_rank = [](const Ranked& a, const Ranked& b) {
+        return a.rank < b.rank || (a.rank == b.rank && a.id < b.id);
+    };
+    std::ranges::nth_element(ranked, ranked.begin() + static_cast<std::ptrdiff_t>(limit), by_rank);
+    ranked.resize(limit);
 }
 
 // ---- output -------------------------------------------------------------------------------------
@@ -340,18 +360,34 @@ PlayerView Zone::CollectView(common::EntityId player_id) {
 
     // interest and known are both sorted: despawned = known \ interest in one merge pass.
     std::ranges::set_difference(player.known, player.interest, std::back_inserter(view.despawned));
+    ranked_.clear();
+    std::vector<common::EntityId> next_known;
+    next_known.reserve(player.interest.size());
     for (const common::EntityId id : player.interest) {
         if (!SortedContains(player.known, id)) {
-            if (auto snapshot = SnapshotOf(id)) {
-                view.spawned.push_back(*snapshot);
-            }
-        } else if (ChangedSince(id, player.viewed_at)) {
-            if (auto snapshot = SnapshotOf(id)) {
-                view.updated.push_back(*snapshot);
+            const auto position = PositionOf(id);
+            ranked_.push_back(Ranked{
+                .id = id, .rank = position ? common::Distance(player.position, *position) : 0.0F});
+        } else {
+            next_known.push_back(id);
+            if (ChangedSince(id, player.viewed_at)) {
+                if (auto snapshot = SnapshotOf(id)) {
+                    view.updated.push_back(*snapshot);
+                }
             }
         }
     }
-    player.known = player.interest;
+    // Newcomers beyond the per-view limit stay unknown and are offered again next time, nearest
+    // first; they are in the interest set, so they cannot be missed.
+    KeepNearest(ranked_, rules_.movement.aoi_max_spawns_per_view);
+    for (const Ranked& r : ranked_) {
+        if (auto snapshot = SnapshotOf(r.id)) {
+            view.spawned.push_back(*snapshot);
+            next_known.push_back(r.id);
+        }
+    }
+    std::ranges::sort(next_known);
+    player.known = std::move(next_known);
     player.viewed_at = tick_;
     return view;
 }

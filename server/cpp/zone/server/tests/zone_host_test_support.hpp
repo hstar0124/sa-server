@@ -153,6 +153,8 @@ inline sim::Zone MakeZone() {
                                                       .body_radius_m = 0.4F,
                                                       .aoi_enter_radius_m = 20.0F,
                                                       .aoi_leave_radius_m = 25.0F,
+                                                      .aoi_max_entities = 64,
+                                                      .aoi_max_spawns_per_view = 64,
                                                       .commands_per_tick_budget = 100,
                                                       .max_queued_per_player = 8},
                        .combat = sim::CombatRules{.monster_think_hz = 5,

@@ -73,7 +73,14 @@ struct MovementRules {
     float max_speed_mps = 0.0F;
     float body_radius_m = 0.0F;  // half-width of a player's or monster's footprint against terrain
     float aoi_enter_radius_m = 0.0F;
-    float aoi_leave_radius_m = 0.0F;             // >= enter radius; the gap is the hysteresis band
+    float aoi_leave_radius_m = 0.0F;  // >= enter radius; the gap is the hysteresis band
+    // At most this many entities in one player's view: the nearest, with those already visible
+    // ranked one hysteresis band closer so the edge of a crowd does not flicker. It bounds a
+    // snapshot to N x cap entries instead of N x N when everyone stands in one place.
+    std::uint32_t aoi_max_entities = 0;
+    // At most this many newly visible entities in one snapshot, nearest first; the rest follow in
+    // the next ones. A player arriving in a crowd would otherwise get hundreds of spawns at once.
+    std::uint32_t aoi_max_spawns_per_view = 0;
     std::uint32_t commands_per_tick_budget = 0;  // casts and pickups applied per tick
     std::uint32_t max_queued_per_player = 0;     // casts and pickups one player may have waiting
 
