@@ -15,3 +15,4 @@
 | [0009](0009-redis-only-for-measured-bottlenecks.md) | Redis는 측정된 병목(랭킹의 내 순위)에만, 복사본으로 | Accepted |
 | [0010](0010-zone-transfer-as-one-transaction.md) | 지역 이전은 Backend의 조건부 트랜잭션 하나, Gateway가 세션을 다시 붙인다 | Accepted |
 | [0011](0011-snapshot-backpressure-budgets-not-queues.md) | 스냅샷 송신은 큐가 아니라 링크별 예산으로 막고, 오래 기다린 세션이 먼저 | Accepted |
+| [0012](0012-dead-reckoning-and-interest-on-view-ticks.md) | 움직임은 dead reckoning으로 보고하고, 관심 계산은 시야 주기에 나눠 한다 | Accepted |
