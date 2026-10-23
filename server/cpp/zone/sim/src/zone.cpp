@@ -341,29 +341,25 @@ void Zone::UpdateInterestSets() {
 
 void Zone::RecomputeInterest(common::EntityId self, Player& player) {
     scratch_.clear();
-    grid_.QueryCandidates(player.position, rules_.movement.aoi_leave_radius_m, scratch_);
+    grid_.QueryWithin(player.position, rules_.movement.aoi_leave_radius_m, scratch_);
 
     const float enter_sq = rules_.movement.aoi_enter_radius_m * rules_.movement.aoi_enter_radius_m;
-    const float leave_sq = rules_.movement.aoi_leave_radius_m * rules_.movement.aoi_leave_radius_m;
 
     // Candidates in range, each with the distance it is ranked by. An entity already visible is
     // ranked one hysteresis band closer, so at the view cap a newcomer has to be clearly nearer to
     // push it out, and the edge of a crowd does not trade places every tick.
     const float band = rules_.movement.aoi_leave_radius_m - rules_.movement.aoi_enter_radius_m;
     ranked_.clear();
-    for (const common::EntityId candidate : scratch_) {
-        if (candidate == self) {
+    // Everything returned is within leave radius: past enter radius only the visible stay.
+    for (const SpatialGrid::Entry& candidate : scratch_) {
+        if (candidate.id == self) {
             continue;
         }
-        const auto position = PositionOf(candidate);
-        if (!position) {
-            continue;
-        }
-        const float d_sq = common::DistanceSq(player.position, *position);
-        const bool was_visible = SortedContains(player.interest, candidate);
-        if (d_sq <= enter_sq || (was_visible && d_sq <= leave_sq)) {
+        const float d_sq = common::DistanceSq(player.position, candidate.position);
+        const bool was_visible = SortedContains(player.interest, candidate.id);
+        if (d_sq <= enter_sq || was_visible) {
             const float d = std::sqrt(d_sq);
-            ranked_.push_back(Ranked{.id = candidate, .rank = was_visible ? d - band : d});
+            ranked_.push_back(Ranked{.id = candidate.id, .rank = was_visible ? d - band : d});
         }
     }
     KeepNearest(ranked_, rules_.movement.aoi_max_entities);

@@ -36,46 +36,71 @@ SpatialGrid::CellIndex SpatialGrid::CellFor(common::Vec2 position) const noexcep
 }
 
 void SpatialGrid::Insert(common::EntityId id, common::Vec2 position) {
+    if (const auto it = slot_of_.find(id); it != slot_of_.end()) {
+        Relocate(id, it->second, position);
+        return;
+    }
+    Append(id, position);
+}
+
+void SpatialGrid::Append(common::EntityId id, common::Vec2 position) {
     const CellIndex cell = CellFor(position);
-    cells_[cell].push_back(id);
-    cell_of_.insert_or_assign(id, cell);
+    slot_of_.emplace(id, Slot{.cell = cell, .index = cells_[cell].size()});
+    cells_[cell].push_back(Entry{.id = id, .position = position});
 }
 
 void SpatialGrid::Remove(common::EntityId id) {
-    const auto it = cell_of_.find(id);
-    if (it == cell_of_.end()) {
+    const auto it = slot_of_.find(id);
+    if (it == slot_of_.end()) {
         return;
     }
-    std::vector<common::EntityId>& bucket = cells_[it->second];
-    std::erase(bucket, id);
-    cell_of_.erase(it);
+    const Slot slot = it->second;
+    slot_of_.erase(it);
+    Detach(slot);
+}
+
+void SpatialGrid::Detach(Slot slot) {
+    std::vector<Entry>& bucket = cells_[slot.cell];
+    if (slot.index + 1 != bucket.size()) {
+        bucket[slot.index] = bucket.back();
+        slot_of_.at(bucket[slot.index].id).index = slot.index;
+    }
+    bucket.pop_back();
 }
 
 void SpatialGrid::Move(common::EntityId id, common::Vec2 new_position) {
-    const auto it = cell_of_.find(id);
-    if (it == cell_of_.end()) {
-        Insert(id, new_position);
+    if (const auto it = slot_of_.find(id); it != slot_of_.end()) {
+        Relocate(id, it->second, new_position);
         return;
     }
-    const CellIndex target = CellFor(new_position);
-    if (target == it->second) {
-        return;
-    }
-    std::erase(cells_[it->second], id);
-    cells_[target].push_back(id);
-    it->second = target;
+    Append(id, new_position);
 }
 
-void SpatialGrid::QueryCandidates(common::Vec2 center, float radius,
-                                  std::vector<common::EntityId>& out) const {
+void SpatialGrid::Relocate(common::EntityId id, Slot& slot, common::Vec2 new_position) {
+    const CellIndex target = CellFor(new_position);
+    if (target == slot.cell) {
+        cells_[target][slot.index].position = new_position;
+        return;
+    }
+    const Slot old = slot;
+    slot = Slot{.cell = target, .index = cells_[target].size()};
+    cells_[target].push_back(Entry{.id = id, .position = new_position});
+    Detach(old);
+}
+
+void SpatialGrid::QueryWithin(common::Vec2 center, float radius, std::vector<Entry>& out) const {
+    const float radius_sq = radius * radius;
     const std::uint32_t c0 = ColumnFor(center.x - radius);
     const std::uint32_t c1 = ColumnFor(center.x + radius);
     const std::uint32_t r0 = RowFor(center.y - radius);
     const std::uint32_t r1 = RowFor(center.y + radius);
     for (std::uint32_t r = r0; r <= r1; ++r) {
         for (std::uint32_t c = c0; c <= c1; ++c) {
-            const std::vector<common::EntityId>& bucket = cells_[(r * columns_) + c];
-            out.insert(out.end(), bucket.begin(), bucket.end());
+            for (const Entry& entry : cells_[(r * columns_) + c]) {
+                if (common::DistanceSq(center, entry.position) <= radius_sq) {
+                    out.push_back(entry);
+                }
+            }
         }
     }
 }

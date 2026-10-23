@@ -408,9 +408,9 @@ private:
     std::size_t deferred_in_queue_ = 0;  // queued commands already counted in commands_deferred
     std::vector<DeliveredEvent> outbox_;
     std::vector<HostRequest> host_requests_;
-    std::vector<common::EntityId> scratch_;  // reused query buffer
-    std::vector<Ranked> ranked_;             // reused ranking buffer for views
-    std::vector<common::EntityId> order_;    // reused IdsInOrder buffer for the tick's phases
+    std::vector<SpatialGrid::Entry> scratch_;  // reused query buffer
+    std::vector<Ranked> ranked_;               // reused ranking buffer for views
+    std::vector<common::EntityId> order_;      // reused IdsInOrder buffer for the tick's phases
     ZoneStats stats_;
     ProfileClock profile_clock_;
     TickProfile profile_;
