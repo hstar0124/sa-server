@@ -34,11 +34,11 @@ flowchart TD
 | 프로그램 | 언어 | 책임 |
 |---|---|---|
 | GameGateway | C++23 | 연결, 프레이밍, 티켓 검증, 세션 상태 기계, Zone 라우팅, 유량 제한 |
-| ZoneServer | C++23 | 지역 시뮬레이션(이동·충돌·전투·몬스터 AI·관심 관리), 드롭 굴림·바닥 아이템·획득 예약과 Backend 정산, 세션 표, Backend lease 유지 |
-| GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory), 자산(Economy: 처치 기록·획득·조회), 킬 랭킹(Rankings). 모듈형 모놀리스 |
+| ZoneServer | C++23 | 지역 시뮬레이션(이동·충돌·전투·몬스터 AI·관심 관리), 드롭 굴림·바닥 아이템·획득 예약과 Backend 정산, 거래 검증과 중계, 세션 표, Backend lease 유지 |
+| GameBackend | C# / .NET 10 | 가입·로그인, 캐릭터, 입장 티켓과 세션·소유권(WorldDirectory), 자산(Economy: 처치 기록·획득·조회), 거래(Trading: 협상과 한 트랜잭션 확정), 킬 랭킹(Rankings). 모듈형 모놀리스 |
 | EventWorker | C# / .NET 10 | Backend가 트랜잭션 안에서 쓴 Outbox 행을 Kafka로 발행하고(캐릭터마다 순번 순서, 발행 인스턴스는 하나), 그 이벤트를 Inbox로 한 번씩 적용해 캐릭터 통계 조회 모델을 만든다. 통계에서 Redis 킬 랭킹을 유지하고, 비거나 뒤처지면 다시 채운다. 시작할 때 토픽을 만든다 |
-| 브라우저 뷰어 | JavaScript | 2D 뷰어. 같은 `.proto`를 브라우저에서 읽고 WebSocket으로 접속해 WASD로 움직이며, 다른 엔티티를 보간 버퍼로 그린다. 버퍼 길이·인위적 유실·외삽을 조절해 동기화를 눈으로 본다. 외삽을 끄면 갱신 사이에 걷는 엔티티가 멈춰 서서, dead reckoning이 프로토콜의 일부임이 보인다. 몬스터·투사체·바닥 아이템·체력 막대를 그리고, Space·E로 스킬을, F로 획득을 쓰며 전투 로그와 인벤토리·골드를 띄운다 |
-| loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장하고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 보이는 엔티티는 마지막으로 보고된 속도로 외삽해 두뇌에 넘긴다(dead reckoning). 역할은 배회(Wanderer), 전투(Fighter), 획득(Looter), 이동(Traveler)이다. 전투 봇은 보이는 가장 가까운 몬스터에 다가가 사거리 안에서 주기적으로 공격하고, 시전 수락·거절·처치·사망을 센다. 획득 봇은 보이는 아이템을 주우러 가고 없으면 사냥하며, 획득·거절·미확정과 인벤토리를 센다. 이동 봇은 한동안 돌아다니다 가장 가까운 포털로 가서 다른 Zone으로 넘어가고, 넘어간 횟수를 센다. 배회 두뇌는 Zone 안의 프로세스 봇으로도 돈다 |
+| 브라우저 뷰어 | JavaScript | 2D 뷰어. 같은 `.proto`를 브라우저에서 읽고 WebSocket으로 접속해 WASD로 움직이며, 다른 엔티티를 보간 버퍼로 그린다. 버퍼 길이·인위적 유실·외삽을 조절해 동기화를 눈으로 본다. 외삽을 끄면 갱신 사이에 걷는 엔티티가 멈춰 서서, dead reckoning이 프로토콜의 일부임이 보인다. 몬스터·투사체·바닥 아이템·체력 막대를 그리고, Space·E로 스킬을, F로 획득을, T·Y·Enter·Esc로 거래(열기·금화 제안·동의·취소)를 쓰며 전투 로그와 인벤토리·골드·거래 상태를 띄운다 |
+| loadgen | C++23 | 시드 기반 봇. 가입·로그인·캐릭터·티켓을 거쳐 Gateway로 입장하고, 받은 스냅샷이 서로 모순되지 않는지 검사한다. 보이는 엔티티는 마지막으로 보고된 속도로 외삽해 두뇌에 넘긴다(dead reckoning). 역할은 배회(Wanderer), 전투(Fighter), 획득(Looter), 이동(Traveler), 거래(Trader)다. 전투 봇은 보이는 가장 가까운 몬스터에 다가가 사거리 안에서 주기적으로 공격하고, 시전 수락·거절·처치·사망을 센다. 획득 봇은 보이는 아이템을 주우러 가고 없으면 사냥하며, 획득·거절·미확정과 인벤토리를 센다. 이동 봇은 한동안 돌아다니다 가장 가까운 포털로 가서 다른 Zone으로 넘어가고, 넘어간 횟수를 센다. 거래 봇은 가까운 플레이어에게 걸어가 거래를 열고 금화를 제안한 뒤, 양쪽이 제안하면 동의해 확정한다. 짝도 같은 두뇌라 따로 맞추지 않는다. 배회 두뇌는 Zone 안의 프로세스 봇으로도 돈다 |
 
 모든 메시지는 `contracts/`의 Protobuf가 단일 출처다(ADR-0004).
 
@@ -107,6 +107,7 @@ flowchart TB
 | 계정, 캐릭터 | Backend | PostgreSQL |
 | 입장 티켓, 세션, 캐릭터의 소유 Zone과 소유권 세대(owner_epoch), 프로세스 lease, 마지막 위치(체크포인트)와 Zone 이전 기록 | Backend WorldDirectory | PostgreSQL |
 | 아이템, 인벤토리, 지갑, 원장, 처치 영수증, 요청 결과 | Backend Economy | PostgreSQL |
+| 거래 협상(참여자, 양쪽 제안, 버전, 동의한 버전, 만료) | Backend Trading | PostgreSQL. Zone은 세션이 거래 중일 수 있는지만 안다 |
 | 확정 이벤트(Outbox) | Backend가 쓰고, EventWorker가 발행을 표시 | PostgreSQL. Kafka는 소비자에게 전하는 통로라 짧게(24시간) 보관한다 |
 | 캐릭터 통계(조회 모델), 소비자별 적용 기록(Inbox) | EventWorker | PostgreSQL. 이벤트에서 다시 만들 수 있다 |
 | 킬 랭킹 | EventWorker가 쓰고 Backend가 읽음 | Redis Sorted Set. 통계의 복사본이라 디스크에 두지 않는다 |
@@ -422,7 +423,7 @@ EventWorker가 Outbox를 Kafka의 `game.character-events.v1`로 내보낸다. �
 - **발행자는 하나**: PostgreSQL advisory lock을 쥔 인스턴스만 발행하고, 나머지는 대기한다. 배포 중 두 인스턴스가 겹쳐도 서로 끼어들어 순서를 섞지 않는다. 락을 쥔 연결이 끊기면 알아채고 다시 잡으려 한다.
 - **토픽**: 브로커의 자동 생성은 꺼 두고, EventWorker가 시작할 때 정해진 파티션 수로 만든다. 토픽 이름의 오타는 조용히 새 토픽이 되지 않고 시작에서 드러난다. 라우팅할 토픽이 없는 종류의 행은 보내지 않고 시작할 때 알린다.
 
-같은 EventWorker의 소비자가 캐릭터 토픽을 읽어 캐릭터 통계(`character_projections`: 처치, 획득, 번 골드, 반영한 마지막 순번)를 만든다.
+같은 EventWorker의 소비자가 캐릭터 토픽을 읽어 캐릭터 통계(`character_projections`: 처치, 획득, 번 골드, 확정한 거래, 반영한 마지막 순번)를 만든다.
 
 - **한 번만**: Inbox 행 삽입과 통계 갱신이 한 트랜잭션이고, 커밋한 뒤에 Kafka 오프셋을 커밋한다. 그 사이에 죽어 같은 메시지가 다시 와도 Inbox의 기본 키가 막는다.
 - **막히지 않게**: 디코딩할 수 없거나 DB 제약이 거절하는 메시지는 실패 토픽(`game.failed-events.v1`)으로 보내고 넘어간다. DB나 브로커에 닿지 않을 때만 같은 메시지를 잠시 뒤 다시 읽는다.
@@ -464,6 +465,45 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 
 누가 무엇을 결정하는지, 동시 획득·요청 중복·응답 유실·낡은 Zone을 왜 이렇게 막는지는 [설계 노트 07](docs/design-notes/07-economy-consistency.md)에 있다.
 
+## 거래
+
+두 캐릭터가 제안을 주고받다가 둘 다 같은 제안에 동의한 순간, 양쪽의 아이템과 금화가 한 번에 바뀐다. 협상 상태는 Zone의 메모리가 아니라 Backend의 테이블이다(ADR-0013). Zone이 죽어도 협상은 남고, "한 캐릭터는 거래 하나"를 Zone 여러 개 사이에서도 DB가 지킨다.
+
+| 테이블 | 지키는 것 |
+|---|---|
+| `trades` | 참여자 둘(서로 다름), 상태, 버전, 양쪽 금액(음수 불가), 양쪽이 동의한 버전(0~현재), 만료 시각 |
+| `trade_participants` | (월드, 캐릭터)가 기본 키. 한 캐릭터는 열린 거래 하나. 거래가 닫히면 지운다 |
+| `trade_items` | 아이템이 기본 키. 한 아이템은 열린 거래 하나 |
+
+- **버전이 동의의 대상이다.** 제안이 바뀌면 버전이 오르고 양쪽 동의가 지워진다. 동의는 "버전 n에 동의"라서, 상대가 내 동의 뒤 제안을 슬쩍 바꾸는 사기가 구조적으로 막힌다.
+- **확정은 트랜잭션 하나다.** 두 번째 동의가 같은 트랜잭션에서 다음을 한다. 거래 행을 잠그고, 두 캐릭터가 모두 호출한 Zone의 소유인지 본다. 두 인벤토리를 캐릭터 id 순으로 잠그고, 칸과 금화를 확인한다. 금화를 조건부로 옮기고, 아이템을 두 번에 걸쳐(용량 이상의 주차 칸을 거쳐) 옮긴다. 원장과 참여자마다 `TradeCompleted` 이벤트를 쓴다. 중간에 거절되면 savepoint로 모두 되돌리고 거래는 열린 채 동의만 지운다.
+- **멱등**: 모든 호출이 요청 결과(`command_results`, scope `trade`)를 쓴다. 획득과 같은 규칙이다. Zone이 보내는 요청 키는 캐릭터·소유권 세대·요청 id의 다이제스트다.
+- **Zone의 몫**: 살아 있는가, 포털로 떠나는 중인가, 상대가 거래 거리(`economy.toml [trade] range_m`) 안의 플레이어인가를 검증한다. 한 플레이어의 단계는 한 번에 하나만 Backend에 보낸다. 판정은 요청자에게, 거래 상태(`TradeUpdate`)는 이 Zone에 있는 두 참여자에게 보낸다. 확정되면 두 사람의 자산을 다시 읽는다.
+- **떠나면 취소한다**: 세션이 어떤 이유로 끝나든(접속 종료, 추방, 링크 끊김, 무응답·느린 클라이언트 끊기) Zone이 그 캐릭터의 열린 거래를 취소한다. 지역 이동은 소유권이 넘어가기 전에 먼저 취소한다. Backend는 소유자의 취소만 받기 때문이다. 그래도 남은 거래는 마지막 변경 뒤 60초가 지나면 다음 조작이 닫는다.
+
+```mermaid
+sequenceDiagram
+    participant A as 클라이언트 A
+    participant Z as Zone
+    participant B as Backend
+    participant C as 클라이언트 B
+    A->>Z: TradeOpen(B 엔티티)
+    Note over Z: 거리·생존·이동 중 아님 검사
+    Z->>B: OpenTrade(요청 키, 소유권 세대, B 캐릭터)
+    B-->>Z: APPLIED + 거래 상태(버전 0)
+    Z-->>A: CommandResult + TradeUpdate
+    Z-->>C: TradeUpdate
+    Note over A,C: 양쪽이 제안할 때마다 버전이 오르고 동의가 지워진다
+    C->>Z: TradeAccept(버전 2)
+    Z->>B: AcceptTrade
+    Note over B: 거래 잠금 → 소유권 → 인벤토리 잠금 → 금화·아이템 이동 → 원장·이벤트
+    B-->>Z: SETTLED
+    Z-->>A: TradeUpdate(완료) + InventoryUpdate
+    Z-->>C: CommandResult + TradeUpdate(완료) + InventoryUpdate
+```
+
+협상 상태를 어디에 두었는지, 확정을 어떻게 한 번만 일어나게 했는지, 옮기면서 무엇을 고쳤는지는 [설계 노트 13](docs/design-notes/13-trading.md)에 있다.
+
 ## 소유권과 lease
 
 - Backend가 캐릭터마다 소유 Zone 인스턴스와 증가하는 소유권 세대(owner_epoch)를 기록한다. Zone 프로세스는 재시작하면 새 인스턴스 ID를 받는다.
@@ -501,9 +541,11 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 
 **이동 end-to-end**: `travelers.toml` 프로필은 이동 봇 5개와 배회 봇 1개를 60초 동안 돌린다. 봇이 본 Zone 이동 횟수와 Backend의 `zone_transfers`에 남은 이전이 각각 정해진 수 이상이고, 마지막 이전으로 옮겨진 캐릭터의 소유 Zone이 그 도착 Zone이어야 통과한다.
 
+**거래 end-to-end**: `traders.toml` 프로필은 거래 봇 6개를 60초 동안 돌린다. 봇이 본 확정 수와 Backend가 확정한 거래 수가 정해진 수 이상이고, 확정한 거래마다 `TradeCompleted`가 참여자 수만큼 쓰이며, 통계의 거래 수가 그 이벤트 수와 같아야 통과한다. 봇이 모두 떠난 뒤 이 실행의 열린 거래가 남아 있으면 실패한다(세션 종료 취소의 확인).
+
 **K3s end-to-end**: `scripts/e2e-k3s.sh`는 K3s에 올린 스택에 같은 봇 프로필을 돌리고, 위와 같은 검사(남은 세션, 처치·획득·이전 기록, 이벤트 발행·적용, 랭킹 복사본)를 클러스터 안의 PostgreSQL에서 한다. 검사는 `scripts/lib/e2e.sh` 하나를 두 스크립트가 함께 쓴다.
 
-**정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 이전 소유자의 늦은 체크포인트 거절, 이전은 한 번만(재시도·동시 중복 포함), lease가 끝난 Zone의 저장·이전 거절, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭·표보다 많은 드롭 거절, 만료 티켓 거절, 유니크 인덱스에서 진 Redeem도 티켓은 소비, 같은 획득 요청 두 개가 동시에 와도 효과는 한 번, 재입장 뒤 처치 재시도는 반향, lease가 끝난 Zone의 지급 거절, 재시작한 Zone이 옛 인스턴스를 대신함.
+**정합성 테스트**: [tests/integration/README.md](tests/integration/README.md)의 시나리오를 실제 PostgreSQL(Testcontainers)에서 돌린다. HTTP 응답 코드가 아니라 DB 상태를 단언한다. 지금 통과하는 것: 티켓 1회 소비, 이전 소유자의 늦은 체크포인트 거절, 이전은 한 번만(재시도·동시 중복 포함), lease가 끝난 Zone의 저장·이전 거절, 두 Gateway의 동시 Redeem 중 한 건만 승인, 캐릭터당 세션 하나, lease 만료 Zone 배정 거절, 여러 캐릭터가 한 아이템을 동시에 집으면 하나만 획득, 요청 재시도는 저장된 결과를 받고 같은 ID의 다른 본문은 거절, 소유하지 않은 Zone을 통한 획득 거절, 인벤토리가 차면 거절, 처치 보상은 한 번, 낡은 소유권 세대의 처치 거절, 다른 콘텐츠 버전·허용되지 않은 드롭·표보다 많은 드롭 거절, 만료 티켓 거절, 유니크 인덱스에서 진 Redeem도 티켓은 소비, 같은 획득 요청 두 개가 동시에 와도 효과는 한 번, 재입장 뒤 처치 재시도는 반향, lease가 끝난 Zone의 지급 거절, 재시작한 Zone이 옛 인스턴스를 대신함, 거래의 양쪽 자산 보존과 한 번 확정(동시 동의 포함), 캐릭터당·아이템당 열린 거래 하나, 가득 찬 인벤토리끼리의 맞교환, 확정 중 거절 시 금화·아이템 불변, 다른 Zone으로 간 상대와의 확정 거절, 만료된 거래 정리.
 
 ## 성능과 개선
 
@@ -624,6 +666,9 @@ scripts/e2e-local.sh tools/loadgen/client/profiles/looters.toml
 
 # 이동 end-to-end: 이동 봇 5 + 배회 봇 1이 포털로 초원과 고원을 오간다
 scripts/e2e-local.sh tools/loadgen/client/profiles/travelers.toml
+
+# 거래 end-to-end: 거래 봇 6이 짝을 지어 금화를 주고받고 확정한다
+scripts/e2e-local.sh tools/loadgen/client/profiles/traders.toml
 
 # 대화형: 스택을 띄우고 브라우저 뷰어로 접속 (http://localhost:8080/tools/viewer/)
 scripts/dev-stack.sh up && scripts/viewer.sh
