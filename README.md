@@ -474,6 +474,8 @@ Backend도 `GameData:ContentDir`의 같은 game-data를 읽는다. 캐릭터를 
 | 킬 랭킹 상위 20 (캐릭터 100만) | PostgreSQL 13,469 req/s, p99 2.5 ms / Redis 15,619 req/s, p99 2.0 ms. 둘 다 규모와 무관 | [01](docs/reports/01-ranking.md) |
 | 최하위 캐릭터의 순위 (PostgreSQL) | 10만: 679 req/s, p99 36 ms → 100만: 62 req/s, p99 344 ms. 캐릭터 수에 비례 | [01](docs/reports/01-ranking.md) |
 | 최하위 캐릭터의 순위 (Redis Sorted Set) | 10만·100만 모두 약 47,000 req/s, p99 0.88 ms. 100만에서 PostgreSQL의 약 760배 | [01](docs/reports/01-ranking.md) |
+| 용량 기준선 (한 지도에 봇 50~500) | 선형. 500명에서 Zone·Gateway 각 0.25코어, 틱 지연 50 µs 아래, 놓친 틱 0 | [02](docs/reports/02-capacity-baseline.md) |
+| 용량 기준선 (한 지도에 봇 1,000) | 진입 직후 30초간 놓친 틱 57~59, Zone 메모리 1.1~1.2 GiB(링크 송신 큐). 그 뒤 정상. 네 번 중 한 번 링크가 침묵 판정으로 끊김(이슈 020). 네트워크 없이는 놓친 틱 0 | [02](docs/reports/02-capacity-baseline.md) |
 
 ## 기술 선택
 
@@ -589,6 +591,9 @@ scripts/build-images.sh
 scripts/k3s-stack.sh import && scripts/k3s-stack.sh up
 scripts/e2e-k3s.sh tools/loadgen/client/profiles/travelers.toml
 scripts/k3s-stack.sh down
+
+# 용량 기준선: release 빌드로 스택을 띄우고 봇 N명(전투 60 %·획득 20 %·배회 20 %)의 CPU·메모리·틱 상태
+scripts/bench/capacity.sh 500 60
 
 # 시뮬레이션만 돌려보기: 네트워크 없이 프로세스 안에서 봇 200개
 SA_ZONE__DEV__LOCAL_BOTS=200 build/dev/server/cpp/zone/server/zone_server --config deploy/compose/config/zone-a.toml

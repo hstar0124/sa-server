@@ -5,3 +5,4 @@
 | 보고서 | 질문 |
 |---|---|
 | [01 킬 랭킹](01-ranking.md) | PostgreSQL만으로 랭킹이 버티는가, 어디서 무너지는가, Redis Sorted Set으로 무엇이 바뀌나 |
+| [02 용량 기준선](02-capacity-baseline.md) | 스택 하나가 봇 몇 명까지 받나, 먼저 휘는 곳은 어디인가 |
