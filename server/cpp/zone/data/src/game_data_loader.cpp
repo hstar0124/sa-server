@@ -92,15 +92,20 @@ std::expected<sim::MovementRules, LoadError> RulesFromTable(const toml::table& t
     const auto body = RequireFloat(table, "movement.body_radius_m");
     const auto enter = RequireFloat(table, "aoi.enter_radius_m");
     const auto leave = RequireFloat(table, "aoi.leave_radius_m");
+    const auto max_entities = RequireU32(table, "aoi.max_entities");
+    const auto max_spawns = RequireU32(table, "aoi.max_spawns_per_view");
     const auto budget = RequireU32(table, "input.commands_per_tick_budget");
     const auto queued = RequireU32(table, "input.max_queued_per_player");
-    if (auto err = FirstError(speed, body, enter, leave, budget, queued)) {
+    if (auto err =
+            FirstError(speed, body, enter, leave, max_entities, max_spawns, budget, queued)) {
         return std::unexpected(*err);
     }
     const sim::MovementRules rules{.max_speed_mps = *speed,
                                    .body_radius_m = *body,
                                    .aoi_enter_radius_m = *enter,
                                    .aoi_leave_radius_m = *leave,
+                                   .aoi_max_entities = *max_entities,
+                                   .aoi_max_spawns_per_view = *max_spawns,
                                    .commands_per_tick_budget = *budget,
                                    .max_queued_per_player = *queued};
     if (auto valid = rules.Validate(); !valid) {

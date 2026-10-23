@@ -38,12 +38,16 @@ public:
 
     void Start();
     void Send(const internal::v1::ZoneToGateway& message) override;
+    [[nodiscard]] std::size_t QueuedBytes() const override { return connection_->QueuedBytes(); }
     void Close();
 
     [[nodiscard]] const std::optional<common::InstanceId>& gateway_id() const noexcept {
         return gateway_id_;
     }
     [[nodiscard]] std::string PeerAddress() const { return connection_->PeerAddress(); }
+    // The longest wait between two frames from the gateway since the last call: how close the
+    // link came to its silence timeout.
+    [[nodiscard]] std::chrono::milliseconds TakeLongestGap();
 
 private:
     void OnFrame(std::span<const std::byte> payload);
@@ -54,6 +58,7 @@ private:
     asio::steady_timer silence_timer_;
     std::chrono::milliseconds silence_timeout_;
     std::chrono::steady_clock::time_point last_heard_;
+    std::chrono::steady_clock::duration longest_gap_{};
     std::shared_ptr<common::FramedConnection> connection_;
     Handler& handler_;
     std::optional<common::InstanceId> gateway_id_;  // set by LinkHello

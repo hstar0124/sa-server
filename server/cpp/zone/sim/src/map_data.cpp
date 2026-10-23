@@ -156,6 +156,9 @@ std::expected<void, std::string> MovementRules::Validate() const {
     if (aoi_leave_radius_m < aoi_enter_radius_m) {
         return std::unexpected("aoi.leave_radius_m must be >= aoi.enter_radius_m");
     }
+    if (aoi_max_entities == 0 || aoi_max_spawns_per_view == 0) {
+        return std::unexpected("aoi.max_entities and aoi.max_spawns_per_view must be positive");
+    }
     if (commands_per_tick_budget == 0) {
         return std::unexpected("input.commands_per_tick_budget must be positive");
     }

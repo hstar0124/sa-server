@@ -2,6 +2,9 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <utility>
+
 namespace sa::zone {
 
 GatewayLink::GatewayLink(asio::ip::tcp::socket socket, common::FrameLimits limits,
@@ -28,6 +31,11 @@ void GatewayLink::Send(const internal::v1::ZoneToGateway& message) {
         spdlog::warn("gateway link {}: outbound message dropped: {}", PeerAddress(),
                      common::Describe(sent.error()));
     }
+}
+
+std::chrono::milliseconds GatewayLink::TakeLongestGap() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::exchange(longest_gap_, std::chrono::steady_clock::duration{}));
 }
 
 void GatewayLink::Close() {
@@ -58,7 +66,9 @@ void GatewayLink::OnFrame(std::span<const std::byte> payload) {
         connection_->Abort();
         return;
     }
-    last_heard_ = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    longest_gap_ = std::max(longest_gap_, now - last_heard_);
+    last_heard_ = now;
     using internal::v1::GatewayToZone;
     if (!gateway_id_ && message.body_case() != GatewayToZone::kLinkHello) {
         spdlog::warn("gateway link {}: message before LinkHello, closing", PeerAddress());

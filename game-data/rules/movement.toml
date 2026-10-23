@@ -10,6 +10,12 @@ body_radius_m = 0.4
 # The gap stops an entity hovering on the boundary from flapping in and out every tick.
 enter_radius_m = 40.0
 leave_radius_m = 45.0
+# The view keeps at most this many entities, nearest first; a crowd beyond it is not drawn. It
+# bounds a snapshot to players x max_entities entries instead of players squared.
+max_entities = 128
+# Newly visible entities per snapshot, nearest first; the rest arrive in the next snapshots. A
+# player entering a crowd gets it over several snapshots instead of one huge one.
+max_spawns_per_view = 32
 
 [input]
 # How many queued casts and pickups one tick processes before deferring the rest (see README

@@ -176,5 +176,76 @@ TEST(ZoneInterest, CrowdOfPlayersSeesOnlyThoseInRange) {
     EXPECT_EQ(middle.spawned.size(), 4U);
 }
 
+MovementRules Capped(std::uint32_t max_entities, std::uint32_t max_spawns) {
+    MovementRules rules = test::Rules();
+    rules.aoi_max_entities = max_entities;
+    rules.aoi_max_spawns_per_view = max_spawns;
+    return rules;
+}
+
+std::vector<EntityId> Ids(const std::vector<EntitySnapshot>& list) {
+    std::vector<EntityId> ids;
+    ids.reserve(list.size());
+    for (const EntitySnapshot& s : list) {
+        ids.push_back(s.id);
+    }
+    std::ranges::sort(ids);
+    return ids;
+}
+
+TEST(ZoneInterest, AtTheViewCapTheNearestAreKept) {
+    constexpr std::uint32_t kCap = 3;
+    Zone zone = test::MakeZone(test::OpenField(), Capped(kCap, kCap));
+    const EntityId observer = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    std::vector<EntityId> others;
+    for (std::uint64_t i = 1; i <= 5; ++i) {  // 2, 4, 6, 8 and 10 m away, all in the enter radius
+        others.push_back(
+            test::Spawn(zone, i + 1, Vec2{50.0F + (2.0F * static_cast<float>(i)), 50.0F}));
+    }
+    zone.Tick();
+    const PlayerView view = zone.CollectView(observer);
+    EXPECT_EQ(Ids(view.spawned), (std::vector{others[0], others[1], others[2]}));
+}
+
+TEST(ZoneInterest, AVisibleEntityHoldsItsPlaceUntilANewcomerIsABandNearer) {
+    // Enter 20 m, leave 25 m: a visible entity ranks 5 m closer than it stands.
+    Zone zone = test::MakeZone(test::OpenField(), Capped(1, 1));
+    const EntityId observer = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId visible = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});  // 10 m, ranked as 5
+    zone.Tick();
+    ASSERT_EQ(Ids(zone.CollectView(observer).spawned), std::vector{visible});
+
+    const EntityId nearer = test::Spawn(zone, 3, Vec2{50.0F, 58.0F});  // 8 m: not enough
+    zone.Tick();
+    EXPECT_TRUE(zone.CollectView(observer).IsEmpty()) << "no trading places at the edge";
+
+    const EntityId closest = test::Spawn(zone, 4, Vec2{50.0F, 46.0F});  // 4 m: clearly nearer
+    zone.Tick();
+    const PlayerView view = zone.CollectView(observer);
+    EXPECT_EQ(Ids(view.spawned), std::vector{closest});
+    EXPECT_EQ(view.despawned, std::vector{visible});
+    EXPECT_FALSE(HasId(view.spawned, nearer));
+}
+
+TEST(ZoneInterest, NewcomersArriveOverSeveralViewsNearestFirst) {
+    Zone zone = test::MakeZone(test::OpenField(), Capped(64, 2));
+    const EntityId observer = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    std::vector<EntityId> others;
+    for (std::uint64_t i = 1; i <= 5; ++i) {
+        others.push_back(
+            test::Spawn(zone, i + 1, Vec2{50.0F, 50.0F + (2.0F * static_cast<float>(i))}));
+    }
+    zone.Tick();
+    EXPECT_EQ(Ids(zone.CollectView(observer).spawned), (std::vector{others[0], others[1]}));
+    zone.Tick();
+    EXPECT_EQ(Ids(zone.CollectView(observer).spawned), (std::vector{others[2], others[3]}));
+
+    zone.DespawnPlayer(others[4]);  // left before it was ever shown
+    zone.Tick();
+    const PlayerView last = zone.CollectView(observer);
+    EXPECT_TRUE(last.spawned.empty());
+    EXPECT_TRUE(last.despawned.empty()) << "never told about it, so nothing to take back";
+}
+
 }  // namespace
 }  // namespace sa::zone::sim

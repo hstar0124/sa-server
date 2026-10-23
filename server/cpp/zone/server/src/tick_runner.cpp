@@ -46,10 +46,14 @@ void TickRunner::OnTimer() {
     const std::uint32_t due = scheduler_.Advance(now - last_wake_);
     last_wake_ = now;
     for (std::uint32_t i = 0; i < due; ++i) {
+        const auto before_sim = std::chrono::steady_clock::now();
         zone_.Tick();
+        const auto before_host = std::chrono::steady_clock::now();
         if (after_tick_) {
             after_tick_(zone_.current_tick());
         }
+        sim_time_ += before_host - before_sim;
+        host_time_ += std::chrono::steady_clock::now() - before_host;
     }
     ticks_since_stats_ += due;
     LogStatsIfDue(now);
@@ -62,13 +66,20 @@ void TickRunner::LogStatsIfDue(std::chrono::steady_clock::time_point now) {
     }
     const std::uint64_t dropped = scheduler_.dropped_ticks() - dropped_at_last_stats_;
     const sim::ZoneStats& zs = zone_.stats();
+    const auto micros = [](std::chrono::steady_clock::duration d) {
+        return std::chrono::duration_cast<std::chrono::microseconds>(d).count();
+    };
     spdlog::info(
         "tick={} ran={} dropped={} lag_us={} players={} cmds={} deferred={} refused={} "
-        "superseded={} stale={}",
-        zone_.current_tick().value(), ticks_since_stats_, dropped,
-        std::chrono::duration_cast<std::chrono::microseconds>(scheduler_.lag()).count(), zs.players,
-        zs.commands_applied, zs.commands_deferred, zs.commands_dropped, zs.moves_superseded,
-        zs.stale_inputs_dropped);
+        "superseded={} stale={} sim_us={} host_us={}",
+        zone_.current_tick().value(), ticks_since_stats_, dropped, micros(scheduler_.lag()),
+        zs.players, zs.commands_applied, zs.commands_deferred, zs.commands_dropped,
+        zs.moves_superseded, zs.stale_inputs_dropped, micros(sim_time_), micros(host_time_));
+    sim_time_ = {};
+    host_time_ = {};
+    if (on_stats_) {
+        on_stats_();
+    }
     ticks_since_stats_ = 0;
     dropped_at_last_stats_ = scheduler_.dropped_ticks();
     next_stats_ = now + stats_log_interval_;

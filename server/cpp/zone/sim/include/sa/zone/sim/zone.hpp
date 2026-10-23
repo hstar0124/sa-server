@@ -277,8 +277,15 @@ private:
     [[nodiscard]] bool Blocked(common::Vec2 point) const;
     [[nodiscard]] common::Vec2 StepTowards(common::Vec2 from, common::Vec2 goal,
                                            float speed_mps) const;
+    // An entity and the distance it is ranked by for a player's view.
+    struct Ranked {
+        common::EntityId id;
+        float rank = 0.0F;
+    };
     void UpdateInterestSets();
     void RecomputeInterest(common::EntityId self, Player& player);
+    // Keeps the `limit` lowest-ranked entries, in no particular order.
+    static void KeepNearest(std::vector<Ranked>& ranked, std::size_t limit);
     [[nodiscard]] bool ChangedSince(common::EntityId entity, common::TickIndex tick) const;
     // Sets a body's velocity and stamps the change when there is one: a stop is news to observers
     // just like a step, or they keep extrapolating the old velocity.
@@ -361,6 +368,7 @@ private:
     std::vector<DeliveredEvent> outbox_;
     std::vector<HostRequest> host_requests_;
     std::vector<common::EntityId> scratch_;  // reused query buffer
+    std::vector<Ranked> ranked_;             // reused ranking buffer for views
     std::vector<common::EntityId> order_;    // reused IdsInOrder buffer for the tick's phases
     ZoneStats stats_;
 };

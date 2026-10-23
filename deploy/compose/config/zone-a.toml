@@ -17,6 +17,10 @@ max_gateways = 8
 max_frame_bytes = 262144  # a SessionOutput wraps one client frame (<= 64 KiB) plus headers
 close_linger_ms = 1000     # bounds closing a link at shutdown when the gateway does not close its side
 silence_timeout_ms = 5000  # nothing from a gateway this long: close its link; it pings every second
+# Snapshot backpressure (ADR-0011): one snapshot tick fills a gateway's link up to this many unsent
+# bytes; the remaining sessions wait for a later tick, longest-waiting first. Nothing is dropped:
+# a view carries everything since that player's previous one. Proposal, see docs/reports/03.
+snapshot_budget_bytes = 4194304
 
 [backend]
 address = "localhost:5101"

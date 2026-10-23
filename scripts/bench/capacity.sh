@@ -57,8 +57,11 @@ declare -A pids=([eventworker]=$(cat "$DEV_DIR/eventworker.pid") [backend]=$(cat
 cpu_ticks() { awk '{print $14 + $15}' "/proc/$1/stat"; }  # utime + stime
 declare -A start_ticks
 for name in "${!pids[@]}"; do start_ticks[$name]=$(cpu_ticks "${pids[$name]}"); done
-declare -A first_stats_line
-for zone in zone-a zone-b; do first_stats_line[$zone]=$(grep -c 'lag_us=' "$DEV_DIR/$zone.log" || true); done
+declare -A first_stats_line deferred_before
+for zone in zone-a zone-b; do
+  first_stats_line[$zone]=$(wc -l < "$DEV_DIR/$zone.log")
+  deferred_before[$zone]=$(grep -o 'snapshots_deferred=[0-9]*' "$DEV_DIR/$zone.log" | tail -1 | cut -d= -f2)
+done
 start_ns=$(date +%s%N)
 sleep $((DURATION - SETTLE_SEC - TAIL_SEC))
 end_ns=$(date +%s%N)
@@ -80,12 +83,22 @@ done
 echo
 docker stats --no-stream --format '| {{.Name}} | {{.CPUPerc}} | {{.MemUsage}} |' sa-postgres sa-kafka sa-redis
 echo
-# Tick health over the window, from the zones' own 10 s statistics lines logged after sampling began.
+# Tick health over the window, from the zones' own 10 s statistics lines logged after sampling
+# began: ticks run and dropped, start lag, where the zone thread's time went (simulation step vs
+# host delivery), snapshots deferred by backpressure, the deepest gateway link queue and the longest
+# gap between frames from the gateway (against its silence timeout).
 for zone in zone-a zone-b; do
   tail -n +"$((first_stats_line[$zone] + 1))" "$DEV_DIR/$zone.log" \
-    | grep -o 'ran=[0-9]* dropped=[0-9]* lag_us=[0-9]* players=[0-9]*' \
-    | awk -F'[= ]' -v z="$zone" '{ran+=$2; dropped+=$4; if ($6>lag) lag=$6; sum+=$6; n++; players=$8}
-        END{printf "%s: ticks=%d dropped=%d lag_us max=%d avg=%.0f players(last)=%d\n", z, ran, dropped, lag, (n?sum/n:0), players}'
+    | awk -v z="$zone" -v window="$elapsed" -v deferred_base="${deferred_before[$zone]:-0}" '
+    function field(name,   i) { for (i = 1; i <= NF; i++) if (index($i, name "=") == 1) return substr($i, length(name) + 2); return "" }
+    /lag_us=/ { ran += field("ran"); dropped += field("dropped"); lag = field("lag_us") + 0; if (lag > lag_max) lag_max = lag
+                lag_sum += lag; n++; players = field("players"); sim += field("sim_us"); host += field("host_us") }
+    /snapshots_deferred=/ { deferred = field("snapshots_deferred") + 0
+                            q = field("link_queue_peak_bytes") + 0; if (q > queue_max) queue_max = q
+                            g = field("gateway_gap_max_ms") + 0; if (g > gap_max) gap_max = g }
+    END { printf "%s: ticks=%d dropped=%d lag_us max=%d avg=%.0f players(last)=%d sim=%.2f host=%.2f (cores) snapshots_deferred=%d link_queue_peak=%.1f MiB gateway_gap_max=%d ms\n",
+          z, ran, dropped, lag_max, (n ? lag_sum / n : 0), players, sim / 1e6 / window, host / 1e6 / window,
+          (deferred > 0 ? deferred - deferred_base : 0), queue_max / 1048576, gap_max }'
 done
 wait "$loadgen_pid" || true
 loadgen_pid=""
