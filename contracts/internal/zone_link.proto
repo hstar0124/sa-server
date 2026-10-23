@@ -70,6 +70,7 @@ enum DetachReason {
   DETACH_REASON_GATEWAY_SHUTDOWN = 2;
   DETACH_REASON_PROTOCOL_ERROR = 3;
   DETACH_REASON_CLIENT_IDLE = 4;          // the client sent nothing for the gateway's idle timeout
+  DETACH_REASON_CLIENT_SLOW = 5;          // the client did not read its output fast enough
 }
 
 message SessionDetach {
