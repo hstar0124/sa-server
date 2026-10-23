@@ -44,8 +44,7 @@ void Zone::ApplyCast(const CastCommand& command) {
 
     // Cost is paid when the cast starts so a second cast cannot spend the same MP; the cooldown
     // starts at activation so an interrupted cast does not lock the skill.
-    player.vitals.mp -= skill->cost_mp;
-    player.changed_at = tick_;
+    player.vitals.mp -= skill->cost_mp;  // MP is the player's own: no observer sees it change
     if (skill->cast_time.count() == 0) {
         Activate(command.player, player, *skill, command.target);
         return;
@@ -138,11 +137,11 @@ void Zone::Activate(common::EntityId caster, Player& player, const SkillDefiniti
         case SkillKind::kProjectile: {
             const common::Vec2 direction = std::get<common::Vec2>(target).Normalized();
             const common::EntityId id = AllocateEntityId();
-            projectiles_.emplace(id,
-                                 Projectile{.owner = caster,
-                                            .skill = &skill,
-                                            .position = player.position,
-                                            .velocity = direction * skill.projectile_speed_mps});
+            projectiles_.emplace(id, Projectile{.owner = caster,
+                                                .skill = &skill,
+                                                .position = player.position,
+                                                .velocity = direction * skill.projectile_speed_mps,
+                                                .changed_at = tick_});
             kinds_.emplace(id, EntityKind::kProjectile);
             grid_.Insert(id, player.position);
             return;
@@ -258,7 +257,10 @@ void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, Skill
 
 void Zone::OnPlayerDeath(common::EntityId /*id*/, Player& player) {
     player.cast.reset();
-    SetVelocity(player.velocity, player.changed_at, {});
+    // The body stops now, not at the next movement phase, so the view that reports the death
+    // does not leave observers extrapolating a walking corpse.
+    player.velocity = {};
+    Publish(player.published, player.position, player.velocity, player.changed_at);
     player.desired_direction = {};
     player.respawn_at = TicksFromNow(rules_.combat.player_respawn);
 }
@@ -275,7 +277,7 @@ void Zone::RespawnPlayers() {
         player.position = map_.spawn_points[index];
         player.vitals.hp = player.vitals.max_hp;
         player.vitals.mp = player.vitals.max_mp;
-        player.changed_at = tick_;
+        Publish(player.published, player.position, player.velocity, player.changed_at);
         grid_.Move(id, player.position);
     }
 }
@@ -290,7 +292,6 @@ void Zone::RegenerateMp() {
         if (whole > 0) {
             player.mp_regen_carry -= static_cast<float>(whole);
             player.vitals.mp = std::min(player.vitals.max_mp, player.vitals.mp + whole);
-            player.changed_at = tick_;
         }
     }
 }

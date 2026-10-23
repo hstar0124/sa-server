@@ -67,7 +67,8 @@ std::size_t SpawnBody(const sim::EntitySnapshot& s) {
            ScalarSize(S::kTemplateIdFieldNumber, s.template_id) +
            MessageSize(S::kPositionFieldNumber, Vec2Body(s.position)) +
            ScalarSize(S::kHpFieldNumber, codec::NonNegative(s.hp)) +
-           ScalarSize(S::kMaxHpFieldNumber, codec::NonNegative(s.max_hp));
+           ScalarSize(S::kMaxHpFieldNumber, codec::NonNegative(s.max_hp)) +
+           MessageSize(S::kVelocityFieldNumber, Vec2Body(s.velocity));
 }
 
 std::size_t VitalsBody(const sim::Vitals& v) {
@@ -167,7 +168,8 @@ std::uint8_t* WriteSpawn(const sim::EntitySnapshot& s, std::uint8_t* at) {
     at = WriteScalar(S::kTemplateIdFieldNumber, s.template_id, at);
     at = WriteVec2(S::kPositionFieldNumber, s.position, at);
     at = WriteScalar(S::kHpFieldNumber, codec::NonNegative(s.hp), at);
-    return WriteScalar(S::kMaxHpFieldNumber, codec::NonNegative(s.max_hp), at);
+    at = WriteScalar(S::kMaxHpFieldNumber, codec::NonNegative(s.max_hp), at);
+    return WriteVec2(S::kVelocityFieldNumber, s.velocity, at);
 }
 std::uint8_t* WriteVitals(const sim::Vitals& v, std::uint8_t* at) {
     using V = game::v1::SelfVitals;

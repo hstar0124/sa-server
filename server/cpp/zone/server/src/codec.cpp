@@ -47,6 +47,7 @@ void Fill(game::v1::EntitySpawn& out, const sim::EntitySnapshot& s) {
     Fill(*out.mutable_position(), s.position);
     out.set_hp(NonNegative(s.hp));
     out.set_max_hp(NonNegative(s.max_hp));
+    Fill(*out.mutable_velocity(), s.velocity);
 }
 
 }  // namespace

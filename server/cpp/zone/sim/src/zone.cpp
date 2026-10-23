@@ -103,6 +103,7 @@ std::expected<common::EntityId, SpawnError> Zone::SpawnPlayer(
     }
     const common::EntityId id = AllocateEntityId();
     Player player{.character = character, .cls = &cls->second, .position = at};
+    player.published = Published{.position = at, .velocity = {}, .at = tick_};
     player.recent_requests = RecentRequests{config_.command_retry_window};
     player.vitals = Vitals{.hp = cls->second.max_hp,
                            .max_hp = cls->second.max_hp,
@@ -246,34 +247,47 @@ void Zone::Tick() {
     stats_.projectiles = projectiles_.size();
 }
 
+// Every player passes the dead-reckoning check each tick, standing ones included: a respawn moves
+// a body without walking it, and only the check notices.
 void Zone::IntegratePlayers() {
     for (auto& [id, player] : players_) {
         // Casting roots the caster; the intent is kept and applied once the cast resolves.
         const bool rooted = player.cast.has_value() || !player.vitals.IsAlive();
-        if (rooted || player.desired_direction.IsZero()) {
-            SetVelocity(player.velocity, player.changed_at, {});
-            continue;
+        player.velocity = {};
+        if (!rooted && !player.desired_direction.IsZero()) {
+            const common::Vec2 intended = player.desired_direction * rules_.movement.max_speed_mps;
+            const common::Vec2 resolved =
+                ResolveCollisions(player.position, player.position + intended * dt_seconds_);
+            // The achieved velocity, not the intended one: sliding along a wall is slower, and an
+            // observer extrapolating with it must land where the zone did.
+            player.velocity = (resolved - player.position) * (1.0F / dt_seconds_);
+            if (resolved != player.position) {
+                player.position = resolved;
+                grid_.Move(id, resolved);
+            }
         }
-        const common::Vec2 velocity = player.desired_direction * rules_.movement.max_speed_mps;
-        const common::Vec2 resolved =
-            ResolveCollisions(player.position, player.position + velocity * dt_seconds_);
-        if (resolved == player.position) {
-            SetVelocity(player.velocity, player.changed_at, {});
-            continue;
-        }
-        SetVelocity(player.velocity, player.changed_at, velocity);
-        player.position = resolved;
-        player.changed_at = tick_;
-        grid_.Move(id, resolved);
+        PublishIfDeviated(player.published, player.position, player.velocity, player.changed_at);
     }
 }
 
-void Zone::SetVelocity(common::Vec2& velocity, common::TickIndex& changed_at,
-                       common::Vec2 next) const {
-    if (velocity != next) {
-        velocity = next;
-        changed_at = tick_;
+void Zone::PublishIfDeviated(Published& published, common::Vec2 position, common::Vec2 velocity,
+                             common::TickIndex& changed_at) const {
+    const MovementRules& rules = rules_.movement;
+    const float elapsed_s = static_cast<float>(tick_.value() - published.at.value()) * dt_seconds_;
+    const common::Vec2 extrapolated = published.position + published.velocity * elapsed_s;
+    const bool turned = common::DistanceSq(velocity, published.velocity) >
+                        rules.publish_velocity_delta_mps * rules.publish_velocity_delta_mps;
+    const bool strayed = common::DistanceSq(position, extrapolated) >
+                         rules.publish_position_error_m * rules.publish_position_error_m;
+    if (turned || strayed) {
+        Publish(published, position, velocity, changed_at);
     }
+}
+
+void Zone::Publish(Published& published, common::Vec2 position, common::Vec2 velocity,
+                   common::TickIndex& changed_at) const {
+    published = Published{.position = position, .velocity = velocity, .at = tick_};
+    changed_at = tick_;
 }
 
 bool Zone::Blocked(common::Vec2 point) const {
@@ -373,7 +387,10 @@ bool Zone::ChangedSince(common::EntityId entity, common::TickIndex tick) const {
     if (const auto m = monsters_.find(entity); m != monsters_.end()) {
         return m->second.changed_at > tick;
     }
-    return projectiles_.contains(entity);  // projectiles move every tick; items never change
+    if (const auto pr = projectiles_.find(entity); pr != projectiles_.end()) {
+        return pr->second.changed_at > tick;  // a straight flight: reported once, at launch
+    }
+    return false;  // items never change
 }
 
 PlayerView Zone::CollectView(common::EntityId player_id) {

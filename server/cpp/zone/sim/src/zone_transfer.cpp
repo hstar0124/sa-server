@@ -55,7 +55,7 @@ void Zone::ApplyChangeZone(const ChangeZoneCommand& command) {
     // Frozen from here: no movement, no casts, no pickups until the Backend has decided.
     player.departing = command.request_id;
     player.desired_direction = {};
-    SetVelocity(player.velocity, player.changed_at, {});
+    player.velocity = {};  // the movement phase of this tick reports the stop
     player.cast.reset();
     Deliver(command.player, CommandResultEvent::Pending(command.request_id));
     host_requests_.emplace_back(ZoneTransferRequest{.player = command.player,
