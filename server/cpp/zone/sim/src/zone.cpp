@@ -328,14 +328,15 @@ common::Vec2 Zone::StepTowards(common::Vec2 from, common::Vec2 goal, float speed
 
 // ---- interest management ------------------------------------------------------------------------
 
-// Only on view ticks: views are what read interest sets, and the recomputation is most of a tick's
-// cost in a crowd.
+// Once per view period for each player, on the tick its id falls on: views are what read interest
+// sets, and the recomputation is most of a tick's cost in a crowd. Spread this way it does not all
+// land on the view tick, and a view reads a set at most ticks_per_view - 1 ticks old.
 void Zone::UpdateInterestSets() {
-    if (tick_.value() % config_.ticks_per_view != 0) {
-        return;
-    }
+    const std::uint64_t phase = tick_.value() % config_.ticks_per_view;
     for (auto& [id, player] : players_) {
-        RecomputeInterest(id, player);
+        if (id.value() % config_.ticks_per_view == phase) {
+            RecomputeInterest(id, player);
+        }
     }
 }
 

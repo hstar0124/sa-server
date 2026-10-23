@@ -35,8 +35,9 @@ struct ZoneConfig {
     // Decided command results remembered per player for retries. The host passes the protocol's
     // COMMAND_RETRY_WINDOW; the simulation does not include the contracts itself.
     std::size_t command_retry_window = 0;
-    // The host collects views every this many ticks (its snapshot cadence). Interest sets are
-    // recomputed on those ticks only, since nothing reads them in between.
+    // The host collects views every this many ticks (its snapshot cadence). Each player's interest
+    // set is recomputed once in that period, the players spread over its ticks, since nothing but
+    // a view reads it.
     std::uint32_t ticks_per_view = 1;
 };
 
@@ -144,8 +145,8 @@ public:
     void FailTransfer(const ZoneTransferRequest& transfer, TransferOutcome outcome);
 
     // ---- output -----------------------------------------------------------------------------
-    // Interest-set delta for one player since its previous view. Call on the ticks that
-    // ZoneConfig::ticks_per_view names: the interest sets are fresh only then.
+    // Interest-set delta for one player since its previous view. Call every
+    // ZoneConfig::ticks_per_view ticks: each interest set is refreshed once in that period.
     [[nodiscard]] PlayerView CollectView(common::EntityId player);
     // Command results and combat notifications produced since the last drain, with recipients.
     [[nodiscard]] std::vector<DeliveredEvent> DrainEvents();

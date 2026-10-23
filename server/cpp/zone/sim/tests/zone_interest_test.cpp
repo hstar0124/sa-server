@@ -153,7 +153,7 @@ TEST(ZoneInterest, ManaAndAStraightProjectileAreNotNewsToObservers) {
     EXPECT_GT(zone.CollectView(b).self_vitals.mp, mp_after_cast) << "b itself sees MP return";
 }
 
-TEST(ZoneInterest, InterestIsRecomputedOnViewTicksOnly) {
+TEST(ZoneInterest, EachInterestSetIsRecomputedOncePerViewPeriodSpreadOverItsTicks) {
     ZoneConfig config = test::Config();
     config.ticks_per_view = 2;
     auto created =
@@ -162,15 +162,19 @@ TEST(ZoneInterest, InterestIsRecomputedOnViewTicksOnly) {
     Zone& zone = *created;
     const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
     const EntityId b = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});
+    ASSERT_NE(a.value() % 2, b.value() % 2) << "the two fall on different ticks of the period";
+    const EntityId odd = a.value() % 2 == 1 ? a : b;
+    const EntityId even = odd == a ? b : a;
 
-    zone.Tick();  // tick 1: not a view tick
-    EXPECT_TRUE(zone.CollectView(a).spawned.empty());
-    zone.Tick();  // tick 2
-    EXPECT_TRUE(HasId(zone.CollectView(a).spawned, b));
+    zone.Tick();  // tick 1: the odd id's turn
+    EXPECT_TRUE(HasId(zone.CollectView(odd).spawned, even));
+    EXPECT_TRUE(zone.CollectView(even).spawned.empty()) << "not recomputed yet";
+    zone.Tick();  // tick 2: the even id's turn
+    EXPECT_TRUE(HasId(zone.CollectView(even).spawned, odd));
 
-    // b leaves after the recomputation: the view must not wait for the next one to drop it.
-    zone.DespawnPlayer(b);
-    EXPECT_EQ(zone.CollectView(a).despawned, std::vector{b});
+    // A body that leaves after a recomputation drops out of the next view, not the one after.
+    zone.DespawnPlayer(even);
+    EXPECT_EQ(zone.CollectView(odd).despawned, std::vector{even});
 }
 
 TEST(ZoneInterest, AViewCadenceOfZeroIsRefused) {
