@@ -57,6 +57,7 @@
 | [51](51-zone-snapshot-backpressure.md) | 스냅샷 역압: 링크별 예산, 오래 기다린 세션 우선, 시야 상한과 진입 분할 | 8b | 0.7.0 |
 | [52](52-slow-client-kick.md) | 느린 클라이언트 끊기, 그리고 측정으로 옮기지 않은 두 가지 | 8c | |
 | [53](53-snapshot-direct-encoding.md) | 스냅샷 직접 인코딩, 그리고 측정으로 뺀 작업자 풀 | 8c | |
+| [54](54-dead-reckoning-interest-cadence.md) | dead reckoning과 시야 주기 관심 계산: 1,000명에서 대역폭 92%, Zone CPU 42% 감소 | 8c | |
 
 ## 형식
 
