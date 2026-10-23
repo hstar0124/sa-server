@@ -13,13 +13,16 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <expected>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -68,6 +71,18 @@ struct ZoneStats {
     std::size_t ground_items = 0;
 };
 
+// Time spent in each phase of Tick() since the host last took the profile. Measured only when the
+// host injects a clock (Zone::set_profile_clock); the simulation itself never reads one.
+struct TickProfile {
+    std::chrono::nanoseconds commands{};
+    std::chrono::nanoseconds casts{};
+    std::chrono::nanoseconds players{};
+    std::chrono::nanoseconds monsters{};
+    std::chrono::nanoseconds projectiles{};
+    std::chrono::nanoseconds upkeep{};  // regeneration, respawns, ground item expiry
+    std::chrono::nanoseconds interest{};
+};
+
 // One simulated region. All mutable state is owned here and advanced only by Tick(), which the
 // hosting process calls from a single logical thread (see README "Zone의 한 틱"). No I/O, no
 // clocks, no randomness other than the injected Rng (ADR-0008).
@@ -78,6 +93,7 @@ struct ZoneStats {
 class Zone {
 public:
     using Command = std::variant<MoveCommand, CastCommand, PickupCommand, ChangeZoneCommand>;
+    using ProfileClock = std::function<std::chrono::steady_clock::time_point()>;
 
     // Fails when the map's spawns name monsters the content does not define, or a portal leads
     // back into this zone.
@@ -139,6 +155,10 @@ public:
     [[nodiscard]] const ContentBundle& content() const noexcept { return content_; }
     [[nodiscard]] common::TickIndex current_tick() const noexcept { return tick_; }
     [[nodiscard]] const ZoneStats& stats() const noexcept { return stats_; }
+    // Phase timing for the operator's statistics line; without a clock Tick() times nothing.
+    void set_profile_clock(ProfileClock clock) { profile_clock_ = std::move(clock); }
+    // The phase totals since the previous call.
+    [[nodiscard]] TickProfile TakeProfile() { return std::exchange(profile_, {}); }
     [[nodiscard]] std::optional<common::Vec2> PositionOf(common::EntityId entity) const;
     [[nodiscard]] std::optional<EntitySnapshot> SnapshotOf(common::EntityId entity) const;
     [[nodiscard]] std::optional<Vitals> VitalsOf(common::EntityId entity) const;
@@ -371,6 +391,8 @@ private:
     std::vector<Ranked> ranked_;             // reused ranking buffer for views
     std::vector<common::EntityId> order_;    // reused IdsInOrder buffer for the tick's phases
     ZoneStats stats_;
+    ProfileClock profile_clock_;
+    TickProfile profile_;
 };
 
 }  // namespace sa::zone::sim

@@ -27,6 +27,7 @@ struct ZoneHostStats {
     std::uint64_t evictions = 0;
     std::uint64_t inputs = 0;
     std::uint64_t snapshots_sent = 0;
+    std::uint64_t snapshot_bytes = 0;      // link payload bytes of the snapshots sent
     std::uint64_t snapshots_deferred = 0;  // a link was at its budget; the view waited a tick
     std::uint64_t events_sent = 0;
     std::uint64_t bad_inputs = 0;

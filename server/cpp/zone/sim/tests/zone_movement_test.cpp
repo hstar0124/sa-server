@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 #include <variant>
 
@@ -201,6 +202,24 @@ TEST(ZoneMovement, SpawnWithoutPositionUsesASpawnPoint) {
     const Vec2 pos = test::PosOf(zone, p);
     const auto& spawns = zone.map().spawn_points;
     EXPECT_TRUE(std::ranges::find(spawns, pos) != spawns.end());
+}
+
+TEST(ZoneMovement, TickTimesEachPhaseOnlyWithAnInjectedClock) {
+    Zone zone = test::MakeZone();
+    zone.Tick();
+    EXPECT_EQ(zone.TakeProfile().commands, std::chrono::nanoseconds{0}) << "no clock, no timing";
+
+    // Every read advances the fake clock by one millisecond: each phase spans exactly one read.
+    std::chrono::steady_clock::time_point now{};
+    zone.set_profile_clock([&now] { return now += std::chrono::milliseconds{1}; });
+    zone.Tick();
+    zone.Tick();
+    const TickProfile profile = zone.TakeProfile();
+    for (const auto phase : {profile.commands, profile.casts, profile.players, profile.monsters,
+                             profile.projectiles, profile.upkeep, profile.interest}) {
+        EXPECT_EQ(phase, std::chrono::milliseconds{2});
+    }
+    EXPECT_EQ(zone.TakeProfile().interest, std::chrono::nanoseconds{0}) << "taking resets";
 }
 
 }  // namespace

@@ -238,10 +238,11 @@ int Run(int argc, char** argv) {
         }};
     runner.set_on_stats([&host, &link_server] {
         spdlog::info(
-            "sessions={} snapshots={} snapshots_deferred={} link_queue_peak_bytes={} "
-            "gateway_gap_max_ms={}",
-            host.session_count(), host.stats().snapshots_sent, host.stats().snapshots_deferred,
-            host.TakeLinkPressure().queue_peak_bytes, link_server.TakeLongestGap().count());
+            "sessions={} snapshots={} snapshot_bytes={} snapshots_deferred={} "
+            "link_queue_peak_bytes={} gateway_gap_max_ms={}",
+            host.session_count(), host.stats().snapshots_sent, host.stats().snapshot_bytes,
+            host.stats().snapshots_deferred, host.TakeLinkPressure().queue_peak_bytes,
+            link_server.TakeLongestGap().count());
     });
 
     // Shutdown: evict sessions (gateways kick their clients), stop the simulation, wait the grace

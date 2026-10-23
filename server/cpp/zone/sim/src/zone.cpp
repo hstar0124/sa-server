@@ -15,6 +15,27 @@ bool SortedContains(const std::vector<common::EntityId>& sorted, common::EntityI
     return std::ranges::binary_search(sorted, id);
 }
 
+// Adds the time since the previous lap to a phase's total. Without a clock it does nothing, so a
+// zone in tests or tools pays no clock reads.
+class PhaseTimer {
+public:
+    explicit PhaseTimer(const Zone::ProfileClock& clock)
+        : clock_(clock), last_(clock ? clock() : std::chrono::steady_clock::time_point{}) {}
+
+    void Lap(std::chrono::nanoseconds& total) {
+        if (!clock_) {
+            return;
+        }
+        const auto now = clock_();
+        total += now - last_;
+        last_ = now;
+    }
+
+private:
+    const Zone::ProfileClock& clock_;
+    std::chrono::steady_clock::time_point last_;
+};
+
 }  // namespace
 
 // ---- construction -------------------------------------------------------------------------------
@@ -203,16 +224,24 @@ void Zone::ApplyMove(const MoveCommand& command) {
 
 void Zone::Tick() {
     tick_ = tick_.Next();
-    DrainCommands();      // ValidateAndApplyCommands within the per-tick budget
-    ResolveCasts();       // casts whose cast time elapsed
-    IntegratePlayers();   // UpdateMovementAndCollision
-    UpdateMonsters();     // UpdateScheduledAi
+    PhaseTimer phase{profile_clock_};
+    DrainCommands();  // ValidateAndApplyCommands within the per-tick budget
+    phase.Lap(profile_.commands);
+    ResolveCasts();  // casts whose cast time elapsed
+    phase.Lap(profile_.casts);
+    IntegratePlayers();  // UpdateMovementAndCollision
+    phase.Lap(profile_.players);
+    UpdateMonsters();  // UpdateScheduledAi
+    phase.Lap(profile_.monsters);
     UpdateProjectiles();  // UpdateCastsAndProjectiles
+    phase.Lap(profile_.projectiles);
     RegenerateMp();
     RespawnPlayers();  // ApplyDamageBuffsAndDeaths: deferred effects
     RespawnMonsters();
     ExpireGroundItems();
+    phase.Lap(profile_.upkeep);
     UpdateInterestSets();  // UpdateInterestSets
+    phase.Lap(profile_.interest);
     stats_.monsters = monsters_.size();
     stats_.projectiles = projectiles_.size();
 }
