@@ -5,8 +5,11 @@ add_library(sa_zone_host STATIC
   src/snapshot_encoder.cpp
   src/zone_host_economy.cpp
   src/zone_host_placement.cpp
+  src/zone_host_trade.cpp
+  src/trade_codec.cpp
   src/economy_client.cpp
   src/directory_client.cpp
+  src/trade_client.cpp
   src/gateway_link.cpp
   src/zone_server_config.cpp
   src/tick_runner.cpp)
@@ -26,7 +29,8 @@ target_link_libraries(zone_server PRIVATE sa::zone_host sa::zone_data)
 if(SA_BUILD_TESTS)
   sa_add_test(sa_zone_host_tests
     SOURCES tests/codec_test.cpp tests/zone_host_test.cpp tests/zone_host_economy_test.cpp
-            tests/zone_host_placement_test.cpp tests/backend_call_test.cpp
+            tests/zone_host_placement_test.cpp tests/zone_host_trade_test.cpp
+            tests/trade_codec_test.cpp tests/backend_call_test.cpp
             tests/zone_server_config_test.cpp
             tests/tick_runner_test.cpp tests/gateway_link_test.cpp tests/zone_host_backpressure_test.cpp tests/snapshot_encoder_test.cpp
     LIBS sa::zone_host sa::common_testing)

@@ -3,6 +3,7 @@
 #include "sa/common/geometry.hpp"
 #include "sa/common/ids.hpp"
 #include "sa/zone/sim/content.hpp"
+#include "sa/zone/sim/entities.hpp"
 #include "sa/zone/sim/map_data.hpp"
 
 #include <cstdint>
@@ -36,6 +37,13 @@ enum class RejectReason : std::uint8_t {
     kOutOfPortalRange,
     kTransferInProgress,
     kZoneUnavailable,  // no live destination zone right now
+    // trades (ADR-0013)
+    kTradeBusy,             // the player or the counterparty is already in a trade
+    kTradeClosed,           // completed, cancelled or expired meanwhile
+    kTradeVersionMismatch,  // the offer changed since the player looked
+    kTradeItemUnavailable,  // not the offerer's, or locked in another trade
+    kNotEnoughGold,
+    kTradeCounterpartyLeft,  // the counterparty is no longer owned by this zone
 };
 
 // Mirrors CommandStatus in contracts/game: a result is final (accepted/rejected), still waiting
@@ -88,7 +96,8 @@ struct DeliveredEvent {
 // ---- requests to the host ------------------------------------------------------------------
 // The zone adjudicates and rolls; durable effects (receipts, items, gold) are the Backend's.
 // The host carries these over gRPC and brings the answer back through Zone::SpawnGroundItems,
-// Zone::ResolvePickup and Zone::CompleteTransfer/FailTransfer (see README "자산과 멱등성").
+// Zone::ResolvePickup, Zone::CompleteTransfer/FailTransfer and Zone::ResolveTrade (see README
+// "자산과 멱등성").
 
 struct DropRoll {
     ItemTemplateId item;
@@ -123,6 +132,20 @@ struct ZoneTransferRequest {
     common::Vec2 arrival;
 };
 
-using HostRequest = std::variant<KillRecord, PickupReservation, ZoneTransferRequest>;
+// A trade step the zone validated; the Backend decides it and the host relays the outcome to both
+// participants (ADR-0013).
+struct TradeRequest {
+    common::EntityId player;
+    common::CharacterId character;
+    common::RequestId request_id;
+    TradeAction action = TradeAction::kOpen;
+    common::CharacterId counterparty;           // kOpen
+    common::TradeId trade;                      // kOffer, kAccept, kCancel
+    std::vector<common::ItemInstanceId> items;  // kOffer
+    std::uint64_t gold = 0;                     // kOffer
+    std::uint32_t version = 0;                  // kAccept
+};
+
+using HostRequest = std::variant<KillRecord, PickupReservation, ZoneTransferRequest, TradeRequest>;
 
 }  // namespace sa::zone::sim

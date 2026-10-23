@@ -40,5 +40,7 @@ using KillId = OpaqueId<struct KillIdTag>;
 using RequestKey = OpaqueId<struct RequestKeyTag>;
 // One attempt to hand a character to another zone; the Backend stores its outcome (ADR-0010).
 using TransferId = OpaqueId<struct TransferIdTag>;
+// One negotiation between two characters; the Backend mints it and owns its state (ADR-0013).
+using TradeId = OpaqueId<struct TradeIdTag>;
 
 }  // namespace sa::common

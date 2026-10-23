@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <variant>
+#include <vector>
 
 namespace sa::zone::sim {
 
@@ -62,6 +63,21 @@ struct ChangeZoneCommand {
     common::EntityId player;
     common::RequestId request_id;
     PortalId portal;
+};
+
+enum class TradeAction : std::uint8_t { kOpen, kOffer, kAccept, kCancel };
+
+// One step of a trade (ADR-0013). The zone checks what only it knows (who stands where, who is
+// alive, who is leaving); everything else is the Backend's answer, relayed as the result.
+struct TradeCommand {
+    common::EntityId player;
+    common::RequestId request_id;
+    TradeAction action = TradeAction::kOpen;
+    common::EntityId target;                    // kOpen: the counterparty's entity
+    common::TradeId trade;                      // kOffer, kAccept, kCancel
+    std::vector<common::ItemInstanceId> items;  // kOffer: replaces the player's previous offer
+    std::uint64_t gold = 0;                     // kOffer
+    std::uint32_t version = 0;                  // kAccept: the version the client saw
 };
 
 // The Backend's verdict on a departure, as the host reports it back to the zone.

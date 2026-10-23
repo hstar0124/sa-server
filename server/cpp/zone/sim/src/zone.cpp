@@ -157,7 +157,8 @@ void Zone::QueueMove(const MoveCommand& move) {
     }
 }
 
-void Zone::QueueRequest(common::EntityId player, common::RequestId request, QueuedCommand command) {
+void Zone::QueueRequest(common::EntityId player, common::RequestId request,
+                        const QueuedCommand& command) {
     std::uint32_t& queued = queued_per_player_[player];
     if (queued >= rules_.movement.max_queued_per_player) {
         ++stats_.commands_dropped;
@@ -184,6 +185,8 @@ void Zone::DrainCommands() {
                     ApplyCast(c);
                 } else if constexpr (std::is_same_v<T, PickupCommand>) {
                     ApplyPickup(c);
+                } else if constexpr (std::is_same_v<T, TradeCommand>) {
+                    ApplyTrade(c);
                 } else {
                     ApplyChangeZone(c);
                 }

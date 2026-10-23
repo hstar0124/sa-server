@@ -9,6 +9,7 @@
 #include "economy_client.hpp"
 #include "gateway_link.hpp"
 #include "link_sink.hpp"
+#include "trade_client.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -46,6 +47,11 @@ struct ZoneHostStats {
     std::uint64_t transfers_refused = 0;
     std::uint64_t stale_attaches = 0;  // an attach under a generation not newer than the live one
     std::uint64_t superseded_sessions = 0;  // a newer generation of the same character arrived
+    // Trade round trips (ADR-0013).
+    std::uint64_t trade_steps_sent = 0;
+    std::uint64_t trade_steps_refused = 0;
+    std::uint64_t trades_settled = 0;
+    std::uint64_t trade_cancels_on_leave = 0;  // a session that may have been trading ended
 };
 
 // Binds gateway sessions to simulated players and settles the zone's economy and placement
@@ -54,7 +60,8 @@ struct ZoneHostStats {
 // post replies to the io_context that also runs the tick, so no reply races a tick.
 //
 // Split by concern across zone_host.cpp (sessions, input, output), zone_host_economy.cpp (assets,
-// kills, pickups) and zone_host_placement.cpp (checkpoints, transfers).
+// kills, pickups), zone_host_placement.cpp (checkpoints, transfers) and zone_host_trade.cpp
+// (trade steps and their relay).
 class ZoneHost final : public GatewayLink::Handler {
 public:
     struct Identity {
@@ -70,7 +77,8 @@ public:
 
     // `authoritative` answers whether the zone currently holds its Backend lease.
     ZoneHost(sim::Zone& zone, Identity identity, EconomyGateway& economy,
-             DirectoryGateway& directory, std::function<bool()> authoritative);
+             DirectoryGateway& directory, TradeGateway& trades,
+             std::function<bool()> authoritative);
 
     // Called after each simulation tick: delivers command results and combat events every tick,
     // forwards kills, pickups and departures to the Backend, snapshots and saves checkpoints at
@@ -119,6 +127,9 @@ private:
         // again and again.
         std::optional<common::Vec2> checkpointed;
         common::TickIndex last_snapshot;  // when this session last got one; zero = never
+        // Possibly in an open trade: set by every trade step, cleared by a TradeUpdate that says
+        // the trade closed. A session that ends while set asks the Backend to cancel.
+        bool trading = false;
     };
     // A session as the snapshot pass sees it, grouped by link.
     struct SessionSlot {
@@ -160,13 +171,23 @@ private:
     void Transfer(const sim::ZoneTransferRequest& transfer);
     void OnTransferDecided(const sim::ZoneTransferRequest& transfer,
                            const std::optional<backend::v1::TransferCharacterResponse>& response);
+    void RequestTransfer(const sim::ZoneTransferRequest& transfer);
     void HandOver(const sim::ZoneTransferRequest& transfer,
                   const backend::v1::TransferCharacterResponse& response);
+
+    // Trade round trips (zone_host_trade.cpp).
+    void Trade(const sim::TradeRequest& request);
+    void OnTradeDecided(const sim::TradeRequest& request,
+                        const std::optional<backend::v1::TradeResponse>& response);
+    void RelayTradeState(const backend::v1::TradeState& state);
+    // Cancels every open trade of the session's character, then runs `then` either way.
+    void CancelTradesOf(const Session& session, std::function<void()> then = {});
 
     sim::Zone& zone_;
     Identity identity_;
     EconomyGateway& economy_;
     DirectoryGateway& directory_;
+    TradeGateway& trades_;
     std::function<bool()> authoritative_;
     std::function<void(GatewayLink&)> on_link_closed_;
     std::unordered_map<common::InstanceId, Session> sessions_;  // by gateway session id

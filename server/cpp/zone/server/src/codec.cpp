@@ -17,22 +17,6 @@ void Fill(game::v1::Vec2& out, common::Vec2 v) {
     out.set_y(v.y);
 }
 
-// 16 bytes naming one command of one character for its lifetime: the client's request id is
-// unique only within one session, and the ownership epoch changes on every entry and transfer.
-// A retry within the session reproduces the same digest; a new session cannot collide with an
-// old one even when its counter restarts at the same number. `domain` keeps kinds apart.
-common::HmacSha256Digest CommandDigest(std::string_view domain, common::CharacterId character,
-                                       common::OwnerEpoch epoch, common::RequestId request) {
-    std::array<std::byte, sizeof(std::uint64_t) * 3> material{};
-    std::size_t offset = 0;
-    for (const std::uint64_t value : {character.value(), epoch.value(), request.value()}) {
-        for (std::size_t i = 0; i < sizeof value; ++i) {
-            material.at(offset++) = static_cast<std::byte>((value >> (8 * i)) & 0xFFU);
-        }
-    }
-    return common::HmacSha256(common::AsBytes(domain), material);
-}
-
 void Fill(game::v1::EntityUpdate& out, const sim::EntitySnapshot& s) {
     out.set_entity_id(s.id.value());
     Fill(*out.mutable_position(), s.position);
@@ -51,6 +35,22 @@ void Fill(game::v1::EntitySpawn& out, const sim::EntitySnapshot& s) {
 }
 
 }  // namespace
+
+// 16 bytes naming one command of one character for its lifetime: the client's request id is
+// unique only within one session, and the ownership epoch changes on every entry and transfer.
+// A retry within the session reproduces the same digest; a new session cannot collide with an
+// old one even when its counter restarts at the same number. `domain` keeps kinds apart.
+common::HmacSha256Digest CommandDigest(std::string_view domain, common::CharacterId character,
+                                       common::OwnerEpoch epoch, common::RequestId request) {
+    std::array<std::byte, sizeof(std::uint64_t) * 3> material{};
+    std::size_t offset = 0;
+    for (const std::uint64_t value : {character.value(), epoch.value(), request.value()}) {
+        for (std::size_t i = 0; i < sizeof value; ++i) {
+            material.at(offset++) = static_cast<std::byte>((value >> (8 * i)) & 0xFFU);
+        }
+    }
+    return common::HmacSha256(common::AsBytes(domain), material);
+}
 
 std::uint32_t NonNegative(std::int32_t value) {
     return static_cast<std::uint32_t>(std::max(0, value));
@@ -110,6 +110,18 @@ game::v1::RejectCode ToProto(sim::RejectReason reason) {
             return game::v1::REJECT_CODE_TRANSFER_IN_PROGRESS;
         case sim::RejectReason::kZoneUnavailable:
             return game::v1::REJECT_CODE_ZONE_UNAVAILABLE;
+        case sim::RejectReason::kTradeBusy:
+            return game::v1::REJECT_CODE_TRADE_BUSY;
+        case sim::RejectReason::kTradeClosed:
+            return game::v1::REJECT_CODE_TRADE_CLOSED;
+        case sim::RejectReason::kTradeVersionMismatch:
+            return game::v1::REJECT_CODE_TRADE_VERSION_MISMATCH;
+        case sim::RejectReason::kTradeItemUnavailable:
+            return game::v1::REJECT_CODE_TRADE_ITEM_UNAVAILABLE;
+        case sim::RejectReason::kNotEnoughGold:
+            return game::v1::REJECT_CODE_NOT_ENOUGH_GOLD;
+        case sim::RejectReason::kTradeCounterpartyLeft:
+            return game::v1::REJECT_CODE_TRADE_COUNTERPARTY_LEFT;
     }
     return game::v1::REJECT_CODE_UNSPECIFIED;
 }
@@ -244,14 +256,10 @@ game::v1::Welcome ToWelcome(const WelcomeInfo& info) {
 
 // ---- zone <-> backend ---------------------------------------------------------------------------
 
-namespace {
-
 void Fill(backend::v1::ZoneAuthority& out, const ZoneAuthority& authority) {
     out.set_zone_instance_id(authority.zone_instance.ToWire());
     out.set_owner_epoch(authority.epoch.value());
 }
-
-}  // namespace
 
 // ---- WorldDirectory (placement) ----------------------------------------------------------------
 

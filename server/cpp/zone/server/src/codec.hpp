@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sa/common/geometry.hpp"
+#include "sa/common/hmac.hpp"
 #include "sa/common/ids.hpp"
 #include "sa/common/instance_id.hpp"
 #include "sa/zone/sim/entities.hpp"
@@ -30,6 +31,7 @@ namespace sa::zone::codec {
 // A client input refused before it reaches the simulation.
 enum class InputError : std::uint8_t {
     kNonFiniteVector,  // a NaN or infinite coordinate; no honest client sends one
+    kMalformedId,      // a trade or item id that is not 16 bytes
 };
 
 [[nodiscard]] std::expected<sim::MoveCommand, InputError> ToMoveCommand(
@@ -73,6 +75,16 @@ struct ZoneAuthority {
     common::InstanceId zone_instance;
     common::OwnerEpoch epoch;
 };
+void Fill(backend::v1::ZoneAuthority& out, const ZoneAuthority& authority);
+
+// 16 bytes naming one command of one character for its lifetime: the client's request id is
+// unique only within one session, and the ownership epoch changes on every entry and transfer.
+// A retry within the session reproduces the same digest; a new session cannot collide with an
+// old one even when its counter restarts at the same number. `domain` keeps kinds apart.
+[[nodiscard]] common::HmacSha256Digest CommandDigest(std::string_view domain,
+                                                     common::CharacterId character,
+                                                     common::OwnerEpoch epoch,
+                                                     common::RequestId request);
 
 // ---- WorldDirectory (placement) ----------------------------------------------------------------
 

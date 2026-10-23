@@ -2,6 +2,7 @@
 
 #include "codec.hpp"
 #include "snapshot_encoder.hpp"
+#include "trade_codec.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -17,11 +18,13 @@ namespace sa::zone {
 using internal::v1::ZoneToGateway;
 
 ZoneHost::ZoneHost(sim::Zone& zone, Identity identity, EconomyGateway& economy,
-                   DirectoryGateway& directory, std::function<bool()> authoritative)
+                   DirectoryGateway& directory, TradeGateway& trades,
+                   std::function<bool()> authoritative)
     : zone_(zone),
       identity_(identity),
       economy_(economy),
       directory_(directory),
+      trades_(trades),
       authoritative_(std::move(authoritative)) {}
 
 // ---- GatewayLink::Handler -------------------------------------------------------------------
@@ -175,6 +178,18 @@ void ZoneHost::Input(const internal::v1::SessionInput& input) {
             zone_.Submit(codec::ToChangeZoneCommand(it->second.entity, message.change_zone()));
             ++stats_.inputs;
             return;
+        case game::v1::ClientMessage::kTradeOpen:
+            submit(codec::ToTradeCommand(it->second.entity, message.trade_open()));
+            return;
+        case game::v1::ClientMessage::kTradeOffer:
+            submit(codec::ToTradeCommand(it->second.entity, message.trade_offer()));
+            return;
+        case game::v1::ClientMessage::kTradeAccept:
+            submit(codec::ToTradeCommand(it->second.entity, message.trade_accept()));
+            return;
+        case game::v1::ClientMessage::kTradeCancel:
+            submit(codec::ToTradeCommand(it->second.entity, message.trade_cancel()));
+            return;
         case game::v1::ClientMessage::kHello:
         case game::v1::ClientMessage::kPing:
         case game::v1::ClientMessage::BODY_NOT_SET:
@@ -242,7 +257,8 @@ void ZoneHost::OnTick(common::TickIndex tick) {
         ++stats_.events_sent;
     }
 
-    // Kills, pickups and departures the zone adjudicated this tick go to the Backend now; their
+    // Kills, pickups, departures and trade steps the zone adjudicated this tick go to the Backend
+    // now; their
     // answers come back on this thread and are applied through the zone's answer entry points.
     for (const sim::HostRequest& request : zone_.DrainHostRequests()) {
         std::visit(
@@ -252,6 +268,8 @@ void ZoneHost::OnTick(common::TickIndex tick) {
                     RecordKill(r);
                 } else if constexpr (std::is_same_v<T, sim::PickupReservation>) {
                     SettlePickup(r);
+                } else if constexpr (std::is_same_v<T, sim::TradeRequest>) {
+                    Trade(r);
                 } else {
                     Transfer(r);
                 }
@@ -346,6 +364,9 @@ void ZoneHost::RemoveSession(const common::InstanceId& session_id, bool despawn)
     const auto it = sessions_.find(session_id);
     if (it == sessions_.end()) {
         return;
+    }
+    if (it->second.trading) {
+        CancelTradesOf(it->second);  // whatever ended the session: detach, kick, link, eviction
     }
     if (despawn) {
         zone_.DespawnPlayer(it->second.entity);

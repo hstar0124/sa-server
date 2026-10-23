@@ -38,7 +38,8 @@ protected:
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
 };
 
 TEST_F(ZoneHostBackpressure, ACongestedLinkDefersItsSnapshotsAndTheNextOneLosesNothing) {

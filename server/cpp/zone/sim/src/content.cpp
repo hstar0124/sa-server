@@ -117,6 +117,9 @@ std::expected<void, std::string> EconomyRules::Validate() const {
     if (pickup_range_m <= 0.0F) {
         return std::unexpected("pickup.range_m must be positive");
     }
+    if (!(trade_range_m > 0.0F)) {
+        return std::unexpected("trade.range_m must be positive");
+    }
     if (ground_item_despawn.count() <= 0) {
         return std::unexpected("pickup.despawn_ms must be positive");
     }

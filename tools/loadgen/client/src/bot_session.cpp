@@ -167,6 +167,8 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
             report_.loot = world_.loot();
             report_.integrity = world_.integrity();
             return;
+        case ServerMessage::kTradeUpdate:
+            return;  // only a bot that trades gets one, and none does yet
         case ServerMessage::BODY_NOT_SET:
             Fail("empty server message");
             return;
