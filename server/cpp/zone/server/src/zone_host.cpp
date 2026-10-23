@@ -1,10 +1,12 @@
 #include "zone_host.hpp"
 
 #include "codec.hpp"
+#include "snapshot_encoder.hpp"
 
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -271,7 +273,8 @@ void ZoneHost::OnTick(common::TickIndex tick) {
 // one, so an older snapshot is never worth more than the next. A gateway that falls behind
 // therefore never makes the zone queue stale state for it. Each snapshot tick a link may grow to
 // its byte budget; within it the sessions that have waited longest go first, and the rest keep
-// their views uncollected until a later tick, losing nothing and catching up oldest first.
+// their views uncollected until a later tick, losing nothing and catching up oldest first
+// (ADR-0011). Each snapshot is encoded straight into the link's wire format (snapshot_encoder).
 void ZoneHost::SendSnapshots(common::TickIndex tick) {
     by_link_.clear();
     for (auto& [id, session] : sessions_) {
@@ -290,11 +293,10 @@ void ZoneHost::SendSnapshots(common::TickIndex tick) {
                 continue;
             }
             Session& session = *slot.session;
-            const sim::PlayerView view = zone_.CollectView(session.entity);
-            game::v1::ServerMessage message;
-            *message.mutable_world_snapshot() = codec::ToWorldSnapshot(view, tick);
-            queued += message.ByteSizeLong();
-            SendToSession(session, *slot.id, message);
+            EncodeSnapshotOutput(slot.id->ToWire(), zone_.CollectView(session.entity), tick,
+                                 snapshot_scratch_);
+            queued += snapshot_scratch_.size();
+            sink->SendPayload(std::as_bytes(std::span{snapshot_scratch_}));
             session.last_snapshot = tick;
             ++stats_.snapshots_sent;
         }

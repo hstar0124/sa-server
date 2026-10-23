@@ -56,6 +56,7 @@
 | [50](50-tcp-gathered-writes.md) | 묶음 쓰기와 송신 대기 바이트 | 8b | 0.7.0 |
 | [51](51-zone-snapshot-backpressure.md) | 스냅샷 역압: 링크별 예산, 오래 기다린 세션 우선, 시야 상한과 진입 분할 | 8b | 0.7.0 |
 | [52](52-slow-client-kick.md) | 느린 클라이언트 끊기, 그리고 측정으로 옮기지 않은 두 가지 | 8c | |
+| [53](53-snapshot-direct-encoding.md) | 스냅샷 직접 인코딩, 그리고 측정으로 뺀 작업자 풀 | 8c | |
 
 ## 형식
 

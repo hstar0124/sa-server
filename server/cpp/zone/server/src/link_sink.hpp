@@ -3,6 +3,7 @@
 #include <internal/zone_link.pb.h>
 
 #include <cstddef>
+#include <span>
 
 namespace sa::zone {
 
@@ -12,6 +13,8 @@ class LinkSink {
 public:
     virtual ~LinkSink() = default;
     virtual void Send(const internal::v1::ZoneToGateway& message) = 0;
+    // An already serialized ZoneToGateway (the snapshot encoder's output).
+    virtual void SendPayload(std::span<const std::byte> payload) = 0;
     // Bytes sent but not yet taken by the transport: the host's backpressure signal.
     [[nodiscard]] virtual std::size_t QueuedBytes() const = 0;
 };

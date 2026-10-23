@@ -59,6 +59,8 @@ struct WelcomeInfo {
 };
 [[nodiscard]] game::v1::Welcome ToWelcome(const WelcomeInfo& info);
 
+// Health and mana are signed in the simulation (damage may overshoot) and unsigned on the wire.
+[[nodiscard]] std::uint32_t NonNegative(std::int32_t value);
 [[nodiscard]] game::v1::EntityKind ToProto(sim::EntityKind kind);
 [[nodiscard]] game::v1::RejectCode ToProto(sim::RejectReason reason);
 [[nodiscard]] game::v1::CommandStatus ToProto(sim::CommandStatus status);
