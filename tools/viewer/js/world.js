@@ -1,6 +1,9 @@
 // Client-side world model: the authoritative self, and other entities as timelines of samples
 // so they can be rendered a buffer interval in the past (design note 02).
 const SAMPLE_WINDOW_MS = 2000;
+const TRADE_ID_SHORT_CHARS = 8;  // how much of the trade id the HUD shows
+
+const hex = (bytes) => Array.from(bytes ?? [], b => b.toString(16).padStart(2, '0')).join('');
 
 export class World {
   constructor() {
@@ -14,6 +17,8 @@ export class World {
     this.entities = new Map();  // id -> { kind, templateId, hp, maxHp, samples: [{ t, x, y, vx, vy }] }
     this.vitals = { hp: 0, maxHp: 0, mp: 0, maxMp: 0 };
     this.inventory = { items: [], capacity: 0, version: 0, gold: 0 };  // full state from the last InventoryUpdate
+    this.trade = null;          // the open trade from the last TradeUpdate: { id, key, short, version, you, other }
+    this.tradeResult = '-';     // last trade step's result or how the last trade ended
     this.zoneId = 0;
     this.portals = [];          // { id, x, y, radius, toZone } from the zone's Welcome
     this.log = [];              // last combat lines, newest first
@@ -35,6 +40,7 @@ export class World {
       id: p.portal_id, x: p.position.x, y: p.position.y, radius: p.radius_m, toZone: p.to_zone_id,
     }));
     this.lastAckedInput = 0;
+    this.trade = null;  // the zone we left cancels a trade still open there
   }
 
   // The portal whose circle covers self, or null.
@@ -83,6 +89,28 @@ export class World {
   applyInventory(update) {
     if (update.version < this.inventory.version) { this.integrityErrors += 1; return; }
     this.inventory = { items: update.items ?? [], capacity: update.capacity, version: update.version, gold: Number(update.gold) };
+  }
+
+  // The Backend's view of our trade, relayed by the zone to both parties (ADR-0013); `you` and
+  // `other` are from our side. A closed trade leaves its outcome in the log and the result line,
+  // then clears so T can start the next one.
+  applyTrade(update, status) {
+    const key = hex(update.trade_id);
+    if (this.trade?.key === key && update.version < this.trade.version) { this.integrityErrors += 1; return; }
+    const side = (party) => ({ entityId: String(party?.entity_id ?? 0), gold: Number(party?.gold ?? 0),
+      items: (party?.items ?? []).length, accepted: Boolean(party?.accepted) });
+    const trade = { id: update.trade_id, key, short: key.slice(0, TRADE_ID_SHORT_CHARS), version: update.version,
+      you: side(update.you), other: side(update.other) };
+    // entity id 0: the other character is not in this zone.
+    const other = trade.other.entityId === '0' ? 'someone away' : `#${trade.other.entityId}`;
+    if (status === 'TRADE_STATUS_OPEN') {
+      this.trade = trade;
+      this.note(`trade ${trade.short} v${trade.version}: you ${trade.you.gold}g${trade.you.accepted ? ' ✓' : ''} / ${other} ${trade.other.gold}g${trade.other.accepted ? ' ✓' : ''}`);
+      return;
+    }
+    if (this.trade?.key === key) this.trade = null;
+    this.tradeResult = `${trade.short} ${status === 'TRADE_STATUS_COMPLETED' ? 'settled' : 'cancelled'} with ${other}`;
+    this.note(`trade ${this.tradeResult}`);
   }
 
   // Nearest entity of `kind` to self within `range` at time `now`, judged by where it is now

@@ -20,13 +20,14 @@ export async function loadContracts() {
     RejectCode: root.lookupEnum('sa.game.v1.RejectCode'),
     EntityKind: root.lookupEnum('sa.game.v1.EntityKind'),
     CommandStatus: root.lookupEnum('sa.game.v1.CommandStatus'),
+    TradeStatus: root.lookupEnum('sa.game.v1.TradeStatus'),
   };
 }
 
 export class GatewayLink {
   constructor(contracts, handlers) {
     this.contracts = contracts;
-    this.handlers = handlers;  // { onWelcome, onSnapshot, onPong, onKick, onCommandResult, onCombatEvent, onInventoryUpdate, onClose }
+    this.handlers = handlers;  // { onWelcome, onSnapshot, onPong, onKick, onCommandResult, onCombatEvent, onInventoryUpdate, onTradeUpdate, onClose }
     this.socket = null;
     this.inputSeq = 0;
     this.requestId = 0;
@@ -75,12 +76,45 @@ export class GatewayLink {
   // A retry after an unknown outcome passes the same request id, so the zone asks the Backend
   // about the same transfer.
   sendChangeZone(portalId, requestId = null) {
-    if (requestId === null) {
-      this.requestId += 1;
-      requestId = this.requestId;
-    }
+    requestId = this.#requestIdOr(requestId);
     this.#send({ change_zone: { request_id: requestId, portal_id: portalId } });
     return requestId;
+  }
+
+  // Trade steps (ADR-0013). The Backend owns the negotiation and the zone relays it: each step is
+  // answered with a CommandResult, and the trade itself arrives as TradeUpdate to both parties.
+  // Like ChangeZone, a retry after an unknown outcome passes the same request id.
+  sendTradeOpen(targetEntityId, requestId = null) {
+    requestId = this.#requestIdOr(requestId);
+    this.#send({ trade_open: { request_id: requestId, target_entity_id: targetEntityId } });
+    return requestId;
+  }
+
+  // Replaces our whole offer: the given gold and nothing from the inventory.
+  sendTradeOffer(tradeId, gold, requestId = null) {
+    requestId = this.#requestIdOr(requestId);
+    this.#send({ trade_offer: { request_id: requestId, trade_id: tradeId, item_instance_ids: [], gold } });
+    return requestId;
+  }
+
+  // Agrees to the offer as of `version`; the Backend refuses if it changed since.
+  sendTradeAccept(tradeId, version, requestId = null) {
+    requestId = this.#requestIdOr(requestId);
+    this.#send({ trade_accept: { request_id: requestId, trade_id: tradeId, version } });
+    return requestId;
+  }
+
+  sendTradeCancel(tradeId, requestId = null) {
+    requestId = this.#requestIdOr(requestId);
+    this.#send({ trade_cancel: { request_id: requestId, trade_id: tradeId } });
+    return requestId;
+  }
+
+  // The retried request's id, or a fresh one.
+  #requestIdOr(requestId) {
+    if (requestId !== null) return requestId;
+    this.requestId += 1;
+    return this.requestId;
   }
 
   #send(body) {
@@ -99,6 +133,7 @@ export class GatewayLink {
       case 'command_result': this.handlers.onCommandResult?.(message.command_result, this.contracts.RejectCode.valuesById[message.command_result.reject_code]); break;
       case 'combat_event': this.handlers.onCombatEvent?.(message.combat_event); break;
       case 'inventory_update': this.handlers.onInventoryUpdate?.(message.inventory_update); break;
+      case 'trade_update': this.handlers.onTradeUpdate?.(message.trade_update, this.contracts.TradeStatus.valuesById[message.trade_update.status]); break;
       default: break;
     }
   }
