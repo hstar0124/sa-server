@@ -19,6 +19,7 @@ wanderers = 1
 fighters = 0
 looters = 0
 travelers = 5
+traders = 0
 seed = 4
 account_prefix = "traveler"
 password = "bots-cross-zones-2026"
@@ -29,6 +30,7 @@ min_bots_seeing_others = 1
 min_kills = 0
 min_pickups = 0
 min_zone_changes = 5
+min_trade_settlements = 0
 
 [client]
 tick_hz = 20
@@ -57,6 +59,14 @@ pickup_retry_ms = 2000
 dwell_ms = 5000
 request_retry_ms = 2000
 portal_approach_m = 1.0
+
+[trader]
+pair_radius_m = 30.0
+open_range_m = 3.0     # inside the zone's trade.range_m (5 m), so client lag cannot push it out
+offer_gold = 1
+request_retry_ms = 2000
+give_up_ms = 15000
+cooldown_ms = 5000
 
 [logging]
 level = "info"

@@ -19,11 +19,12 @@ STATS_CONSUMER=character-stats
 # bot-side check while no kill reached the database.
 check_run() {
   local run_started="$1" failed=0
-  local account_prefix min_kills min_pickups min_zone_changes
+  local account_prefix min_kills min_pickups min_zone_changes min_settlements
   account_prefix="$(profile_value account_prefix)"
   min_kills="$(profile_value min_kills)"; min_kills="${min_kills:-0}"
   min_pickups="$(profile_value min_pickups)"; min_pickups="${min_pickups:-0}"
   min_zone_changes="$(profile_value min_zone_changes)"; min_zone_changes="${min_zone_changes:-0}"
+  min_settlements="$(profile_value min_trade_settlements)"; min_settlements="${min_settlements:-0}"
 
   # Bots have closed their sockets; give the gateway a moment to detach and end their sessions,
   # then check the directory agrees. Only this run's sessions count: a crashed viewer or dev
@@ -59,6 +60,20 @@ check_run() {
                       JOIN game.character_ownership o USING (world_id, character_id)
                       WHERE o.owner_epoch = last.to_owner_epoch AND o.zone_id <> last.to_zone_id")
   if [ "$stray" != "0" ]; then echo "FAIL: $stray characters are owned elsewhere than their last transfer put them"; failed=1; fi
+
+  # A settlement the bots saw counts once per side; the Backend settles each trade once and writes
+  # one TradeCompleted per participant. Every session has ended by now, and a session that ends
+  # cancels its open trade, so none of this run's trades may still be open.
+  local settled completed_events still_open
+  settled=$(psql_value "SELECT count(*) FROM game.trades WHERE status = 'completed' AND created_at >= '$run_started'")
+  echo "trades settled by the backend: $settled, $((settled * 2)) settlements (required $min_settlements)"
+  if [ $((settled * 2)) -lt "$min_settlements" ]; then echo "FAIL: trades were not settled by the backend"; failed=1; fi
+  completed_events=$(psql_value "SELECT count(*) FROM game.outbox_events WHERE event_type = 'TradeCompleted' AND occurred_at >= '$run_started'")
+  if [ "$completed_events" != "$((settled * 2))" ]; then
+    echo "FAIL: $completed_events TradeCompleted events for $settled settled trades (one per participant expected)"; failed=1
+  fi
+  still_open=$(psql_value "SELECT count(*) FROM game.trades WHERE status = 'open' AND created_at >= '$run_started'")
+  if [ "$still_open" != "0" ]; then echo "FAIL: $still_open trades of this run are still open after every session ended"; failed=1; fi
 
   # Every event this run's transactions wrote must reach Kafka and be applied by the statistics
   # consumer, each once (its Inbox has one row per event). Both poll, so allow them a few intervals.

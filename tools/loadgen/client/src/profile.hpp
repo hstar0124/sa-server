@@ -2,6 +2,7 @@
 
 #include "sa/bot/fighter.hpp"
 #include "sa/bot/looter.hpp"
+#include "sa/bot/trader.hpp"
 #include "sa/bot/traveler.hpp"
 #include "sa/bot/wanderer.hpp"
 #include "sa/common/config_source.hpp"
@@ -25,8 +26,8 @@ struct BotIdentity {
     std::string character_name;
 };
 
-// Bots are numbered wanderers first, then fighters, looters and travelers.
-enum class BotRole : std::uint8_t { kWanderer, kFighter, kLooter, kTraveler };
+// Bots are numbered wanderers first, then fighters, looters, travelers and traders.
+enum class BotRole : std::uint8_t { kWanderer, kFighter, kLooter, kTraveler, kTrader };
 
 struct LoadProfile {
     std::string backend_base_url;  // e.g. http://localhost:5100
@@ -40,6 +41,7 @@ struct LoadProfile {
     std::uint32_t fighters = 0;
     std::uint32_t looters = 0;
     std::uint32_t travelers = 0;
+    std::uint32_t traders = 0;
     std::uint64_t seed = 0;
     // Where the names come from, apart from `seed`: a character keeps what earlier runs left
     // (inventory, last position), so a run normally gets fresh ones. Absent: a seed from the OS;
@@ -57,9 +59,10 @@ struct LoadProfile {
     bot::FighterParams fighter;
     bot::LooterParams looter;
     bot::TravelerParams traveler;
+    bot::TraderParams trader;
 
     [[nodiscard]] std::uint32_t bot_count() const noexcept {
-        return wanderers + fighters + looters + travelers;
+        return wanderers + fighters + looters + travelers + traders;
     }
     [[nodiscard]] BotRole RoleOf(std::uint32_t index) const noexcept {
         if (index < wanderers) {
@@ -68,7 +71,11 @@ struct LoadProfile {
         if (index < wanderers + fighters) {
             return BotRole::kFighter;
         }
-        return index < wanderers + fighters + looters ? BotRole::kLooter : BotRole::kTraveler;
+        if (index < wanderers + fighters + looters) {
+            return BotRole::kLooter;
+        }
+        return index < wanderers + fighters + looters + travelers ? BotRole::kTraveler
+                                                                  : BotRole::kTrader;
     }
     // Deterministic per-bot identities for one identity seed.
     [[nodiscard]] static BotIdentity IdentityOf(std::string_view account_prefix,
