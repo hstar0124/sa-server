@@ -64,7 +64,7 @@ export class World {
       const id = String(spawn.entity_id);
       if (id === this.selfId || this.entities.has(id)) this.integrityErrors += 1;
       this.entities.set(id, { kind: spawn.kind, templateId: spawn.template_id, hp: spawn.hp, maxHp: spawn.max_hp,
-        samples: [{ t: now, x: spawn.position.x, y: spawn.position.y, vx: 0, vy: 0 }] });
+        samples: [{ t: now, x: spawn.position.x, y: spawn.position.y, vx: spawn.velocity?.x ?? 0, vy: spawn.velocity?.y ?? 0 }] });
     }
     for (const update of snapshot.updated ?? []) {
       const entity = this.entities.get(String(update.entity_id));
@@ -85,13 +85,15 @@ export class World {
     this.inventory = { items: update.items ?? [], capacity: update.capacity, version: update.version, gold: Number(update.gold) };
   }
 
-  // Nearest entity of `kind` to self within `range`; `aliveOnly` skips corpses (monsters).
-  nearest(range, kind, aliveOnly) {
+  // Nearest entity of `kind` to self within `range` at time `now`, judged by where it is now
+  // (the last report carried forward); `aliveOnly` skips corpses (monsters).
+  nearest(range, kind, aliveOnly, now) {
     let best = null, bestSq = range * range;
     for (const [id, entity] of this.entities) {
       if (entity.kind !== kind || (aliveOnly && entity.hp <= 0)) continue;
       const last = entity.samples[entity.samples.length - 1];
-      const dSq = (last.x - this.self.x) ** 2 + (last.y - this.self.y) ** 2;
+      const dt = Math.max(0, now - last.t) / 1000;
+      const dSq = (last.x + last.vx * dt - this.self.x) ** 2 + (last.y + last.vy * dt - this.self.y) ** 2;
       if (dSq < bestSq) { best = id; bestSq = dSq; }
     }
     return best;
@@ -103,11 +105,13 @@ export class World {
   }
 
   // Position to draw for an entity at render time `t` (already shifted back by the buffer).
-  // Returns { x, y, mode } with mode 'interp' | 'extrap' | 'hold'.
+  // Returns { x, y, mode } with mode 'interp' | 'extrap' | 'hold'. The zone reports an entity
+  // only when its velocity changes (dead reckoning), so past the last sample it carries on as
+  // reported; with extrapolation off it stops there, which shows why the protocol needs it.
   positionAt(entity, t, allowExtrapolation) {
     const s = entity.samples;
     const last = s[s.length - 1];
-    if (t <= s[0].t || s.length === 1) return { x: s[0].x, y: s[0].y, mode: 'hold' };
+    if (t <= s[0].t) return { x: s[0].x, y: s[0].y, mode: 'hold' };
     if (t >= last.t) {
       if (!allowExtrapolation) return { x: last.x, y: last.y, mode: 'hold' };
       const dt = (t - last.t) / 1000;

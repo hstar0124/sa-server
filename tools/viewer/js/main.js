@@ -130,7 +130,7 @@ function startLoops() {
 
 function cast(skillId, name) {
   if (!link) return;
-  const target = world.nearest(STRIKE_RANGE_M * 1.5, contracts.EntityKind.values.ENTITY_KIND_MONSTER, true);
+  const target = world.nearest(STRIKE_RANGE_M * 1.5, contracts.EntityKind.values.ENTITY_KIND_MONSTER, true, performance.now());
   if (target === null) { world.note(`${name}: no monster in reach`); return; }
   pendingRequests.set(link.sendCast(skillId, Number(target)), name);
 }
@@ -157,7 +157,7 @@ function changeZone() {
 
 function pickup() {
   if (!link) return;
-  const item = world.nearest(pickupRangeM, contracts.EntityKind.values.ENTITY_KIND_DROPPED_ITEM, false);
+  const item = world.nearest(pickupRangeM, contracts.EntityKind.values.ENTITY_KIND_DROPPED_ITEM, false, performance.now());
   if (item === null) { world.note('pickup: nothing within reach'); return; }
   pendingRequests.set(link.sendPickup(Number(item)), `pickup #${item}`);
 }
