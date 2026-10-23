@@ -63,6 +63,7 @@
 | [57](57-stage-8c-wrap-up.md) | 8c 마무리: 용량 사다리 50~2,000명, ADR-0012, 보고서 04, 설계 노트 12 | 8c | |
 | [58](58-trade-schema-contracts.md) | 거래의 바탕: ADR-0013, 스키마, Backend 계약, 확정 이벤트 | 9 | |
 | [59](59-backend-trading.md) | Backend 거래 모듈: 협상은 테이블에, 확정은 트랜잭션 하나에 | 9 | |
+| [60](60-zone-trade-relay.md) | Zone의 거래 검증과 중계, Gateway 전달, 클라이언트 메시지 | 9 | |
 
 ## 형식
 
