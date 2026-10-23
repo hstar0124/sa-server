@@ -2,6 +2,7 @@
 add_library(sa_zone_host STATIC
   src/codec.cpp
   src/zone_host.cpp
+  src/snapshot_encoder.cpp
   src/zone_host_economy.cpp
   src/zone_host_placement.cpp
   src/economy_client.cpp
@@ -27,7 +28,7 @@ if(SA_BUILD_TESTS)
     SOURCES tests/codec_test.cpp tests/zone_host_test.cpp tests/zone_host_economy_test.cpp
             tests/zone_host_placement_test.cpp tests/backend_call_test.cpp
             tests/zone_server_config_test.cpp
-            tests/tick_runner_test.cpp tests/gateway_link_test.cpp tests/zone_host_backpressure_test.cpp
+            tests/tick_runner_test.cpp tests/gateway_link_test.cpp tests/zone_host_backpressure_test.cpp tests/snapshot_encoder_test.cpp
     LIBS sa::zone_host sa::common_testing)
   # The config test reads the shipped file so a broken default fails CI, not a deployment.
   target_compile_definitions(sa_zone_host_tests

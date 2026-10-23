@@ -170,7 +170,9 @@ private:
     std::function<void(GatewayLink&)> on_link_closed_;
     std::unordered_map<common::InstanceId, Session> sessions_;  // by gateway session id
     std::unordered_map<common::EntityId, common::InstanceId> session_by_entity_;
-    std::unordered_map<const LinkSink*, std::vector<SessionSlot>> by_link_;  // reused per pass
+    // Reused by every snapshot pass, so steady state allocates nothing new.
+    std::unordered_map<LinkSink*, std::vector<SessionSlot>> by_link_;
+    std::string snapshot_scratch_;  // one encoded snapshot at a time
     std::size_t link_queue_peak_ = 0;
     std::uint64_t kills_minted_ = 0;  // sequence for KillIdFor; never repeats within the process
     ZoneHostStats stats_;

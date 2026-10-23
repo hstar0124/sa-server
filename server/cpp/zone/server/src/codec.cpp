@@ -12,10 +12,6 @@
 namespace sa::zone::codec {
 namespace {
 
-std::uint32_t Clamped(std::int32_t value) {
-    return static_cast<std::uint32_t>(std::max(0, value));
-}
-
 void Fill(game::v1::Vec2& out, common::Vec2 v) {
     out.set_x(v.x);
     out.set_y(v.y);
@@ -41,7 +37,7 @@ void Fill(game::v1::EntityUpdate& out, const sim::EntitySnapshot& s) {
     out.set_entity_id(s.id.value());
     Fill(*out.mutable_position(), s.position);
     Fill(*out.mutable_velocity(), s.velocity);
-    out.set_hp(Clamped(s.hp));
+    out.set_hp(NonNegative(s.hp));
 }
 
 void Fill(game::v1::EntitySpawn& out, const sim::EntitySnapshot& s) {
@@ -49,11 +45,15 @@ void Fill(game::v1::EntitySpawn& out, const sim::EntitySnapshot& s) {
     out.set_kind(ToProto(s.kind));
     out.set_template_id(s.template_id);
     Fill(*out.mutable_position(), s.position);
-    out.set_hp(Clamped(s.hp));
-    out.set_max_hp(Clamped(s.max_hp));
+    out.set_hp(NonNegative(s.hp));
+    out.set_max_hp(NonNegative(s.max_hp));
 }
 
 }  // namespace
+
+std::uint32_t NonNegative(std::int32_t value) {
+    return static_cast<std::uint32_t>(std::max(0, value));
+}
 
 game::v1::EntityKind ToProto(sim::EntityKind kind) {
     switch (kind) {
@@ -183,10 +183,10 @@ game::v1::WorldSnapshot ToWorldSnapshot(const sim::PlayerView& view, common::Tic
     }
     Fill(*out.mutable_self(), view.self);
     auto* vitals = out.mutable_self_vitals();
-    vitals->set_hp(Clamped(view.self_vitals.hp));
-    vitals->set_max_hp(Clamped(view.self_vitals.max_hp));
-    vitals->set_mp(Clamped(view.self_vitals.mp));
-    vitals->set_max_mp(Clamped(view.self_vitals.max_mp));
+    vitals->set_hp(NonNegative(view.self_vitals.hp));
+    vitals->set_max_hp(NonNegative(view.self_vitals.max_hp));
+    vitals->set_mp(NonNegative(view.self_vitals.mp));
+    vitals->set_max_mp(NonNegative(view.self_vitals.max_mp));
     return out;
 }
 
@@ -203,8 +203,8 @@ game::v1::CombatEvent ToCombatEvent(const sim::CombatEvent& event) {
     out.set_attacker_id(event.attacker.value());
     out.set_target_id(event.target.value());
     out.set_skill_id(event.skill.value());
-    out.set_damage(Clamped(event.damage));
-    out.set_target_hp(Clamped(event.target_hp));
+    out.set_damage(NonNegative(event.damage));
+    out.set_target_hp(NonNegative(event.target_hp));
     out.set_killed(event.killed);
     return out;
 }

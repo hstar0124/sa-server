@@ -38,6 +38,7 @@ public:
 
     void Start();
     void Send(const internal::v1::ZoneToGateway& message) override;
+    void SendPayload(std::span<const std::byte> payload) override;
     [[nodiscard]] std::size_t QueuedBytes() const override { return connection_->QueuedBytes(); }
     void Close();
 

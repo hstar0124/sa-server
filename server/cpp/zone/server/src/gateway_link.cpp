@@ -38,6 +38,13 @@ std::chrono::milliseconds GatewayLink::TakeLongestGap() {
         std::exchange(longest_gap_, std::chrono::steady_clock::duration{}));
 }
 
+void GatewayLink::SendPayload(std::span<const std::byte> payload) {
+    if (const auto sent = connection_->SendPayload(payload); !sent) {
+        spdlog::warn("gateway link {}: outbound snapshot dropped: {}", PeerAddress(),
+                     common::Describe(sent.error()));
+    }
+}
+
 void GatewayLink::Close() {
     silence_timer_.cancel();
     connection_->Close();

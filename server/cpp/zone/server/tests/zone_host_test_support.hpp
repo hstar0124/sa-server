@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <chrono>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -28,6 +29,13 @@ using internal::v1::ZoneToGateway;
 class FakeSink final : public LinkSink {
 public:
     void Send(const ZoneToGateway& message) override { sent.push_back(message); }
+    void SendPayload(std::span<const std::byte> payload) override {
+        ZoneToGateway message;
+        if (!message.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+            throw std::logic_error{"the host sent a payload that is not a ZoneToGateway"};
+        }
+        sent.push_back(std::move(message));
+    }
     [[nodiscard]] std::size_t QueuedBytes() const override { return queued; }
 
     [[nodiscard]] std::vector<ZoneToGateway> OfCase(ZoneToGateway::BodyCase c) const {
