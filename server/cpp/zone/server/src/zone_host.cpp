@@ -4,8 +4,10 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace sa::zone {
@@ -262,13 +264,46 @@ void ZoneHost::OnTick(common::TickIndex tick) {
     if (tick.value() % identity_.ticks_per_snapshot != 0) {
         return;
     }
-    for (const auto& [id, session] : sessions_) {
-        const sim::PlayerView view = zone_.CollectView(session.entity);
-        game::v1::ServerMessage message;
-        *message.mutable_world_snapshot() = codec::ToWorldSnapshot(view, tick);
-        SendToSession(session, id, message);
-        ++stats_.snapshots_sent;
+    SendSnapshots(tick);
+}
+
+// Snapshots are state, not events: a view carries everything changed since that player's previous
+// one, so an older snapshot is never worth more than the next. A gateway that falls behind
+// therefore never makes the zone queue stale state for it. Each snapshot tick a link may grow to
+// its byte budget; within it the sessions that have waited longest go first, and the rest keep
+// their views uncollected until a later tick, losing nothing and catching up oldest first.
+void ZoneHost::SendSnapshots(common::TickIndex tick) {
+    by_link_.clear();
+    for (auto& [id, session] : sessions_) {
+        by_link_[session.sink].push_back(SessionSlot{.id = &id, .session = &session});
     }
+    for (auto& [sink, slots] : by_link_) {
+        std::ranges::sort(slots, [](const SessionSlot& a, const SessionSlot& b) {
+            return a.session->last_snapshot < b.session->last_snapshot ||
+                   (a.session->last_snapshot == b.session->last_snapshot &&
+                    a.session->entity < b.session->entity);
+        });
+        std::size_t queued = sink->QueuedBytes();
+        for (const SessionSlot& slot : slots) {
+            if (queued >= identity_.snapshot_budget_bytes) {
+                ++stats_.snapshots_deferred;  // the view stays uncollected: nothing is lost
+                continue;
+            }
+            Session& session = *slot.session;
+            const sim::PlayerView view = zone_.CollectView(session.entity);
+            game::v1::ServerMessage message;
+            *message.mutable_world_snapshot() = codec::ToWorldSnapshot(view, tick);
+            queued += message.ByteSizeLong();
+            SendToSession(session, *slot.id, message);
+            session.last_snapshot = tick;
+            ++stats_.snapshots_sent;
+        }
+        link_queue_peak_ = std::max(link_queue_peak_, sink->QueuedBytes());
+    }
+}
+
+ZoneHost::LinkPressure ZoneHost::TakeLinkPressure() {
+    return LinkPressure{.queue_peak_bytes = std::exchange(link_queue_peak_, 0)};
 }
 
 // ---- helpers -----------------------------------------------------------------------------------

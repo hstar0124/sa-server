@@ -55,4 +55,12 @@ void GatewayLinkServer::Accept() {
     });
 }
 
+std::chrono::milliseconds GatewayLinkServer::TakeLongestGap() {
+    std::chrono::milliseconds longest{};
+    for (const auto& link : links_) {
+        longest = std::max(longest, link->TakeLongestGap());
+    }
+    return longest;
+}
+
 }  // namespace sa::zone

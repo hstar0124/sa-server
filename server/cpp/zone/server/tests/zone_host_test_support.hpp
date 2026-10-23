@@ -28,6 +28,7 @@ using internal::v1::ZoneToGateway;
 class FakeSink final : public LinkSink {
 public:
     void Send(const ZoneToGateway& message) override { sent.push_back(message); }
+    [[nodiscard]] std::size_t QueuedBytes() const override { return queued; }
 
     [[nodiscard]] std::vector<ZoneToGateway> OfCase(ZoneToGateway::BodyCase c) const {
         std::vector<ZoneToGateway> out;
@@ -40,6 +41,7 @@ public:
     }
 
     std::vector<ZoneToGateway> sent;
+    std::size_t queued = 0;  // what the link reports as unsent; tests raise it to congest
 };
 
 // A scripted Backend: requests are captured, the test answers them when it chooses.
@@ -197,10 +199,14 @@ inline backend::v1::GetCharacterAssetsResponse AssetsOf(std::uint64_t gold) {
     return response;
 }
 
+// Larger than any test snapshot, so a sink reporting nothing queued takes every session.
+inline constexpr std::size_t kTestSnapshotBudget = std::size_t{64} * 1024;
+
 inline ZoneHost::Identity Identity(std::uint32_t max_sessions = 10) {
     return ZoneHost::Identity{.zone_instance = common::InstanceId::Generate(),
                               .simulation_hz = 10,
                               .ticks_per_snapshot = 2,
+                              .snapshot_budget_bytes = kTestSnapshotBudget,
                               .ticks_per_checkpoint = 4,
                               .max_sessions = max_sessions};
 }

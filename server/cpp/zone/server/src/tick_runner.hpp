@@ -33,6 +33,8 @@ public:
 
     void Start();
     void Stop();
+    // Runs right after the periodic statistics line, for the host's own line.
+    void set_on_stats(std::function<void()> fn) { on_stats_ = std::move(fn); }
 
 private:
     void ScheduleNext();
@@ -44,11 +46,17 @@ private:
     sim::FixedStepScheduler scheduler_;
     std::chrono::seconds stats_log_interval_;
     AfterTick after_tick_;
+    std::function<void()> on_stats_;
     Clock clock_;
     std::chrono::steady_clock::time_point last_wake_;
     std::chrono::steady_clock::time_point next_stats_;
     std::uint64_t ticks_since_stats_ = 0;
     std::uint64_t dropped_at_last_stats_ = 0;
+    // Where the zone thread's time went since the last statistics line: the simulation step and
+    // the host's delivery after it (views, encoding, link writes, Backend calls). Against the
+    // window they show how close the single thread is to saturation, and which half fills it.
+    std::chrono::steady_clock::duration sim_time_{};
+    std::chrono::steady_clock::duration host_time_{};
     bool running_ = false;
 };
 

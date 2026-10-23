@@ -201,6 +201,7 @@ int Run(int argc, char** argv) {
         sa::zone::ZoneHost::Identity{.zone_instance = zone_instance,
                                      .simulation_hz = config->simulation_rate.hz,
                                      .ticks_per_snapshot = config->TicksPerSnapshot(),
+                                     .snapshot_budget_bytes = config->link_snapshot_budget_bytes,
                                      .ticks_per_checkpoint = config->TicksPerCheckpoint(),
                                      .max_sessions = config->max_sessions},
         economy, directory, [&lease] { return lease.IsAlive(); }};
@@ -235,6 +236,13 @@ int Run(int argc, char** argv) {
             }
             host.OnTick(tick);
         }};
+    runner.set_on_stats([&host, &link_server] {
+        spdlog::info(
+            "sessions={} snapshots={} snapshots_deferred={} link_queue_peak_bytes={} "
+            "gateway_gap_max_ms={}",
+            host.session_count(), host.stats().snapshots_sent, host.stats().snapshots_deferred,
+            host.TakeLinkPressure().queue_peak_bytes, link_server.TakeLongestGap().count());
+    });
 
     // Shutdown: evict sessions (gateways kick their clients), stop the simulation, wait the grace
     // period for the eviction frames, then close the gateway links. The io_context is not
@@ -264,8 +272,9 @@ int Run(int argc, char** argv) {
         bot_stats->Start();
     }
     io.run();
-    spdlog::info("sessions attached={} detached={} evicted={} snapshots={}", host.stats().attaches,
-                 host.stats().detaches, host.stats().evictions, host.stats().snapshots_sent);
+    spdlog::info("sessions attached={} detached={} evicted={} snapshots={} snapshots_deferred={}",
+                 host.stats().attaches, host.stats().detaches, host.stats().evictions,
+                 host.stats().snapshots_sent, host.stats().snapshots_deferred);
     spdlog::info(
         "economy kills_recorded={} kills_refused={} pickups_acquired={} "
         "pickups_refused={} backend_failures={}",
