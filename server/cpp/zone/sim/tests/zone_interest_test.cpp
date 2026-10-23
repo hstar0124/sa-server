@@ -153,6 +153,33 @@ TEST(ZoneInterest, ManaAndAStraightProjectileAreNotNewsToObservers) {
     EXPECT_GT(zone.CollectView(b).self_vitals.mp, mp_after_cast) << "b itself sees MP return";
 }
 
+TEST(ZoneInterest, InterestIsRecomputedOnViewTicksOnly) {
+    ZoneConfig config = test::Config();
+    config.ticks_per_view = 2;
+    auto created =
+        Zone::Create(config, test::OpenField(), test::AllRules(), test::Content(), Rng{1});
+    ASSERT_TRUE(created.has_value());
+    Zone& zone = *created;
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});
+
+    zone.Tick();  // tick 1: not a view tick
+    EXPECT_TRUE(zone.CollectView(a).spawned.empty());
+    zone.Tick();  // tick 2
+    EXPECT_TRUE(HasId(zone.CollectView(a).spawned, b));
+
+    // b leaves after the recomputation: the view must not wait for the next one to drop it.
+    zone.DespawnPlayer(b);
+    EXPECT_EQ(zone.CollectView(a).despawned, std::vector{b});
+}
+
+TEST(ZoneInterest, AViewCadenceOfZeroIsRefused) {
+    ZoneConfig config = test::Config();
+    config.ticks_per_view = 0;
+    EXPECT_FALSE(
+        Zone::Create(config, test::OpenField(), test::AllRules(), test::Content(), Rng{1}));
+}
+
 TEST(ZoneInterest, DamageOnATickWithoutAViewReachesTheNextView) {
     Zone zone = test::MakeZone(test::FieldWithSlime());
     // The striker stands inside the slime's attack range, so the slime never moves: only the

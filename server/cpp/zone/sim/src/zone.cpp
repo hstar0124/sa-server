@@ -45,6 +45,9 @@ std::expected<Zone, std::string> Zone::Create(ZoneConfig config, MapData map, Zo
     if (config.command_retry_window == 0) {
         return std::unexpected("command_retry_window must be positive");
     }
+    if (config.ticks_per_view == 0) {
+        return std::unexpected("ticks_per_view must be positive");
+    }
     if (auto valid = map.ValidateAgainst(content); !valid) {
         return std::unexpected(valid.error());
     }
@@ -123,7 +126,7 @@ void Zone::DespawnPlayer(common::EntityId player) {
     kinds_.erase(player);
     grid_.Remove(player);
     stats_.players = players_.size();
-    // Observers learn about the departure through their next interest recomputation.
+    // Observers learn about the departure through their next view.
 }
 
 // ---- input --------------------------------------------------------------------------------------
@@ -325,7 +328,12 @@ common::Vec2 Zone::StepTowards(common::Vec2 from, common::Vec2 goal, float speed
 
 // ---- interest management ------------------------------------------------------------------------
 
+// Only on view ticks: views are what read interest sets, and the recomputation is most of a tick's
+// cost in a crowd.
 void Zone::UpdateInterestSets() {
+    if (tick_.value() % config_.ticks_per_view != 0) {
+        return;
+    }
     for (auto& [id, player] : players_) {
         RecomputeInterest(id, player);
     }
@@ -380,17 +388,20 @@ void Zone::KeepNearest(std::vector<Ranked>& ranked, std::size_t limit) {
 
 // ---- output -------------------------------------------------------------------------------------
 
-bool Zone::ChangedSince(common::EntityId entity, common::TickIndex tick) const {
+std::optional<common::TickIndex> Zone::ChangedAt(common::EntityId entity) const {
     if (const auto p = players_.find(entity); p != players_.end()) {
-        return p->second.changed_at > tick;
+        return p->second.changed_at;
     }
     if (const auto m = monsters_.find(entity); m != monsters_.end()) {
-        return m->second.changed_at > tick;
+        return m->second.changed_at;
     }
     if (const auto pr = projectiles_.find(entity); pr != projectiles_.end()) {
-        return pr->second.changed_at > tick;  // a straight flight: reported once, at launch
+        return pr->second.changed_at;  // a straight flight: reported once, at launch
     }
-    return false;  // items never change
+    if (items_.contains(entity)) {
+        return common::TickIndex{};  // items never change
+    }
+    return std::nullopt;
 }
 
 PlayerView Zone::CollectView(common::EntityId player_id) {
@@ -404,22 +415,27 @@ PlayerView Zone::CollectView(common::EntityId player_id) {
     view.self = SnapshotOf(player_id).value_or(EntitySnapshot{});
     view.self_vitals = player.vitals;
 
-    // interest and known are both sorted: despawned = known \ interest in one merge pass.
-    std::ranges::set_difference(player.known, player.interest, std::back_inserter(view.despawned));
+    // The interest set was computed on a view tick, so an entity that left the zone since is
+    // skipped here; it drops out of `known` and is reported despawned below with the rest.
     ranked_.clear();
     std::vector<common::EntityId> next_known;
     next_known.reserve(player.interest.size());
     for (const common::EntityId id : player.interest) {
         if (!SortedContains(player.known, id)) {
-            const auto position = PositionOf(id);
-            ranked_.push_back(Ranked{
-                .id = id, .rank = position ? common::Distance(player.position, *position) : 0.0F});
-        } else {
-            next_known.push_back(id);
-            if (ChangedSince(id, player.viewed_at)) {
-                if (auto snapshot = SnapshotOf(id)) {
-                    view.updated.push_back(*snapshot);
-                }
+            if (const auto position = PositionOf(id)) {
+                ranked_.push_back(
+                    Ranked{.id = id, .rank = common::Distance(player.position, *position)});
+            }
+            continue;
+        }
+        const auto changed_at = ChangedAt(id);
+        if (!changed_at) {
+            continue;
+        }
+        next_known.push_back(id);
+        if (*changed_at > player.viewed_at) {
+            if (auto snapshot = SnapshotOf(id)) {
+                view.updated.push_back(*snapshot);
             }
         }
     }
@@ -433,6 +449,8 @@ PlayerView Zone::CollectView(common::EntityId player_id) {
         }
     }
     std::ranges::sort(next_known);
+    // Both sorted: despawned = what the client knew and no longer keeps, in one merge pass.
+    std::ranges::set_difference(player.known, next_known, std::back_inserter(view.despawned));
     player.known = std::move(next_known);
     player.viewed_at = tick_;
     return view;
@@ -446,8 +464,8 @@ std::vector<HostRequest> Zone::DrainHostRequests() {
     return std::exchange(host_requests_, {});
 }
 
-bool Zone::SortedContainsInterest(const Player& player, common::EntityId entity) {
-    return SortedContains(player.interest, entity);
+bool Zone::Knows(const Player& player, common::EntityId entity) {
+    return SortedContains(player.known, entity);
 }
 
 void Zone::Deliver(common::EntityId recipient, ZoneEvent event) {
@@ -456,7 +474,7 @@ void Zone::Deliver(common::EntityId recipient, ZoneEvent event) {
 
 void Zone::DeliverToObservers(common::EntityId subject, const ZoneEvent& event) {
     for (const auto& [id, player] : players_) {
-        if (id == subject || SortedContains(player.interest, subject)) {
+        if (id == subject || Knows(player, subject)) {
             Deliver(id, event);
         }
     }

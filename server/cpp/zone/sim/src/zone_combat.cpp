@@ -241,7 +241,7 @@ void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, Skill
                             .killed = killed};
     DeliverToObservers(target, event);
     if (const auto p = players_.find(attacker);
-        p != players_.end() && !SortedContainsInterest(p->second, target) && attacker != target) {
+        p != players_.end() && !Knows(p->second, target) && attacker != target) {
         Deliver(attacker, event);  // the attacker always learns the outcome
     }
     if (!killed) {

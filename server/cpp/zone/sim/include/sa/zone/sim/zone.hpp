@@ -35,6 +35,9 @@ struct ZoneConfig {
     // Decided command results remembered per player for retries. The host passes the protocol's
     // COMMAND_RETRY_WINDOW; the simulation does not include the contracts itself.
     std::size_t command_retry_window = 0;
+    // The host collects views every this many ticks (its snapshot cadence). Interest sets are
+    // recomputed on those ticks only, since nothing reads them in between.
+    std::uint32_t ticks_per_view = 1;
 };
 
 // Why a player could not enter the zone.
@@ -141,7 +144,8 @@ public:
     void FailTransfer(const ZoneTransferRequest& transfer, TransferOutcome outcome);
 
     // ---- output -----------------------------------------------------------------------------
-    // Interest-set delta for one player since its previous view. Call at snapshot cadence.
+    // Interest-set delta for one player since its previous view. Call on the ticks that
+    // ZoneConfig::ticks_per_view names: the interest sets are fresh only then.
     [[nodiscard]] PlayerView CollectView(common::EntityId player);
     // Command results and combat notifications produced since the last drain, with recipients.
     [[nodiscard]] std::vector<DeliveredEvent> DrainEvents();
@@ -224,9 +228,11 @@ private:
         RecentRequests recent_requests;
         // Set while a ChangeZone waits for the Backend: movement, casts and pickups are refused.
         std::optional<common::RequestId> departing;
-        // Entities this player has been told about, kept sorted for cheap set differences.
+        // Entities this player's client has been told about, kept sorted for cheap set
+        // differences: events about an entity go to the clients that know it.
         std::vector<common::EntityId> known;
-        // Entities currently inside the hysteresis band (visible until they pass leave radius).
+        // Entities inside the hysteresis band as of the last recomputation (visible until they
+        // pass leave radius); it may still list an entity that left the zone since.
         std::vector<common::EntityId> interest;
     };
 
@@ -317,18 +323,20 @@ private:
     void RecomputeInterest(common::EntityId self, Player& player);
     // Keeps the `limit` lowest-ranked entries, in no particular order.
     static void KeepNearest(std::vector<Ranked>& ranked, std::size_t limit);
-    [[nodiscard]] bool ChangedSince(common::EntityId entity, common::TickIndex tick) const;
+    // The last tick an entity changed in a way observers see; nothing once it left the zone.
+    [[nodiscard]] std::optional<common::TickIndex> ChangedAt(common::EntityId entity) const;
     // Dead reckoning: reports the body's state (stamps changed_at) when observers extrapolating
     // from `published` would be off by more than the movement rules allow, or when forced.
     void PublishIfDeviated(Published& published, common::Vec2 position, common::Vec2 velocity,
                            common::TickIndex& changed_at) const;
     void Publish(Published& published, common::Vec2 position, common::Vec2 velocity,
                  common::TickIndex& changed_at) const;
-    [[nodiscard]] static bool SortedContainsInterest(const Player& player, common::EntityId entity);
     [[nodiscard]] common::TickIndex TicksFromNow(std::chrono::milliseconds duration) const;
     void Deliver(common::EntityId recipient, ZoneEvent event);
-    // Everyone who currently sees `subject`, plus `subject` itself when it is a player.
+    // Everyone whose client knows `subject` (it was spawned in their views and not despawned),
+    // plus `subject` itself when it is a player.
     void DeliverToObservers(common::EntityId subject, const ZoneEvent& event);
+    [[nodiscard]] static bool Knows(const Player& player, common::EntityId entity);
 
     // ---- zone_combat.cpp --------------------------------------------------------------------
     void ApplyCast(const CastCommand& command);

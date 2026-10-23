@@ -158,11 +158,11 @@ int Run(int argc, char** argv) {
         world->map.monster_spawns.size(), world->content.version, seed);
 
     auto created = sa::zone::sim::Zone::Create(
-        sa::zone::sim::ZoneConfig{
-            .world_id = config->world_id,
-            .zone_id = config->zone_id,
-            .simulation_rate = config->simulation_rate,
-            .command_retry_window = sa::common::protocol::kCommandRetryWindow},
+        sa::zone::sim::ZoneConfig{.world_id = config->world_id,
+                                  .zone_id = config->zone_id,
+                                  .simulation_rate = config->simulation_rate,
+                                  .command_retry_window = sa::common::protocol::kCommandRetryWindow,
+                                  .ticks_per_view = config->TicksPerSnapshot()},
         std::move(world->map), std::move(world->rules), std::move(world->content),
         sa::zone::sim::Rng{seed});
     if (!created) {

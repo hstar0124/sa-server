@@ -239,6 +239,38 @@ TEST(ZoneCombat, ObserversSeeTheHitAndTheMonsterVanishOnDeath) {
     EXPECT_EQ(zone.stats().kills, 1U);
 }
 
+// Spawns reach a client a few per view, so an entity can be in range before the client was told
+// about it; an event naming it would be about something the client cannot show.
+TEST(ZoneCombat, CombatEventsGoToClientsThatKnowTheTarget) {
+    Zone zone = test::MakeZone(test::FieldWithSlime());
+    const EntityId attacker = test::Spawn(zone, 1, kBesideSlime);
+    const EntityId watcher = test::Spawn(zone, 2, Vec2{60.0F, 60.0F});  // in range, no view yet
+    const EntityId slime = test::OnlyMonster(zone);
+    zone.Tick();
+    (void)zone.DrainEvents();
+    const auto strike = [&](std::uint64_t request) {
+        zone.Submit(CastCommand{.player = attacker,
+                                .request_id = RequestId{request},
+                                .skill = test::kStrike,
+                                .target = slime});
+        zone.Tick();
+        auto events = zone.DrainEvents();
+        std::erase_if(events, [&](const DeliveredEvent& e) {
+            const auto* c = std::get_if<CombatEvent>(&e.event);
+            return c != nullptr && c->attacker != attacker;  // the slime hits back
+        });
+        return events;
+    };
+
+    const auto unseen = strike(1);
+    EXPECT_TRUE(CombatFor(unseen, watcher).empty()) << "its client was never told of the slime";
+    EXPECT_EQ(CombatFor(unseen, attacker).size(), 1U) << "the attacker always learns the outcome";
+
+    (void)zone.CollectView(watcher);  // the slime spawns on the watcher's client
+    test::TickN(zone, 8);             // cooldown 800 ms
+    EXPECT_EQ(CombatFor(strike(2), watcher).size(), 1U);
+}
+
 TEST(ZoneCombat, DeadPlayerCannotActAndRespawnsWithFullVitals) {
     Zone zone = test::MakeZone(test::FieldWithSlime());
     const EntityId p = test::Spawn(zone, 1, kBesideSlime);
