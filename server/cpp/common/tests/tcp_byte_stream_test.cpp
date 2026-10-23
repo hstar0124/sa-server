@@ -69,5 +69,57 @@ TEST(TcpByteStream, ACloseThePeerNeverCompletesEndsAtTheLinger) {
     EXPECT_EQ(observed.reason, std::make_error_code(std::errc::connection_aborted));
 }
 
+TEST(TcpByteStream, CountsQueuedBytesUntilTheKernelTakesThem) {
+    Loopback lo;
+    Observed observed;
+    auto stream = Started(lo, observed, std::nullopt);
+    EXPECT_EQ(stream->QueuedBytes(), 0U);
+    stream->Write(Filled(100, std::byte{1}));
+    stream->Write(Filled(200, std::byte{2}));
+    stream->Write(Filled(300, std::byte{3}));
+    EXPECT_EQ(stream->QueuedBytes(), 600U) << "nothing has run yet";
+
+    const auto bytes = lo.ReadExactlyAtPeer(600);
+    lo.RunUntil([&] { return stream->QueuedBytes() == 0; });
+    EXPECT_EQ(bytes[0], std::byte{1});
+    EXPECT_EQ(bytes[100], std::byte{2});
+    EXPECT_EQ(bytes[300], std::byte{3});
+    EXPECT_EQ(bytes[599], std::byte{3});
+}
+
+// More than the socket buffers hold: the first write cannot finish at once, so the frames queued
+// behind it leave as gathered writes, still in order and fully accounted for.
+TEST(TcpByteStream, FramesQueuedBehindAWriteLeaveTogetherAndInOrder) {
+    Loopback lo;
+    Observed observed;
+    auto stream = Started(lo, observed, std::nullopt);
+    constexpr std::size_t kFrames = 500;
+    constexpr std::size_t kFrameBytes = 1000;
+    constexpr std::size_t kPatterns = 251;  // a prime, so neighbouring frames differ
+    for (std::size_t i = 0; i < kFrames; ++i) {
+        stream->Write(Filled(kFrameBytes, static_cast<std::byte>(i % kPatterns)));
+    }
+    EXPECT_EQ(stream->QueuedBytes(), kFrames * kFrameBytes);
+
+    const auto received = lo.ReadExactlyAtPeer(kFrames * kFrameBytes);
+    for (std::size_t i = 0; i < kFrames; ++i) {
+        ASSERT_EQ(received[i * kFrameBytes], static_cast<std::byte>(i % kPatterns))
+            << "frame " << i;
+    }
+    lo.RunUntil([&] { return stream->QueuedBytes() == 0; });
+}
+
+TEST(TcpByteStream, AbortDropsWhatIsQueued) {
+    Loopback lo;
+    Observed observed;
+    auto stream = Started(lo, observed, std::nullopt);
+    stream->Write(Filled(10, std::byte{7}));
+    stream->Abort();
+    EXPECT_TRUE(observed.closed);
+    EXPECT_EQ(observed.reason, std::make_error_code(std::errc::connection_aborted));
+    EXPECT_EQ(stream->QueuedBytes(), 0U);
+    EXPECT_FALSE(stream->is_open());
+}
+
 }  // namespace
 }  // namespace sa::common

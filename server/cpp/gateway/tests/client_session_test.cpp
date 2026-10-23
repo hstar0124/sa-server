@@ -57,6 +57,7 @@ public:
     void Close() override { Finish(); }
     void Abort() override { Finish(); }
     [[nodiscard]] bool is_open() const override { return !closed_; }
+    [[nodiscard]] std::size_t QueuedBytes() const override { return 0; }
     [[nodiscard]] std::string PeerAddress() const override { return "fake"; }
 
     [[nodiscard]] bool closed() const noexcept { return closed_; }
