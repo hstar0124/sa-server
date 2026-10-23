@@ -55,6 +55,7 @@ enum KickReason {
   KICK_REASON_SERVICE_UNAVAILABLE = 7;   // backend or zone unreachable; retry later
   KICK_REASON_ZONE_UNAVAILABLE = 8;      // zone full or not authoritative
   KICK_REASON_IDLE_TIMEOUT = 9;          // nothing arrived for too long; a live client pings every second
+  KICK_REASON_SLOW_CLIENT = 10;          // the client read too little: its unsent output passed the gateway's limit
 }
 
 message Kick {

@@ -37,6 +37,10 @@ struct SessionProtocolConfig {
     // connection that sends nothing is a peer that vanished without closing (a dead network, a
     // frozen tab), and it would otherwise hold the character's session until TCP gives up.
     std::chrono::milliseconds idle_timeout{};
+    // Zone output a client has not taken yet, in bytes. Beyond it the client is kicked: one slow
+    // reader must not grow the gateway's memory. The gateway cannot drop a snapshot instead, as
+    // the zone stops resending what each snapshot carried; the client would miss spawns.
+    std::size_t max_send_queue_bytes = 0;
 };
 
 // Per-connection state machine (see README "네트워크와 입장"), free of I/O so every transition
@@ -106,9 +110,10 @@ public:
     [[nodiscard]] Reaction OnZoneTransfer(common::ZoneId from,
                                           const internal::v1::SessionTransfer& transfer);
     [[nodiscard]] Reaction OnZoneLinkDown();
-    // Output from the zone for this session; passes through only while in the zone.
-    [[nodiscard]] Reaction OnZoneOutput(common::ZoneId from,
-                                        const game::v1::ServerMessage& message);
+    // Output from the zone for this session; passes through only while in the zone. `queued_bytes`
+    // is what the client connection still holds unsent; over the limit the client is kicked.
+    [[nodiscard]] Reaction OnZoneOutput(common::ZoneId from, const game::v1::ServerMessage& message,
+                                        std::size_t queued_bytes);
     [[nodiscard]] Reaction OnClientDisconnected();
     // The hello timeout passed; kicks a connection that has not sent a valid Hello yet.
     [[nodiscard]] Reaction OnHelloDeadline();

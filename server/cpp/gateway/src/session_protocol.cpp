@@ -207,9 +207,13 @@ SessionProtocol::Reaction SessionProtocol::OnZoneLinkDown() {
 }
 
 SessionProtocol::Reaction SessionProtocol::OnZoneOutput(common::ZoneId from,
-                                                        const ServerMessage& message) {
+                                                        const ServerMessage& message,
+                                                        std::size_t queued_bytes) {
     if (!FromCurrentZone(from) || state_ != State::kInZone) {
         return {};
+    }
+    if (queued_bytes > config_.max_send_queue_bytes) {
+        return Kick(game::v1::KICK_REASON_SLOW_CLIENT, internal::v1::DETACH_REASON_CLIENT_SLOW);
     }
     return Reaction{.replies = {message}};
 }

@@ -37,6 +37,7 @@ struct GatewayConfig {
     std::uint32_t max_messages_per_second = 0;
     std::chrono::milliseconds hello_timeout{};
     std::chrono::milliseconds idle_timeout{};  // after the first message, see SessionProtocolConfig
+    std::size_t max_send_queue_bytes = 0;      // unsent output per client before a kick
     // How long closing a client connection may wait for the client to take our last bytes and
     // close its side, before the connection is reset and its slot freed.
     std::chrono::milliseconds client_close_linger{};

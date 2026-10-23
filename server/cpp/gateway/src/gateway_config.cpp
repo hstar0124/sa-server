@@ -17,6 +17,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const auto client_linger = source.Require<std::uint32_t>("protocol.close_linger_ms");
     const auto hello_timeout = source.Require<std::uint32_t>("protocol.hello_timeout_ms");
     const auto idle_timeout = source.Require<std::uint32_t>("protocol.idle_timeout_ms");
+    const auto max_send_queue = source.Require<std::size_t>("protocol.max_send_queue_bytes");
     const auto key_b64 = source.Require<std::string>("ticket.signing_key_base64");
     const auto key_id = source.Require<std::uint32_t>("ticket.key_id");
     const auto skew = source.Require<std::uint32_t>("ticket.max_clock_skew_ms");
@@ -33,8 +34,8 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     const auto shutdown_grace = source.Require<std::uint32_t>("shutdown.grace_ms");
     if (auto err = common::FirstConfigError(
             address, port, max_connections, max_msgs, client_linger, hello_timeout, idle_timeout,
-            key_b64, key_id, skew, backend_address, rpc_timeout, renew, margin, link_frame, backoff,
-            link_linger, establish, heartbeat, silence, shutdown_grace)) {
+            max_send_queue, key_b64, key_id, skew, backend_address, rpc_timeout, renew, margin,
+            link_frame, backoff, link_linger, establish, heartbeat, silence, shutdown_grace)) {
         return std::unexpected(*err);
     }
     auto logging = common::LoggingConfig::FromConfig(source);
@@ -54,7 +55,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     }
     if (*max_msgs == 0 || *rpc_timeout == 0 || *renew == 0 || *client_linger == 0 ||
         *link_linger == 0 || *hello_timeout == 0 || *idle_timeout == 0 || *backoff == 0 ||
-        *establish == 0 || *heartbeat == 0 || *max_connections == 0) {
+        *establish == 0 || *heartbeat == 0 || *max_connections == 0 || *max_send_queue == 0) {
         return std::unexpected(
             common::ConfigError{"rates, intervals, timeouts, zone_link.reconnect_backoff_ms and "
                                 "listen.max_connections must be positive"});
@@ -105,6 +106,7 @@ std::expected<GatewayConfig, common::ConfigError> GatewayConfig::FromConfig(
     out.client_close_linger = std::chrono::milliseconds{*client_linger};
     out.hello_timeout = std::chrono::milliseconds{*hello_timeout};
     out.idle_timeout = std::chrono::milliseconds{*idle_timeout};
+    out.max_send_queue_bytes = *max_send_queue;
     out.ticket_key = std::move(*key);
     out.ticket_key_id = TicketKeyId{*key_id};
     out.ticket_max_clock_skew = std::chrono::milliseconds{*skew};

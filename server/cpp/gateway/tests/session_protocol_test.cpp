@@ -18,7 +18,8 @@ using game::v1::ServerMessage;
 using State = SessionProtocol::State;
 
 constexpr SessionProtocolConfig kConfig{.max_messages_per_second = 10,
-                                        .idle_timeout = std::chrono::milliseconds{10'000}};
+                                        .idle_timeout = std::chrono::milliseconds{10'000},
+                                        .max_send_queue_bytes = 1000};
 constexpr common::ZoneId kZone1{1};
 constexpr common::ZoneId kZone2{2};
 
@@ -148,7 +149,7 @@ TEST_F(SessionProtocolTest, InZoneInputsAreForwardedAndOutputsPassThrough) {
 
     ServerMessage snapshot;
     snapshot.mutable_world_snapshot()->set_server_tick(42);
-    EXPECT_EQ(OnlyReply(protocol.OnZoneOutput(kZone1, snapshot)).world_snapshot().server_tick(),
+    EXPECT_EQ(OnlyReply(protocol.OnZoneOutput(kZone1, snapshot, 0)).world_snapshot().server_tick(),
               42U);
 }
 
@@ -244,7 +245,7 @@ TEST_F(SessionProtocolTest, AGrantArrivingAfterTheClientLeftEndsTheBackendSessio
     EXPECT_FALSE(HasEffect<SessionProtocol::AttachToZone>(late));
     EXPECT_TRUE(protocol.OnRedeemResult(Granted()).effects.empty()) << "one answer per redeem";
     EXPECT_TRUE(protocol.OnZoneAttached(kZone1, common::EntityId{1}).effects.empty());
-    EXPECT_TRUE(protocol.OnZoneOutput(kZone1, ServerMessage{}).replies.empty());
+    EXPECT_TRUE(protocol.OnZoneOutput(kZone1, ServerMessage{}, 0).replies.empty());
 }
 
 TEST_F(SessionProtocolTest, ARefusalArrivingAfterTheClientLeftOwesNothing) {
@@ -362,7 +363,7 @@ TEST_F(SessionProtocolTest, AfterATransferTheOriginNoLongerSpeaksForTheSession) 
 
     ServerMessage late;
     late.mutable_world_snapshot()->set_server_tick(1);
-    EXPECT_TRUE(protocol.OnZoneOutput(kZone1, late).replies.empty());
+    EXPECT_TRUE(protocol.OnZoneOutput(kZone1, late, 0).replies.empty());
     const auto evicted = protocol.OnZoneEvicted(kZone1, internal::v1::EVICT_REASON_LEASE_LOST);
     EXPECT_TRUE(evicted.replies.empty());
     EXPECT_FALSE(evicted.close);
@@ -452,6 +453,27 @@ TEST_F(SessionProtocolTest, AnyMessageMovesTheIdleDeadline) {
     EXPECT_EQ(protocol.IdleDeadline(), At(18'000ms).monotonic);
     EXPECT_TRUE(protocol.OnIdleCheck(At(12'000ms).monotonic).replies.empty());
     EXPECT_EQ(protocol.state(), State::kInZone);
+}
+
+TEST_F(SessionProtocolTest, AClientThatStopsReadingIsKickedOnceItsOutputPassesTheLimit) {
+    EnterZone();
+    ServerMessage snapshot;
+    snapshot.mutable_world_snapshot()->set_server_tick(1);
+    EXPECT_EQ(OnlyReply(protocol.OnZoneOutput(kZone1, snapshot, kConfig.max_send_queue_bytes))
+                  .world_snapshot()
+                  .server_tick(),
+              1U)
+        << "at the limit still passes";
+    const auto slow = protocol.OnZoneOutput(kZone1, snapshot, kConfig.max_send_queue_bytes + 1);
+    EXPECT_EQ(OnlyReply(slow).kick().reason(), game::v1::KICK_REASON_SLOW_CLIENT);
+    EXPECT_TRUE(slow.close);
+    const auto detach = std::ranges::find_if(slow.effects, [](const auto& effect) {
+        return std::holds_alternative<SessionProtocol::DetachFromZone>(effect);
+    });
+    ASSERT_NE(detach, slow.effects.end());
+    EXPECT_EQ(std::get<SessionProtocol::DetachFromZone>(*detach).reason,
+              internal::v1::DETACH_REASON_CLIENT_SLOW);
+    EXPECT_TRUE(HasEffect<SessionProtocol::EndSession>(slow));
 }
 
 }  // namespace

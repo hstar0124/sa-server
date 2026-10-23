@@ -112,7 +112,8 @@ int Run(int argc, char** argv) {
     const sa::gateway::SessionProtocolConfig protocol{
         .max_messages_per_second = config->max_messages_per_second,
         .hello_timeout = config->hello_timeout,
-        .idle_timeout = config->idle_timeout};
+        .idle_timeout = config->idle_timeout,
+        .max_send_queue_bytes = config->max_send_queue_bytes};
 
     // One session factory, two transports: the listener hands over a socket, the transport wraps
     // it.
