@@ -12,7 +12,9 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 
 DEV_DIR="${SA_DEV_DIR:-/tmp/sa-dev}"
-BUILD=build/dev
+# SA_BUILD=build/release and SA_DOTNET_CONFIG=Release run the optimised binaries (measurements).
+BUILD="${SA_BUILD:-build/dev}"
+DOTNET_CONFIG="${SA_DOTNET_CONFIG:-Debug}"
 VIEWER_ORIGIN="${SA_VIEWER_ORIGIN:-http://localhost:8080}"
 mkdir -p "$DEV_DIR"
 
@@ -37,10 +39,10 @@ up() {
   done
   load_env
   docker compose -f deploy/compose/docker-compose.yml up -d --wait >/dev/null
-  dotnet run --project server/dotnet/Migrator --no-build -- --connection "$CONN" --scripts database/migrations >"$DEV_DIR/migrator.log" 2>&1
+  dotnet run --project server/dotnet/Migrator --no-build -c "$DOTNET_CONFIG" -- --connection "$CONN" --scripts database/migrations >"$DEV_DIR/migrator.log" 2>&1
   (
     cd server/dotnet/EventWorker
-    Database__ConnectionString="$CONN" exec bin/Debug/net10.0/EventWorker
+    Database__ConnectionString="$CONN" exec "bin/$DOTNET_CONFIG/net10.0/EventWorker"
   ) >"$DEV_DIR/eventworker.log" 2>&1 &
   echo $! > "$DEV_DIR/eventworker.pid"
   wait_log "$DEV_DIR/eventworker.log" "outbox publisher active"
@@ -49,7 +51,7 @@ up() {
     Database__ConnectionString="$CONN" Auth__SigningKey="$JWT_KEY" WorldDirectory__TicketSigningKey="$TICKET_KEY"  \
     GameData__ContentDir="$ROOT/game-data" \
     Auth__CredentialAttemptsPerMinutePerAddress=6000 \
-      Cors__AllowedOrigins__0="$VIEWER_ORIGIN" exec bin/Debug/net10.0/GameBackend
+      Cors__AllowedOrigins__0="$VIEWER_ORIGIN" exec "bin/$DOTNET_CONFIG/net10.0/GameBackend"
   ) >"$DEV_DIR/backend.log" 2>&1 &
   echo $! > "$DEV_DIR/backend.pid"
   for _ in $(seq 1 60); do curl -sf localhost:5100/health/ready >/dev/null 2>&1 && break; sleep 0.5; done

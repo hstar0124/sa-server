@@ -52,6 +52,9 @@
 | [46](46-loadgen-traveler.md) | Traveler 봇과 뷰어 포털 | 8 | 0.6.0 |
 | [47](47-zone-b-deploy.md) | Zone B 배포, 이동 end-to-end, 설계 노트 10 | 8 | 0.6.0 |
 | [48](48-connection-liveness.md) | 연결 생존 확인: 링크 하트비트와 무응답 기한 | 8 | 0.6.0 |
+| [49](49-capacity-baseline.md) | 용량 기준선: 봇 50~1,000명, 측정 스크립트와 보고서 02 | 8 | 0.7.0 |
+| [50](50-tcp-gathered-writes.md) | 묶음 쓰기와 송신 대기 바이트 | 8b | 0.7.0 |
+| [51](51-zone-snapshot-backpressure.md) | 스냅샷 역압: 링크별 예산, 오래 기다린 세션 우선, 시야 상한과 진입 분할 | 8b | 0.7.0 |
 
 ## 형식
 

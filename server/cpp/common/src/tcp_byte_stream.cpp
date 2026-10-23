@@ -56,17 +56,25 @@ void TcpByteStream::Write(std::vector<std::byte> bytes) {
     if (state_ != State::kOpen || bytes.empty()) {
         return;
     }
-    const bool idle = write_queue_.empty();
-    write_queue_.push_back(std::move(bytes));
-    if (idle) {
-        WriteNext();
+    queued_bytes_ += bytes.size();
+    pending_.push_back(std::move(bytes));
+    if (in_flight_.empty()) {
+        WriteGathered();
     }
 }
 
-// NOLINTBEGIN(misc-no-recursion): the completion handler runs on a later io_context iteration.
-void TcpByteStream::WriteNext() {
-    asio::async_write(socket_, asio::buffer(write_queue_.front()),
-                      [self = shared_from_this()](const std::error_code& ec, std::size_t) {
+// Moves everything pending into one scatter-gather write. The completion handler runs on a later
+// io_context iteration, so the "recursion" is a loop over the socket's lifetime.
+// NOLINTBEGIN(misc-no-recursion)
+void TcpByteStream::WriteGathered() {
+    in_flight_ = std::exchange(pending_, {});
+    gather_.clear();
+    gather_.reserve(in_flight_.size());
+    for (const std::vector<std::byte>& bytes : in_flight_) {
+        gather_.emplace_back(asio::buffer(bytes));
+    }
+    asio::async_write(socket_, gather_,
+                      [self = shared_from_this()](const std::error_code& ec, std::size_t written) {
                           if (self->state_ == State::kClosed) {
                               return;
                           }
@@ -74,9 +82,10 @@ void TcpByteStream::WriteNext() {
                               self->Finish(ec);
                               return;
                           }
-                          self->write_queue_.pop_front();
-                          if (!self->write_queue_.empty()) {
-                              self->WriteNext();
+                          self->queued_bytes_ -= written;
+                          self->in_flight_.clear();
+                          if (!self->pending_.empty()) {
+                              self->WriteGathered();
                           } else if (self->state_ == State::kClosing) {
                               self->ShutdownSending();
                           }
@@ -97,7 +106,7 @@ void TcpByteStream::Close() {
             }
         });
     }
-    if (write_queue_.empty()) {
+    if (in_flight_.empty()) {
         ShutdownSending();
     }
 }
@@ -111,7 +120,7 @@ void TcpByteStream::Abort() {
     if (state_ == State::kClosed) {
         return;
     }
-    write_queue_.clear();
+    pending_.clear();
     Finish(std::make_error_code(std::errc::connection_aborted));
 }
 
@@ -120,6 +129,7 @@ void TcpByteStream::Finish(const std::error_code& reason) {
         return;
     }
     state_ = State::kClosed;
+    queued_bytes_ = 0;
     linger_timer_.cancel();
     std::error_code ignored;
     std::ignore = socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ignored);

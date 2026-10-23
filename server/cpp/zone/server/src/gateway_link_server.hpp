@@ -35,6 +35,8 @@ public:
 
     void Forget(const GatewayLink& link);
     [[nodiscard]] std::size_t open_links() const noexcept { return links_.size(); }
+    // The longest gap between two frames on any link since the last call.
+    [[nodiscard]] std::chrono::milliseconds TakeLongestGap();
 
 private:
     void Accept();

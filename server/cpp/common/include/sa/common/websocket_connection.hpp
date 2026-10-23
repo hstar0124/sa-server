@@ -33,6 +33,7 @@ public:
     [[nodiscard]] bool is_open() const override {
         return state_ == State::kOpen && stream_->is_open();
     }
+    [[nodiscard]] std::size_t QueuedBytes() const override { return stream_->QueuedBytes(); }
     [[nodiscard]] std::string PeerAddress() const override { return stream_->PeerAddress(); }
 
 private:

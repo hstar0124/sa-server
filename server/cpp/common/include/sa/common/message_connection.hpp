@@ -53,6 +53,9 @@ public:
     // Drops queued messages and closes now.
     virtual void Abort() = 0;
     [[nodiscard]] virtual bool is_open() const = 0;
+    // Bytes accepted by Send() that the transport has not written yet. A sender that can defer
+    // (the zone's snapshots) reads this and holds back while the peer is not keeping up.
+    [[nodiscard]] virtual std::size_t QueuedBytes() const = 0;
     [[nodiscard]] virtual std::string PeerAddress() const = 0;
 };
 

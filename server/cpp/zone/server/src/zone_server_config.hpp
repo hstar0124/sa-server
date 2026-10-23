@@ -50,6 +50,9 @@ struct ZoneServerConfig {
     std::chrono::milliseconds link_close_linger{};
     // A gateway link that carries nothing this long is closed; gateways ping well within it.
     std::chrono::milliseconds link_silence_timeout{};
+    // How full one gateway link may get from a snapshot tick before the remaining sessions wait
+    // for a later one (ADR-0011).
+    std::size_t link_snapshot_budget_bytes = 0;
     std::uint32_t max_sessions = 0;
 
     // Backend gRPC and lease cadence (see README "소유권과 lease").

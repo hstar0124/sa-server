@@ -28,6 +28,7 @@ public:
     void Close() override { stream_->Close(); }
     void Abort() override { stream_->Abort(); }
     [[nodiscard]] bool is_open() const override { return stream_->is_open(); }
+    [[nodiscard]] std::size_t QueuedBytes() const override { return stream_->QueuedBytes(); }
     [[nodiscard]] std::string PeerAddress() const override { return stream_->PeerAddress(); }
     [[nodiscard]] asio::any_io_executor executor() { return stream_->executor(); }
 
