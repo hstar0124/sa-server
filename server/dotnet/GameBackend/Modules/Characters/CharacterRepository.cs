@@ -52,7 +52,8 @@ internal sealed class CharacterRepository(NpgsqlDataSource dataSource)
     // character; a character without events yet reads as zeros.
     private const string StatsSql = """
         SELECT coalesce(p.kills, 0) AS "Kills", coalesce(p.items_acquired, 0) AS "ItemsAcquired",
-               coalesce(p.gold_earned, 0) AS "GoldEarned", coalesce(p.last_event_seq, 0) AS "AsOfEventSeq"
+               coalesce(p.gold_earned, 0) AS "GoldEarned",
+               coalesce(p.trades_completed, 0) AS "TradesCompleted", coalesce(p.last_event_seq, 0) AS "AsOfEventSeq"
         FROM game.characters c
         LEFT JOIN game.character_projections p ON p.world_id = c.world_id AND p.character_id = c.character_id
         WHERE c.character_id = @CharacterId AND c.account_id = @AccountId AND c.world_id = @WorldId

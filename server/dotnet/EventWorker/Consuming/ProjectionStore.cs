@@ -34,12 +34,13 @@ internal sealed class ProjectionStore(NpgsqlDataSource dataSource)
         """;
 
     private const string UpsertSql = """
-        INSERT INTO game.character_projections (world_id, character_id, kills, items_acquired, gold_earned, last_event_seq)
-        VALUES (@WorldId, @CharacterId, @Kills, @ItemsAcquired, @GoldEarned, @Seq)
+        INSERT INTO game.character_projections (world_id, character_id, kills, items_acquired, gold_earned, trades_completed, last_event_seq)
+        VALUES (@WorldId, @CharacterId, @Kills, @ItemsAcquired, @GoldEarned, @TradesCompleted, @Seq)
         ON CONFLICT (world_id, character_id) DO UPDATE
             SET kills = game.character_projections.kills + EXCLUDED.kills,
                 items_acquired = game.character_projections.items_acquired + EXCLUDED.items_acquired,
                 gold_earned = game.character_projections.gold_earned + EXCLUDED.gold_earned,
+                trades_completed = game.character_projections.trades_completed + EXCLUDED.trades_completed,
                 last_event_seq = GREATEST(game.character_projections.last_event_seq, EXCLUDED.last_event_seq),
                 updated_at = now()
         RETURNING kills
@@ -72,6 +73,7 @@ internal sealed class ProjectionStore(NpgsqlDataSource dataSource)
                 delta.Kills,
                 delta.ItemsAcquired,
                 delta.GoldEarned,
+                delta.TradesCompleted,
                 Seq = (long)envelope.AggregateSeq,
             }, tx, cancellationToken: ct));
         }

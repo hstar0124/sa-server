@@ -6,7 +6,7 @@ namespace Sa.EventWorker.Tests.Harness;
 /// <summary>Seeds the rows the read model's foreign key points at and reads the read model back.</summary>
 internal static class Characters
 {
-    public sealed record Stats(long Kills, long ItemsAcquired, long GoldEarned, long LastEventSeq);
+    public sealed record Stats(long Kills, long ItemsAcquired, long GoldEarned, long TradesCompleted, long LastEventSeq);
 
     private static long _nextWorld = 1_000 + (DateTime.UtcNow.Ticks % 1_000_000);
 
@@ -35,7 +35,7 @@ internal static class Characters
     {
         await using var connection = new NpgsqlConnection(connectionString);
         return await connection.QuerySingleOrDefaultAsync<Stats>("""
-            SELECT kills AS "Kills", items_acquired AS "ItemsAcquired", gold_earned AS "GoldEarned", last_event_seq AS "LastEventSeq"
+            SELECT kills AS "Kills", items_acquired AS "ItemsAcquired", gold_earned AS "GoldEarned", trades_completed AS "TradesCompleted", last_event_seq AS "LastEventSeq"
             FROM game.character_projections WHERE world_id = @w AND character_id = @c
             """, new { w = world, c = characterId });
     }

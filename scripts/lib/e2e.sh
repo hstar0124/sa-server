@@ -85,6 +85,18 @@ check_run() {
     echo "FAIL: events of this run were not all published and applied"; failed=1
   fi
 
+  # The read model counts one settled trade per TradeCompleted of the character, whenever written.
+  local trade_events projected_trades
+  trade_events=$(psql_value "SELECT count(*) FROM game.outbox_events WHERE event_type = 'TradeCompleted'
+                             AND (world_id, aggregate_id) IN (SELECT world_id, aggregate_id FROM game.outbox_events
+                                                              WHERE event_type = 'TradeCompleted' AND occurred_at >= '$run_started')")
+  projected_trades=$(psql_value "SELECT coalesce(sum(p.trades_completed), 0) FROM game.character_projections p
+                                 WHERE (p.world_id, p.character_id) IN (SELECT world_id, aggregate_id FROM game.outbox_events
+                                                                        WHERE event_type = 'TradeCompleted' AND occurred_at >= '$run_started')")
+  if [ "$projected_trades" != "$trade_events" ]; then
+    echo "FAIL: the read model counts $projected_trades settled trades for $trade_events TradeCompleted events"; failed=1
+  fi
+
   # The Redis ranking is a copy of the statistics: for every character this run touched, the
   # sorted set holds the same kill total (server/dotnet/Shared/Ranking/RankingKeys.cs: the member is
   # long.MaxValue - id, 19 digits wide).
