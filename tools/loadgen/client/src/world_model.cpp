@@ -43,6 +43,7 @@ void WorldModel::OnWelcome(const game::v1::Welcome& welcome) {
         visible_.clear();
         cache_dirty_ = true;
         last_acked_input_ = 0;
+        trade_.reset();  // the old zone cancelled it before letting the character go
     }
     welcomed_ = true;
     self_ = common::EntityId{welcome.entity_id()};
@@ -149,6 +150,10 @@ void WorldModel::OnCommandResult(const game::v1::CommandResult& result) {
             ++VerdictCounter(result.status(), travel_.transfers_accepted,
                              travel_.transfers_rejected, travel_.transfers_unknown);
             return;
+        case RequestKind::kTrade:
+            ++VerdictCounter(result.status(), trades_.steps_accepted, trades_.steps_rejected,
+                             trades_.steps_unknown);
+            return;
     }
 }
 
@@ -173,6 +178,48 @@ void WorldModel::OnCombatEvent(const game::v1::CombatEvent& event) {
     }
     if (target == self_ && event.killed()) {
         ++combat_.deaths;
+    }
+}
+
+void WorldModel::OnTradeUpdate(const game::v1::TradeUpdate& update) {
+    const auto id = common::TradeId::FromString(update.trade_id());
+    if (!id) {
+        ++integrity_.trade_version_regressed;  // no honest zone sends a malformed id
+        return;
+    }
+    if (trade_ && trade_->id == *id && update.version() < trade_->version) {
+        ++integrity_.trade_version_regressed;
+        return;
+    }
+    bot::SeenTrade seen{.id = *id,
+                        .status = bot::SeenTradeStatus::kOpen,
+                        .version = update.version(),
+                        .other = common::EntityId{update.other().entity_id()},
+                        .my_gold = update.you().gold(),
+                        .other_gold = update.other().gold(),
+                        .i_accepted = update.you().accepted(),
+                        .other_accepted = update.other().accepted()};
+    switch (update.status()) {
+        case game::v1::TRADE_STATUS_COMPLETED:
+            seen.status = bot::SeenTradeStatus::kCompleted;
+            ++trades_.settled;
+            break;
+        case game::v1::TRADE_STATUS_CANCELLED:
+            seen.status = bot::SeenTradeStatus::kCancelled;
+            ++trades_.cancelled;
+            break;
+        case game::v1::TRADE_STATUS_OPEN:
+        case game::v1::TRADE_STATUS_UNSPECIFIED:
+        case game::v1::TradeStatus_INT_MIN_SENTINEL_DO_NOT_USE_:
+        case game::v1::TradeStatus_INT_MAX_SENTINEL_DO_NOT_USE_:
+            break;
+    }
+    trade_ = seen;
+}
+
+void WorldModel::ForgetClosedTrade() {
+    if (trade_ && trade_->status != bot::SeenTradeStatus::kOpen) {
+        trade_.reset();
     }
 }
 

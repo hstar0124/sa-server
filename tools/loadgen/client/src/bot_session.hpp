@@ -11,6 +11,7 @@
 #include <asio/ip/tcp.hpp>
 #include <asio/steady_timer.hpp>
 
+#include <game/client_messages.pb.h>
 #include <game/server_messages.pb.h>
 
 #include <chrono>
@@ -47,6 +48,7 @@ private:
     void ScheduleTick();
     void Tick();
     void SendChangeZone(common::PortalId portal);
+    void SendTradeStep(const bot::TradeIntent& step);
     void SchedulePing();
     void Ping();
     void Fail(std::string what);
@@ -68,6 +70,15 @@ private:
     // id, as the protocol asks of a client: after a lost answer the zone then asks the Backend
     // about the same transfer instead of starting another.
     std::optional<common::RequestId> departure_;
+    // The trade step the zone has not decided yet, as sent. The zone takes one at a time; an
+    // UNKNOWN answer sends it again under the same id after the trader's retry interval.
+    struct HeldTradeStep {
+        common::RequestId request;
+        game::v1::ClientMessage message;
+        std::optional<std::chrono::steady_clock::time_point> resend_at;
+    };
+    std::optional<HeldTradeStep> trade_step_;
+    void SendHeldTradeStep(HeldTradeStep& step);
     std::uint32_t ping_nonce_ = 0;
     std::chrono::steady_clock::time_point ping_sent_at_;
     bool stopped_ = false;

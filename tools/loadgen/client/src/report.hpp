@@ -26,7 +26,8 @@ struct BotReport {
     std::uint64_t inputs_sent = 0;
     std::uint64_t casts_sent = 0;
     std::uint64_t pickups_sent = 0;
-    std::uint64_t transfers_sent = 0;  // ChangeZone messages, retries of one request included
+    std::uint64_t transfers_sent = 0;    // ChangeZone messages, retries of one request included
+    std::uint64_t trade_steps_sent = 0;  // trade messages, retries of one request included
     std::uint32_t last_acked_input = 0;
     std::size_t max_visible = 0;
     std::size_t max_visible_players = 0;
@@ -35,6 +36,7 @@ struct BotReport {
     WorldModel::Combat combat;
     WorldModel::Loot loot;
     WorldModel::Travel travel;
+    WorldModel::Trades trades;
 };
 
 // What a run must reach to PASS, beyond everyone entering and the world staying consistent.
@@ -45,6 +47,8 @@ struct PassCriteria {
     std::uint32_t min_kills = 0;         // monsters killed across all bots (0 without fighters)
     std::uint32_t min_pickups = 0;       // items acquired across all bots (0 without looters)
     std::uint32_t min_zone_changes = 0;  // zone crossings across all bots (0 without travelers)
+    // Settlements as the participants saw them: every completed trade counts once per side.
+    std::uint32_t min_trade_settlements = 0;
 };
 
 // Aggregate across bots; the exit code of the run is derived from it.
@@ -82,12 +86,18 @@ struct RunReport {
     std::uint64_t transfers_rejected = 0;
     std::uint64_t transfers_unknown = 0;
     std::uint64_t zone_changes = 0;
+    std::uint64_t trade_steps_sent = 0;
+    std::uint64_t trade_steps_accepted = 0;
+    std::uint64_t trade_steps_rejected = 0;
+    std::uint64_t trade_steps_unknown = 0;
+    std::uint64_t trade_settlements = 0;  // per participant
+    std::uint64_t trade_cancellations = 0;
 
     [[nodiscard]] static RunReport Aggregate(const std::vector<BotReport>& bots,
                                              PassCriteria criteria);
 
     // Success: everyone got in, nobody was kicked, the world stayed consistent, and the criteria
-    // for meetings, kills, pickups and zone changes were reached.
+    // for meetings, kills, pickups, zone changes and trade settlements were reached.
     [[nodiscard]] bool Succeeded() const noexcept;
     [[nodiscard]] std::string ToText() const;
 };
