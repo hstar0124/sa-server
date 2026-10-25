@@ -170,16 +170,17 @@ float DistanceSqToSegment(common::Vec2 p, common::Vec2 a, common::Vec2 b) {
 std::optional<common::EntityId> Zone::FirstMonsterAlong(common::Vec2 from, common::Vec2 to,
                                                         float radius) const {
     const common::Vec2 mid = (from + to) * 0.5F;
-    std::vector<common::EntityId> candidates;
-    grid_.QueryCandidates(mid, (common::Distance(from, to) * 0.5F) + radius, candidates);
+    std::vector<SpatialGrid::Entry> candidates;
+    // A body within `radius` of the segment is within half its length plus `radius` of the middle.
+    grid_.QueryWithin(mid, (common::Distance(from, to) * 0.5F) + radius, candidates);
     std::optional<common::EntityId> best;
     float best_sq = radius * radius;
-    for (const common::EntityId id : candidates) {
+    for (const auto& [id, position] : candidates) {
         const auto monster = monsters_.find(id);
         if (monster == monsters_.end()) {
             continue;
         }
-        const float d_sq = DistanceSqToSegment(monster->second.position, from, to);
+        const float d_sq = DistanceSqToSegment(position, from, to);
         if (d_sq < best_sq || (d_sq == best_sq && best && id < *best)) {
             best = id;
             best_sq = d_sq;

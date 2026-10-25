@@ -66,16 +66,16 @@ void Zone::RespawnMonsters() {
 
 std::optional<common::EntityId> Zone::NearestLivePlayerWithin(common::Vec2 center,
                                                               float radius) const {
-    std::vector<common::EntityId> candidates;
-    grid_.QueryCandidates(center, radius, candidates);
+    std::vector<SpatialGrid::Entry> candidates;
+    grid_.QueryWithin(center, radius, candidates);
     std::optional<common::EntityId> best;
     float best_sq = radius * radius;
-    for (const common::EntityId id : candidates) {
+    for (const auto& [id, position] : candidates) {
         const auto player = players_.find(id);
         if (player == players_.end() || !player->second.vitals.IsAlive()) {
             continue;
         }
-        const float d_sq = common::DistanceSq(center, player->second.position);
+        const float d_sq = common::DistanceSq(center, position);
         if (d_sq < best_sq || (d_sq == best_sq && best && id < *best)) {
             best = id;
             best_sq = d_sq;

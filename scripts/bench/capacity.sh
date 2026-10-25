@@ -32,6 +32,11 @@ FIGHTERS=$((BOTS * 6 / 10)); LOOTERS=$((BOTS * 2 / 10)); WANDERERS=$((BOTS - FIG
 sed -e "s/@WANDERERS@/$WANDERERS/; s/@FIGHTERS@/$FIGHTERS/; s/@LOOTERS@/$LOOTERS/; s/@DURATION@/$DURATION/" \
   scripts/bench/capacity-profile.toml > "$PROFILE"
 
+# The stack's gateway admits as many clients as its config says; a bench beyond that raises the
+# limit for this run only, through the gateway's environment override.
+gateway_limit=$(awk -F' *= *' '/^max_connections/ {print $2; exit}' deploy/compose/config/gateway.toml)
+if [ "$BOTS" -gt "$gateway_limit" ]; then export SA_GATEWAY__LISTEN__MAX_CONNECTIONS="$BOTS"; fi
+
 scripts/dev-stack.sh down >/dev/null 2>&1 || true
 scripts/dev-stack.sh up >"$DEV_DIR/capacity-stack.log" 2>&1 || { cat "$DEV_DIR/capacity-stack.log"; exit 1; }
 loadgen_pid=""
