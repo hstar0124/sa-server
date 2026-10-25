@@ -53,6 +53,9 @@ struct ZoneServerConfig {
     // How full one gateway link may get from a snapshot tick before the remaining sessions wait
     // for a later one (ADR-0011).
     std::size_t link_snapshot_budget_bytes = 0;
+    // TCP segment ceiling on gateway links, so a receive window that has not grown yet still holds
+    // several segments (docs/issues/021).
+    std::uint32_t link_max_segment_bytes = 0;
     std::uint32_t max_sessions = 0;
 
     // Backend gRPC and lease cadence (see README "소유권과 lease").

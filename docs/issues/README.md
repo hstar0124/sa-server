@@ -24,6 +24,7 @@
 | [018](018-e2e-bots-reuse-characters-across-runs.md) | 해결 | 45 Zone 이전 | 봇이 실행마다 같은 캐릭터를 다시 써서 end-to-end가 이전 실행에 좌우됨 |
 | [019](019-silent-peers-held-until-tcp-gives-up.md) | 해결 | 48 연결 생존 확인 | 닫지 않고 사라진 상대를 TCP가 포기할 때까지 붙잡음 |
 | [020](020-overloaded-gateway-mistaken-for-a-dead-one.md) | 해결 | 49 용량 기준선 | 과부하로 밀린 Gateway를 Zone이 죽은 것으로 판정함 |
+| [021](021-link-stalls-when-a-segment-exceeds-the-window.md) | 해결 | 56 링크 세그먼트 상한 | 수신 창이 세그먼트 하나보다 작아 링크가 5초 넘게 멈춤 |
 
 ## 형식
 
