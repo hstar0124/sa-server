@@ -69,6 +69,9 @@ message EntitySpawn {
   Vec2 position = 4;
   uint32 hp = 5;
   uint32 max_hp = 6;
+  // 클라이언트는 다음 갱신까지 position + velocity × 경과 시간으로 외삽한다(dead reckoning).
+  // Zone은 그 외삽이 허용 오차를 넘을 때만 EntityUpdate를 다시 보낸다.
+  Vec2 velocity = 7;
 }
 
 message EntityUpdate {

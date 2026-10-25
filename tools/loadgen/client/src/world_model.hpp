@@ -114,11 +114,17 @@ private:
     std::uint32_t simulation_hz_ = 0;
     common::ZoneId zone_;
     std::vector<bot::SeenPortal> portals_;
+    // The state last reported for an entity. The brain sees it extrapolated with the velocity
+    // to the latest server tick (dead reckoning), as the zone assumes every client does: an
+    // entity walking straight is reported once.
     struct Known {
         bot::SeenKind kind = bot::SeenKind::kOther;
         common::Vec2 position;
+        common::Vec2 velocity;
+        std::uint64_t reported_tick = 0;
         std::int32_t hp = 0;
     };
+    [[nodiscard]] common::Vec2 Extrapolated(const Known& known) const noexcept;
     std::unordered_map<common::EntityId, Known> visible_;
     std::unordered_map<common::RequestId, RequestKind> awaiting_;
     std::uint32_t inventory_version_ = 0;

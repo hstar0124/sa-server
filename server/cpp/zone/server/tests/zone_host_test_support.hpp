@@ -147,7 +147,8 @@ inline sim::Zone MakeZone() {
         sim::ZoneConfig{.world_id = common::WorldId{1},
                         .zone_id = common::ZoneId{1},
                         .simulation_rate = sim::TickRate{.hz = 10},
-                        .command_retry_window = common::protocol::kCommandRetryWindow},
+                        .command_retry_window = common::protocol::kCommandRetryWindow,
+                        .ticks_per_view = 2},  // Identity().ticks_per_snapshot
         sim::MapData{.size = {100.0F, 100.0F},
                      .cell_size = 10.0F,
                      .obstacles = {},
@@ -165,6 +166,8 @@ inline sim::Zone MakeZone() {
                                                       .aoi_leave_radius_m = 25.0F,
                                                       .aoi_max_entities = 64,
                                                       .aoi_max_spawns_per_view = 64,
+                                                      .publish_velocity_delta_mps = 0.25F,
+                                                      .publish_position_error_m = 0.1F,
                                                       .commands_per_tick_budget = 100,
                                                       .max_queued_per_player = 8},
                        .combat = sim::CombatRules{.monster_think_hz = 5,

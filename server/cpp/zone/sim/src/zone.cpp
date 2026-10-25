@@ -15,6 +15,27 @@ bool SortedContains(const std::vector<common::EntityId>& sorted, common::EntityI
     return std::ranges::binary_search(sorted, id);
 }
 
+// Adds the time since the previous lap to a phase's total. Without a clock it does nothing, so a
+// zone in tests or tools pays no clock reads.
+class PhaseTimer {
+public:
+    explicit PhaseTimer(const Zone::ProfileClock& clock)
+        : clock_(clock), last_(clock ? clock() : std::chrono::steady_clock::time_point{}) {}
+
+    void Lap(std::chrono::nanoseconds& total) {
+        if (!clock_) {
+            return;
+        }
+        const auto now = clock_();
+        total += now - last_;
+        last_ = now;
+    }
+
+private:
+    const Zone::ProfileClock& clock_;
+    std::chrono::steady_clock::time_point last_;
+};
+
 }  // namespace
 
 // ---- construction -------------------------------------------------------------------------------
@@ -23,6 +44,9 @@ std::expected<Zone, std::string> Zone::Create(ZoneConfig config, MapData map, Zo
                                               ContentBundle content, Rng rng) {
     if (config.command_retry_window == 0) {
         return std::unexpected("command_retry_window must be positive");
+    }
+    if (config.ticks_per_view == 0) {
+        return std::unexpected("ticks_per_view must be positive");
     }
     if (auto valid = map.ValidateAgainst(content); !valid) {
         return std::unexpected(valid.error());
@@ -82,6 +106,7 @@ std::expected<common::EntityId, SpawnError> Zone::SpawnPlayer(
     }
     const common::EntityId id = AllocateEntityId();
     Player player{.character = character, .cls = &cls->second, .position = at};
+    player.published = Published{.position = at, .velocity = {}, .at = tick_};
     player.recent_requests = RecentRequests{config_.command_retry_window};
     player.vitals = Vitals{.hp = cls->second.max_hp,
                            .max_hp = cls->second.max_hp,
@@ -101,7 +126,7 @@ void Zone::DespawnPlayer(common::EntityId player) {
     kinds_.erase(player);
     grid_.Remove(player);
     stats_.players = players_.size();
-    // Observers learn about the departure through their next interest recomputation.
+    // Observers learn about the departure through their next view.
 }
 
 // ---- input --------------------------------------------------------------------------------------
@@ -203,48 +228,69 @@ void Zone::ApplyMove(const MoveCommand& command) {
 
 void Zone::Tick() {
     tick_ = tick_.Next();
-    DrainCommands();      // ValidateAndApplyCommands within the per-tick budget
-    ResolveCasts();       // casts whose cast time elapsed
-    IntegratePlayers();   // UpdateMovementAndCollision
-    UpdateMonsters();     // UpdateScheduledAi
+    PhaseTimer phase{profile_clock_};
+    DrainCommands();  // ValidateAndApplyCommands within the per-tick budget
+    phase.Lap(profile_.commands);
+    ResolveCasts();  // casts whose cast time elapsed
+    phase.Lap(profile_.casts);
+    IntegratePlayers();  // UpdateMovementAndCollision
+    phase.Lap(profile_.players);
+    UpdateMonsters();  // UpdateScheduledAi
+    phase.Lap(profile_.monsters);
     UpdateProjectiles();  // UpdateCastsAndProjectiles
+    phase.Lap(profile_.projectiles);
     RegenerateMp();
     RespawnPlayers();  // ApplyDamageBuffsAndDeaths: deferred effects
     RespawnMonsters();
     ExpireGroundItems();
+    phase.Lap(profile_.upkeep);
     UpdateInterestSets();  // UpdateInterestSets
+    phase.Lap(profile_.interest);
     stats_.monsters = monsters_.size();
     stats_.projectiles = projectiles_.size();
 }
 
+// Every player passes the dead-reckoning check each tick, standing ones included: a respawn moves
+// a body without walking it, and only the check notices.
 void Zone::IntegratePlayers() {
     for (auto& [id, player] : players_) {
         // Casting roots the caster; the intent is kept and applied once the cast resolves.
         const bool rooted = player.cast.has_value() || !player.vitals.IsAlive();
-        if (rooted || player.desired_direction.IsZero()) {
-            SetVelocity(player.velocity, player.changed_at, {});
-            continue;
+        player.velocity = {};
+        if (!rooted && !player.desired_direction.IsZero()) {
+            const common::Vec2 intended = player.desired_direction * rules_.movement.max_speed_mps;
+            const common::Vec2 resolved =
+                ResolveCollisions(player.position, player.position + intended * dt_seconds_);
+            // The achieved velocity, not the intended one: sliding along a wall is slower, and an
+            // observer extrapolating with it must land where the zone did.
+            player.velocity = (resolved - player.position) * (1.0F / dt_seconds_);
+            if (resolved != player.position) {
+                player.position = resolved;
+                grid_.Move(id, resolved);
+            }
         }
-        const common::Vec2 velocity = player.desired_direction * rules_.movement.max_speed_mps;
-        const common::Vec2 resolved =
-            ResolveCollisions(player.position, player.position + velocity * dt_seconds_);
-        if (resolved == player.position) {
-            SetVelocity(player.velocity, player.changed_at, {});
-            continue;
-        }
-        SetVelocity(player.velocity, player.changed_at, velocity);
-        player.position = resolved;
-        player.changed_at = tick_;
-        grid_.Move(id, resolved);
+        PublishIfDeviated(player.published, player.position, player.velocity, player.changed_at);
     }
 }
 
-void Zone::SetVelocity(common::Vec2& velocity, common::TickIndex& changed_at,
-                       common::Vec2 next) const {
-    if (velocity != next) {
-        velocity = next;
-        changed_at = tick_;
+void Zone::PublishIfDeviated(Published& published, common::Vec2 position, common::Vec2 velocity,
+                             common::TickIndex& changed_at) const {
+    const MovementRules& rules = rules_.movement;
+    const float elapsed_s = static_cast<float>(tick_.value() - published.at.value()) * dt_seconds_;
+    const common::Vec2 extrapolated = published.position + published.velocity * elapsed_s;
+    const bool turned = common::DistanceSq(velocity, published.velocity) >
+                        rules.publish_velocity_delta_mps * rules.publish_velocity_delta_mps;
+    const bool strayed = common::DistanceSq(position, extrapolated) >
+                         rules.publish_position_error_m * rules.publish_position_error_m;
+    if (turned || strayed) {
+        Publish(published, position, velocity, changed_at);
     }
+}
+
+void Zone::Publish(Published& published, common::Vec2 position, common::Vec2 velocity,
+                   common::TickIndex& changed_at) const {
+    published = Published{.position = position, .velocity = velocity, .at = tick_};
+    changed_at = tick_;
 }
 
 bool Zone::Blocked(common::Vec2 point) const {
@@ -282,7 +328,12 @@ common::Vec2 Zone::StepTowards(common::Vec2 from, common::Vec2 goal, float speed
 
 // ---- interest management ------------------------------------------------------------------------
 
+// Only on view ticks: views are what read interest sets, and the recomputation is most of a tick's
+// cost in a crowd.
 void Zone::UpdateInterestSets() {
+    if (tick_.value() % config_.ticks_per_view != 0) {
+        return;
+    }
     for (auto& [id, player] : players_) {
         RecomputeInterest(id, player);
     }
@@ -337,14 +388,20 @@ void Zone::KeepNearest(std::vector<Ranked>& ranked, std::size_t limit) {
 
 // ---- output -------------------------------------------------------------------------------------
 
-bool Zone::ChangedSince(common::EntityId entity, common::TickIndex tick) const {
+std::optional<common::TickIndex> Zone::ChangedAt(common::EntityId entity) const {
     if (const auto p = players_.find(entity); p != players_.end()) {
-        return p->second.changed_at > tick;
+        return p->second.changed_at;
     }
     if (const auto m = monsters_.find(entity); m != monsters_.end()) {
-        return m->second.changed_at > tick;
+        return m->second.changed_at;
     }
-    return projectiles_.contains(entity);  // projectiles move every tick; items never change
+    if (const auto pr = projectiles_.find(entity); pr != projectiles_.end()) {
+        return pr->second.changed_at;  // a straight flight: reported once, at launch
+    }
+    if (items_.contains(entity)) {
+        return common::TickIndex{};  // items never change
+    }
+    return std::nullopt;
 }
 
 PlayerView Zone::CollectView(common::EntityId player_id) {
@@ -358,22 +415,27 @@ PlayerView Zone::CollectView(common::EntityId player_id) {
     view.self = SnapshotOf(player_id).value_or(EntitySnapshot{});
     view.self_vitals = player.vitals;
 
-    // interest and known are both sorted: despawned = known \ interest in one merge pass.
-    std::ranges::set_difference(player.known, player.interest, std::back_inserter(view.despawned));
+    // The interest set was computed on a view tick, so an entity that left the zone since is
+    // skipped here; it drops out of `known` and is reported despawned below with the rest.
     ranked_.clear();
     std::vector<common::EntityId> next_known;
     next_known.reserve(player.interest.size());
     for (const common::EntityId id : player.interest) {
         if (!SortedContains(player.known, id)) {
-            const auto position = PositionOf(id);
-            ranked_.push_back(Ranked{
-                .id = id, .rank = position ? common::Distance(player.position, *position) : 0.0F});
-        } else {
-            next_known.push_back(id);
-            if (ChangedSince(id, player.viewed_at)) {
-                if (auto snapshot = SnapshotOf(id)) {
-                    view.updated.push_back(*snapshot);
-                }
+            if (const auto position = PositionOf(id)) {
+                ranked_.push_back(
+                    Ranked{.id = id, .rank = common::Distance(player.position, *position)});
+            }
+            continue;
+        }
+        const auto changed_at = ChangedAt(id);
+        if (!changed_at) {
+            continue;
+        }
+        next_known.push_back(id);
+        if (*changed_at > player.viewed_at) {
+            if (auto snapshot = SnapshotOf(id)) {
+                view.updated.push_back(*snapshot);
             }
         }
     }
@@ -387,6 +449,8 @@ PlayerView Zone::CollectView(common::EntityId player_id) {
         }
     }
     std::ranges::sort(next_known);
+    // Both sorted: despawned = what the client knew and no longer keeps, in one merge pass.
+    std::ranges::set_difference(player.known, next_known, std::back_inserter(view.despawned));
     player.known = std::move(next_known);
     player.viewed_at = tick_;
     return view;
@@ -400,8 +464,8 @@ std::vector<HostRequest> Zone::DrainHostRequests() {
     return std::exchange(host_requests_, {});
 }
 
-bool Zone::SortedContainsInterest(const Player& player, common::EntityId entity) {
-    return SortedContains(player.interest, entity);
+bool Zone::Knows(const Player& player, common::EntityId entity) {
+    return SortedContains(player.known, entity);
 }
 
 void Zone::Deliver(common::EntityId recipient, ZoneEvent event) {
@@ -410,7 +474,7 @@ void Zone::Deliver(common::EntityId recipient, ZoneEvent event) {
 
 void Zone::DeliverToObservers(common::EntityId subject, const ZoneEvent& event) {
     for (const auto& [id, player] : players_) {
-        if (id == subject || SortedContains(player.interest, subject)) {
+        if (id == subject || Knows(player, subject)) {
             Deliver(id, event);
         }
     }

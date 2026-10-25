@@ -81,6 +81,12 @@ struct MovementRules {
     // At most this many newly visible entities in one snapshot, nearest first; the rest follow in
     // the next ones. A player arriving in a crowd would otherwise get hundreds of spawns at once.
     std::uint32_t aoi_max_spawns_per_view = 0;
+    // Dead reckoning. Observers extrapolate a body from the state last reported for it; the body is
+    // reported again only when its velocity moved more than publish_velocity_delta_mps from that
+    // state or its position strayed more than publish_position_error_m from the extrapolation.
+    // Zero reports every change.
+    float publish_velocity_delta_mps = 0.0F;
+    float publish_position_error_m = 0.0F;
     std::uint32_t commands_per_tick_budget = 0;  // casts and pickups applied per tick
     std::uint32_t max_queued_per_player = 0;     // casts and pickups one player may have waiting
 

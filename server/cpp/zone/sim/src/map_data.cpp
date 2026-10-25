@@ -159,6 +159,9 @@ std::expected<void, std::string> MovementRules::Validate() const {
     if (aoi_max_entities == 0 || aoi_max_spawns_per_view == 0) {
         return std::unexpected("aoi.max_entities and aoi.max_spawns_per_view must be positive");
     }
+    if (!(publish_velocity_delta_mps >= 0.0F) || !(publish_position_error_m >= 0.0F)) {
+        return std::unexpected("sync.publish_* thresholds must not be negative");
+    }
     if (commands_per_tick_budget == 0) {
         return std::unexpected("input.commands_per_tick_budget must be positive");
     }

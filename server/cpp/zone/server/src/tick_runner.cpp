@@ -14,7 +14,10 @@ TickRunner::TickRunner(asio::io_context& io, sim::Zone& zone, sim::FixedStepSche
       scheduler_(scheduler),
       stats_log_interval_(stats_log_interval),
       after_tick_(std::move(after_tick)),
-      clock_(std::move(clock)) {}
+      clock_(std::move(clock)) {
+    // The phases are timed on the same real clock as sim_time_, whatever drives the scheduler.
+    zone_.set_profile_clock(&std::chrono::steady_clock::now);
+}
 
 void TickRunner::Start() {
     running_ = true;
@@ -66,7 +69,7 @@ void TickRunner::LogStatsIfDue(std::chrono::steady_clock::time_point now) {
     }
     const std::uint64_t dropped = scheduler_.dropped_ticks() - dropped_at_last_stats_;
     const sim::ZoneStats& zs = zone_.stats();
-    const auto micros = [](std::chrono::steady_clock::duration d) {
+    const auto micros = [](std::chrono::nanoseconds d) {
         return std::chrono::duration_cast<std::chrono::microseconds>(d).count();
     };
     spdlog::info(
@@ -75,6 +78,14 @@ void TickRunner::LogStatsIfDue(std::chrono::steady_clock::time_point now) {
         zone_.current_tick().value(), ticks_since_stats_, dropped, micros(scheduler_.lag()),
         zs.players, zs.commands_applied, zs.commands_deferred, zs.commands_dropped,
         zs.moves_superseded, zs.stale_inputs_dropped, micros(sim_time_), micros(host_time_));
+    // The simulation step broken into its phases, to show which one a load change moved.
+    const sim::TickProfile phases = zone_.TakeProfile();
+    spdlog::info(
+        "phases commands_us={} casts_us={} players_us={} monsters_us={} projectiles_us={} "
+        "upkeep_us={} interest_us={}",
+        micros(phases.commands), micros(phases.casts), micros(phases.players),
+        micros(phases.monsters), micros(phases.projectiles), micros(phases.upkeep),
+        micros(phases.interest));
     sim_time_ = {};
     host_time_ = {};
     if (on_stats_) {

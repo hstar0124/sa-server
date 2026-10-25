@@ -299,6 +299,7 @@ void ZoneHost::SendSnapshots(common::TickIndex tick) {
             sink->SendPayload(std::as_bytes(std::span{snapshot_scratch_}));
             session.last_snapshot = tick;
             ++stats_.snapshots_sent;
+            stats_.snapshot_bytes += snapshot_scratch_.size();
         }
         link_queue_peak_ = std::max(link_queue_peak_, sink->QueuedBytes());
     }

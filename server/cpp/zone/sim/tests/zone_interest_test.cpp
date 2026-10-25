@@ -5,6 +5,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 
 namespace sa::zone::sim {
 namespace {
@@ -86,6 +88,96 @@ TEST(ZoneInterest, AStopIsReportedSoObserversStopExtrapolating) {
     EXPECT_EQ(view.updated.front().velocity, Vec2{});
     test::TickN(zone, 2);
     EXPECT_TRUE(zone.CollectView(a).IsEmpty()) << "a body at rest is reported once";
+}
+
+TEST(ZoneInterest, DeadReckoningReportsAStraightWalkOnce) {
+    Zone zone = test::MakeZone();  // 1 m per tick
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});
+    zone.Tick();
+    (void)zone.CollectView(a);
+
+    zone.Submit(MoveCommand{.player = b, .input_seq = 1, .direction = {0.0F, 1.0F}});
+    zone.Tick();
+    const PlayerView start = zone.CollectView(a);
+    ASSERT_TRUE(HasId(start.updated, b)) << "starting to walk changes the velocity";
+    EXPECT_NEAR(start.updated.front().velocity.y, 10.0F, 1e-3F);
+
+    for (int i = 0; i < 5; ++i) {
+        zone.Tick();
+        EXPECT_TRUE(zone.CollectView(a).IsEmpty()) << "observers extrapolate the walk, tick " << i;
+    }
+    EXPECT_NEAR(test::PosOf(zone, b).y, 56.0F, 1e-3F) << "the zone kept moving it";
+}
+
+TEST(ZoneInterest, SlidingAlongAWallReportsTheAchievedVelocity) {
+    Zone zone = test::MakeZone(test::FieldWithWall());  // wall from x = 50
+    const EntityId a = test::Spawn(zone, 1, Vec2{40.0F, 30.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{49.5F, 30.0F});
+    zone.Tick();
+    (void)zone.CollectView(a);
+
+    zone.Submit(MoveCommand{.player = b, .input_seq = 1, .direction = {1.0F, 1.0F}});
+    zone.Tick();
+    const PlayerView view = zone.CollectView(a);
+    ASSERT_TRUE(HasId(view.updated, b));
+    // Only the y half of the diagonal survives the wall; extrapolating the intended diagonal
+    // would carry b into the wall on every observer's screen.
+    EXPECT_NEAR(view.updated.front().velocity.x, 0.0F, 1e-3F);
+    EXPECT_NEAR(view.updated.front().velocity.y, 10.0F / std::sqrt(2.0F), 1e-3F);
+    test::TickN(zone, 3);
+    EXPECT_TRUE(zone.CollectView(a).IsEmpty()) << "the slide is straight: nothing new";
+}
+
+TEST(ZoneInterest, ManaAndAStraightProjectileAreNotNewsToObservers) {
+    Zone zone = test::MakeZone();
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});
+    zone.Tick();
+    (void)zone.CollectView(a);
+
+    zone.Submit(CastCommand{.player = b,
+                            .request_id = common::RequestId{1},
+                            .skill = test::kArrow,
+                            .target = Vec2{0.0F, 1.0F}});
+    zone.Tick();  // b pays 5 MP and the arrow leaves
+    const PlayerView launch = zone.CollectView(a);
+    ASSERT_EQ(launch.spawned.size(), 1U);
+    EXPECT_EQ(launch.spawned.front().kind, EntityKind::kProjectile);
+    EXPECT_NEAR(launch.spawned.front().velocity.y, 25.0F, 1e-3F) << "spawns carry velocity";
+    EXPECT_TRUE(launch.updated.empty()) << "MP is b's own business";
+
+    const std::int32_t mp_after_cast = test::VitalsOf(zone, b).mp;
+    test::TickN(zone, 2);
+    EXPECT_TRUE(zone.CollectView(a).IsEmpty()) << "regeneration and the flight are not news";
+    EXPECT_GT(zone.CollectView(b).self_vitals.mp, mp_after_cast) << "b itself sees MP return";
+}
+
+TEST(ZoneInterest, InterestIsRecomputedOnViewTicksOnly) {
+    ZoneConfig config = test::Config();
+    config.ticks_per_view = 2;
+    auto created =
+        Zone::Create(config, test::OpenField(), test::AllRules(), test::Content(), Rng{1});
+    ASSERT_TRUE(created.has_value());
+    Zone& zone = *created;
+    const EntityId a = test::Spawn(zone, 1, Vec2{50.0F, 50.0F});
+    const EntityId b = test::Spawn(zone, 2, Vec2{60.0F, 50.0F});
+
+    zone.Tick();  // tick 1: not a view tick
+    EXPECT_TRUE(zone.CollectView(a).spawned.empty());
+    zone.Tick();  // tick 2
+    EXPECT_TRUE(HasId(zone.CollectView(a).spawned, b));
+
+    // b leaves after the recomputation: the view must not wait for the next one to drop it.
+    zone.DespawnPlayer(b);
+    EXPECT_EQ(zone.CollectView(a).despawned, std::vector{b});
+}
+
+TEST(ZoneInterest, AViewCadenceOfZeroIsRefused) {
+    ZoneConfig config = test::Config();
+    config.ticks_per_view = 0;
+    EXPECT_FALSE(
+        Zone::Create(config, test::OpenField(), test::AllRules(), test::Content(), Rng{1}));
 }
 
 TEST(ZoneInterest, DamageOnATickWithoutAViewReachesTheNextView) {

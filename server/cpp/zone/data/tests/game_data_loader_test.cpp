@@ -105,6 +105,9 @@ enter_radius_m = 40.0
 leave_radius_m = 30.0
 max_entities = 128
 max_spawns_per_view = 32
+[sync]
+publish_velocity_delta_mps = 0.25
+publish_position_error_m = 0.1
 [input]
 commands_per_tick_budget = 10
 max_queued_per_player = 4

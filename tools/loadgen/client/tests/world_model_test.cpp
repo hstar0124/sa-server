@@ -47,6 +47,35 @@ TEST(WorldModel, TracksSelfVisibleSetAndMaxVisible) {
     EXPECT_EQ(model.integrity().Total(), 0U);
 }
 
+TEST(WorldModel, ExtrapolatesWithTheLastVelocityUntilTheNextUpdate) {
+    WorldModel model;
+    game::v1::Welcome welcome = WelcomeFor(1);
+    welcome.set_simulation_hz(20);
+    model.OnWelcome(welcome);
+
+    game::v1::WorldSnapshot s1 = Snapshot(100, 0);
+    auto* spawn = s1.add_spawned();
+    spawn->set_entity_id(2);
+    spawn->mutable_position()->set_x(10.0F);
+    spawn->mutable_velocity()->set_x(6.0F);  // walking +x at 6 m/s
+    model.OnSnapshot(s1);
+    EXPECT_FLOAT_EQ(model.Visible().front().position.x, 10.0F);
+
+    // Ten ticks (0.5 s) later and no update for entity 2: the walk went on.
+    model.OnSnapshot(Snapshot(110, 0));
+    EXPECT_FLOAT_EQ(model.Visible().front().position.x, 13.0F);
+
+    // An update moves the base; a zero velocity holds it there.
+    game::v1::WorldSnapshot s3 = Snapshot(120, 0);
+    auto* stop = s3.add_updated();
+    stop->set_entity_id(2);
+    stop->mutable_position()->set_x(15.0F);
+    model.OnSnapshot(s3);
+    model.OnSnapshot(Snapshot(140, 0));
+    EXPECT_FLOAT_EQ(model.Visible().front().position.x, 15.0F);
+    EXPECT_EQ(model.integrity().Total(), 0U);
+}
+
 TEST(WorldModel, ExposesKindsHealthAndCombatCounters) {
     WorldModel model;
     model.OnWelcome(WelcomeFor(1));

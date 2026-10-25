@@ -91,6 +91,8 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
         }
         const Known known{.kind = ToKind(spawn.kind()),
                           .position = ToVec(spawn.position()),
+                          .velocity = ToVec(spawn.velocity()),
+                          .reported_tick = server_tick_,
                           .hp = static_cast<std::int32_t>(spawn.hp())};
         if (!visible_.emplace(id, known).second) {
             ++integrity_.spawn_of_known;
@@ -103,6 +105,8 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
             continue;
         }
         it->second.position = ToVec(update.position());
+        it->second.velocity = ToVec(update.velocity());
+        it->second.reported_tick = server_tick_;
         it->second.hp = static_cast<std::int32_t>(update.hp());
     }
     for (const std::uint64_t raw : snapshot.despawned()) {
@@ -178,11 +182,20 @@ const std::vector<bot::SeenEntity>& WorldModel::Visible() {
         visible_cache_.reserve(visible_.size());
         for (const auto& [id, known] : visible_) {
             visible_cache_.push_back(bot::SeenEntity{
-                .id = id, .kind = known.kind, .position = known.position, .hp = known.hp});
+                .id = id, .kind = known.kind, .position = Extrapolated(known), .hp = known.hp});
         }
         cache_dirty_ = false;
     }
     return visible_cache_;
+}
+
+common::Vec2 WorldModel::Extrapolated(const Known& known) const noexcept {
+    if (simulation_hz_ == 0 || server_tick_ <= known.reported_tick) {
+        return known.position;
+    }
+    const float elapsed_s =
+        static_cast<float>(server_tick_ - known.reported_tick) / static_cast<float>(simulation_hz_);
+    return known.position + known.velocity * elapsed_s;
 }
 
 }  // namespace sa::loadgen
