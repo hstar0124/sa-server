@@ -7,3 +7,4 @@
 | [01 킬 랭킹](01-ranking.md) | PostgreSQL만으로 랭킹이 버티는가, 어디서 무너지는가, Redis Sorted Set으로 무엇이 바뀌나 |
 | [02 용량 기준선](02-capacity-baseline.md) | 스택 하나가 봇 몇 명까지 받나, 먼저 휘는 곳은 어디인가 |
 | [03 송신 역압](03-send-backpressure.md) | 링크별 예산·시야 상한·진입 분할이 1,000명 진입을 어떻게 바꿨나, 장치마다 무엇을 맡았나 |
+| [04 밀집 처리량](04-dense-throughput.md) | 1,000~2,000명에서 직렬화·dead reckoning·관심 계산·링크 세그먼트 조치가 각각 무엇을 줄였나, 8c 뒤 용량은 어디까지인가 |
