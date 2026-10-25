@@ -55,17 +55,17 @@
 | [49](49-capacity-baseline.md) | 용량 기준선: 봇 50~1,000명, 측정 스크립트와 보고서 02 | 8 | 0.7.0 |
 | [50](50-tcp-gathered-writes.md) | 묶음 쓰기와 송신 대기 바이트 | 8b | 0.7.0 |
 | [51](51-zone-snapshot-backpressure.md) | 스냅샷 역압: 링크별 예산, 오래 기다린 세션 우선, 시야 상한과 진입 분할 | 8b | 0.7.0 |
-| [52](52-slow-client-kick.md) | 느린 클라이언트 끊기, 그리고 측정으로 옮기지 않은 두 가지 | 8c | |
-| [53](53-snapshot-direct-encoding.md) | 스냅샷 직접 인코딩, 그리고 측정으로 뺀 작업자 풀 | 8c | |
-| [54](54-dead-reckoning-interest-cadence.md) | dead reckoning과 시야 주기 관심 계산: 1,000명에서 대역폭 92%, Zone CPU 42% 감소 | 8c | |
-| [55](55-interest-cost.md) | 관심 계산 비용: 2,000명에서 Zone CPU 23% 감소, 틱 지연 해소 | 8c | |
-| [56](56-link-segment-ceiling.md) | 링크 세그먼트 상한: 2,000명 입장 중 링크가 멈추던 교착 해결 | 8c | |
-| [57](57-stage-8c-wrap-up.md) | 8c 마무리: 용량 사다리 50~2,000명, ADR-0012, 보고서 04, 설계 노트 12 | 8c | |
-| [58](58-trade-schema-contracts.md) | 거래의 바탕: ADR-0013, 스키마, Backend 계약, 확정 이벤트 | 9 | |
-| [59](59-backend-trading.md) | Backend 거래 모듈: 협상은 테이블에, 확정은 트랜잭션 하나에 | 9 | |
-| [60](60-zone-trade-relay.md) | Zone의 거래 검증과 중계, Gateway 전달, 클라이언트 메시지 | 9 | |
-| [61](61-loadgen-trader.md) | Trader 봇과 뷰어 거래 조작: 거래가 끝까지 도는 것을 봇과 화면으로 | 9 | |
-| [62](62-stage-9-wrap-up.md) | 조회 모델의 거래 수와 9단계 마무리: 설계 노트 13, README 거래 절 | 9 | |
+| [52](52-slow-client-kick.md) | 느린 클라이언트 끊기, 그리고 측정으로 옮기지 않은 두 가지 | 8c | 0.9.0 |
+| [53](53-snapshot-direct-encoding.md) | 스냅샷 직접 인코딩, 그리고 측정으로 뺀 작업자 풀 | 8c | 0.9.0 |
+| [54](54-dead-reckoning-interest-cadence.md) | dead reckoning과 시야 주기 관심 계산: 1,000명에서 대역폭 92%, Zone CPU 42% 감소 | 8c | 0.9.0 |
+| [55](55-interest-cost.md) | 관심 계산 비용: 2,000명에서 Zone CPU 23% 감소, 틱 지연 해소 | 8c | 0.9.0 |
+| [56](56-link-segment-ceiling.md) | 링크 세그먼트 상한: 2,000명 입장 중 링크가 멈추던 교착 해결 | 8c | 0.9.0 |
+| [57](57-stage-8c-wrap-up.md) | 8c 마무리: 용량 사다리 50~2,000명, ADR-0012, 보고서 04, 설계 노트 12 | 8c | 0.9.0 |
+| [58](58-trade-schema-contracts.md) | 거래의 바탕: ADR-0013, 스키마, Backend 계약, 확정 이벤트 | 9 | 0.9.0 |
+| [59](59-backend-trading.md) | Backend 거래 모듈: 협상은 테이블에, 확정은 트랜잭션 하나에 | 9 | 0.9.0 |
+| [60](60-zone-trade-relay.md) | Zone의 거래 검증과 중계, Gateway 전달, 클라이언트 메시지 | 9 | 0.9.0 |
+| [61](61-loadgen-trader.md) | Trader 봇과 뷰어 거래 조작: 거래가 끝까지 도는 것을 봇과 화면으로 | 9 | 0.9.0 |
+| [62](62-stage-9-wrap-up.md) | 조회 모델의 거래 수와 9단계 마무리: 설계 노트 13, README 거래 절 | 9 | 0.9.0 |
 
 ## 형식
 
