@@ -153,6 +153,24 @@ TEST_F(SessionProtocolTest, InZoneInputsAreForwardedAndOutputsPassThrough) {
               42U);
 }
 
+TEST_F(SessionProtocolTest, TradeStepsAreForwardedLikeOtherCommands) {
+    EnterZone();
+    ClientMessage open;
+    open.mutable_trade_open()->set_request_id(4);
+    open.mutable_trade_open()->set_target_entity_id(9);
+    ClientMessage accept;
+    accept.mutable_trade_accept()->set_request_id(5);
+    ClientMessage offer;
+    offer.mutable_trade_offer()->set_request_id(6);
+    ClientMessage cancel;
+    cancel.mutable_trade_cancel()->set_request_id(7);
+    for (const ClientMessage& message : {open, accept, offer, cancel}) {
+        const auto forward = protocol.OnClientMessage(message, At());
+        EXPECT_EQ(OnlyEffect<SessionProtocol::ForwardToZone>(forward).message.body_case(),
+                  message.body_case());
+    }
+}
+
 TEST_F(SessionProtocolTest, DisconnectInZoneDetachesAndEndsTheSession) {
     EnterZone();
     const auto reaction = protocol.OnClientDisconnected();

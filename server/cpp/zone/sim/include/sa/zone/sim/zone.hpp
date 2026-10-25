@@ -68,6 +68,8 @@ struct ZoneStats {
     std::uint64_t pickups_acquired = 0;
     std::uint64_t transfers_requested = 0;
     std::uint64_t transfers_completed = 0;
+    std::uint64_t trade_steps_requested = 0;  // handed to the Backend
+    std::uint64_t trade_steps_accepted = 0;
     std::uint64_t spawns_relocated = 0;  // a requested position was not walkable: spawn point used
     std::size_t players = 0;
     std::size_t monsters = 0;
@@ -93,10 +95,12 @@ struct TickProfile {
 //
 // Implementation is split by concern across zone.cpp (membership, input, interest, views),
 // zone_combat.cpp (skills, projectiles, damage, death), zone_monsters.cpp (spawns, AI),
-// zone_items.cpp (drop rolls, ground items, pickups) and zone_transfer.cpp (portals).
+// zone_items.cpp (drop rolls, ground items, pickups), zone_transfer.cpp (portals) and
+// zone_trade.cpp (trade validation and verdicts).
 class Zone {
 public:
-    using Command = std::variant<MoveCommand, CastCommand, PickupCommand, ChangeZoneCommand>;
+    using Command =
+        std::variant<MoveCommand, CastCommand, PickupCommand, ChangeZoneCommand, TradeCommand>;
     using ProfileClock = std::function<std::chrono::steady_clock::time_point()>;
 
     // Fails when the map's spawns name monsters the content does not define, or a portal leads
@@ -143,6 +147,9 @@ public:
         const ZoneTransferRequest& transfer);
     // The departure did not happen: the player is released and told why.
     void FailTransfer(const ZoneTransferRequest& transfer, TransferOutcome outcome);
+    // The Backend answered a trade step (ADR-0013): kNone accepts, kServiceUnavailable means no
+    // answer (the client may retry the same request id), anything else is a final refusal.
+    void ResolveTrade(const TradeRequest& request, RejectReason reason);
 
     // ---- output -----------------------------------------------------------------------------
     // Interest-set delta for one player since its previous view. Call every
@@ -229,6 +236,9 @@ private:
         RecentRequests recent_requests;
         // Set while a ChangeZone waits for the Backend: movement, casts and pickups are refused.
         std::optional<common::RequestId> departing;
+        // The trade step the Backend is deciding: its retry is answered "pending" from here, and
+        // another step waits until it is decided. Only final verdicts go to recent_requests.
+        std::optional<common::RequestId> trade_in_flight;
         // Entities this player's client has been told about, kept sorted for cheap set
         // differences: events about an entity go to the clients that know it.
         std::vector<common::EntityId> known;
@@ -303,11 +313,12 @@ private:
     }
 
     // ---- zone.cpp ---------------------------------------------------------------------------
-    using QueuedCommand = std::variant<CastCommand, PickupCommand, ChangeZoneCommand>;
+    using QueuedCommand = std::variant<CastCommand, PickupCommand, ChangeZoneCommand, TradeCommand>;
 
     common::EntityId AllocateEntityId();
     void QueueMove(const MoveCommand& move);
-    void QueueRequest(common::EntityId player, common::RequestId request, QueuedCommand command);
+    void QueueRequest(common::EntityId player, common::RequestId request,
+                      const QueuedCommand& command);
     void DrainCommands();
     void ApplyMove(const MoveCommand& command);
     void IntegratePlayers();
@@ -380,6 +391,11 @@ private:
                                                          const Portal* portal);
     // The departing player this request belongs to, or nullptr once it left or was released.
     [[nodiscard]] Player* DepartingPlayer(const ZoneTransferRequest& transfer);
+
+    // ---- zone_trade.cpp ---------------------------------------------------------------------
+    void ApplyTrade(const TradeCommand& command);
+    [[nodiscard]] RejectReason ValidateTrade(const Player& player,
+                                             const TradeCommand& command) const;
 
     // ---- zone_items.cpp ---------------------------------------------------------------------
     void RollDrops(common::EntityId killer, const Player& killer_player, const Monster& monster);

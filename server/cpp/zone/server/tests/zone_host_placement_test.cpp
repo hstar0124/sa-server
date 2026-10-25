@@ -72,8 +72,9 @@ protected:
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
+    FakeTrades trades;
     ZoneHost::Identity identity = Identity();
-    ZoneHost host{zone, identity, economy, directory, [] { return true; }};
+    ZoneHost host{zone, identity, economy, directory, trades, [] { return true; }};
     FakeSink sink;
 
     // Session "s1" (character 42) stands in the portal and asked to leave; the departure is with

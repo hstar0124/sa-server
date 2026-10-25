@@ -66,6 +66,10 @@ SessionProtocol::Reaction SessionProtocol::OnClientMessage(const ClientMessage& 
         case ClientMessage::kCastSkill:
         case ClientMessage::kPickupItem:
         case ClientMessage::kChangeZone:
+        case ClientMessage::kTradeOpen:
+        case ClientMessage::kTradeOffer:
+        case ClientMessage::kTradeAccept:
+        case ClientMessage::kTradeCancel:
             if (state_ == State::kTransferring) {
                 return {};  // sent before the client saw the new Welcome; nothing to punish
             }

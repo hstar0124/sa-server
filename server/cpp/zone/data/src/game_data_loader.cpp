@@ -146,14 +146,16 @@ std::expected<sim::CombatRules, LoadError> CombatFromTable(const toml::table& ta
 std::expected<sim::EconomyRules, LoadError> EconomyFromTable(const toml::table& table) {
     const auto capacity = RequireU32(table, "inventory.capacity");
     const auto range = RequireFloat(table, "pickup.range_m");
+    const auto trade_range = RequireFloat(table, "trade.range_m");
     const auto despawn = RequireMs(table, "pickup.despawn_ms");
     const auto scatter = RequireFloat(table, "drops.scatter_radius_m");
     const auto currency = RequireString(table, "currency.primary");
-    if (auto err = FirstError(capacity, range, despawn, scatter, currency)) {
+    if (auto err = FirstError(capacity, range, trade_range, despawn, scatter, currency)) {
         return std::unexpected(*err);
     }
     sim::EconomyRules rules{.inventory_capacity = *capacity,
                             .pickup_range_m = *range,
+                            .trade_range_m = *trade_range,
                             .ground_item_despawn = *despawn,
                             .drop_scatter_radius_m = *scatter,
                             .primary_currency = *currency};

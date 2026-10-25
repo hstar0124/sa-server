@@ -138,6 +138,7 @@ inline CombatRules Combat() {
 inline EconomyRules Economy() {
     return EconomyRules{.inventory_capacity = 20,
                         .pickup_range_m = 2.0F,
+                        .trade_range_m = 5.0F,
                         .ground_item_despawn = 3000ms,
                         .primary_currency = "gold"};
 }

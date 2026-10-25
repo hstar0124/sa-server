@@ -190,6 +190,7 @@ int Run(int argc, char** argv) {
                                                     .retry_delay = config->backend_retry_delay};
     sa::zone::EconomyClient economy{io, backend_channel, backend_calls};
     sa::zone::DirectoryClient directory{io, backend_channel, backend_calls};
+    sa::zone::TradeClient trades{io, backend_channel, backend_calls};
     sa::common::LeaseKeeper lease{
         io, "zone",
         sa::common::LeaseKeeperConfig{.renew_interval = config->lease_renew_interval,
@@ -204,7 +205,10 @@ int Run(int argc, char** argv) {
                                      .snapshot_budget_bytes = config->link_snapshot_budget_bytes,
                                      .ticks_per_checkpoint = config->TicksPerCheckpoint(),
                                      .max_sessions = config->max_sessions},
-        economy, directory, [&lease] { return lease.IsAlive(); }};
+        economy,
+        directory,
+        trades,
+        [&lease] { return lease.IsAlive(); }};
     lease.set_on_lost([&host] { host.EvictAll(sa::internal::v1::EVICT_REASON_LEASE_LOST); });
 
     sa::zone::GatewayLinkServer link_server{
@@ -282,6 +286,9 @@ int Run(int argc, char** argv) {
         "pickups_refused={} backend_failures={}",
         host.stats().kills_recorded, host.stats().kills_refused, host.stats().pickups_acquired,
         host.stats().pickups_refused, host.stats().backend_failures);
+    spdlog::info("trades steps_sent={} steps_refused={} settled={} cancels_on_leave={}",
+                 host.stats().trade_steps_sent, host.stats().trade_steps_refused,
+                 host.stats().trades_settled, host.stats().trade_cancels_on_leave);
     spdlog::info(
         "placement checkpoints_saved={} checkpoints_refused={} transfers_completed={} "
         "transfers_refused={} stale_attaches={} superseded_sessions={}",
