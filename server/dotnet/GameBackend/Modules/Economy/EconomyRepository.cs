@@ -80,30 +80,15 @@ internal sealed record CharacterAssets(IReadOnlyList<InventoryItem> Items, IRead
 internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCatalog content)
 {
     private const string PickupScope = "pickup";
-    private const string PendingOutcome = "pending";
     private const int FirstSlot = 0;
 
     // ---- authority ------------------------------------------------------------------------
 
-    // FOR SHARE: a concurrent redeem (which takes FOR UPDATE on the same row) waits until this grant
-    // has committed, so a hand-over to another zone can never interleave with a grant under the old one.
-    // The zone's lease must be live too: an expired lease ends the zone's authority even while the
-    // ownership row still names it.
-    private const string OwnershipSql = """
-        SELECT o.zone_id AS "ZoneId", o.zone_instance_id AS "ZoneInstanceId", o.owner_epoch AS "OwnerEpoch", o.state AS "State",
-               (l.lease_expires_at > now()) AS "ZoneAlive"
-        FROM game.character_ownership o
-        JOIN game.zone_leases l ON l.zone_instance_id = o.zone_instance_id
-        WHERE o.world_id = @WorldId AND o.character_id = @CharacterId
-        FOR SHARE OF o
-        """;
-
     /// <summary>The zone id the character is simulated in, or null when the caller is not its current owner.</summary>
     private static async Task<ZoneId?> OwnedZoneAsync(NpgsqlConnection connection, NpgsqlTransaction tx, WorldId worldId, CharacterId characterId, ZoneAuthority authority, CancellationToken ct)
     {
-        OwnershipRow? row = await connection.QuerySingleOrDefaultAsync<OwnershipRow>(Cmd(OwnershipSql, new { WorldId = worldId, CharacterId = characterId }, tx, ct));
-        bool holds = row is { State: "active", ZoneAlive: true } && row.OwnerEpoch == authority.OwnerEpoch && authority.ZoneInstanceId.SameAs(row.ZoneInstanceId);
-        return holds ? row!.ZoneId : null;
+        CharacterOwner? owner = await CharacterOwners.ReadForShareAsync(connection, tx, worldId, characterId, ct);
+        return owner is not null && owner.IsHeldBy(authority) ? owner.ZoneId : null;
     }
 
     // ---- kills ----------------------------------------------------------------------------
@@ -252,26 +237,6 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
 
     // ---- pickups --------------------------------------------------------------------------
 
-    // Claiming the request id is the first write: a concurrent duplicate blocks on the conflict until
-    // this transaction ends, then reads the stored outcome instead of acting again.
-    private const string ClaimRequestSql = """
-        INSERT INTO game.command_results (world_id, scope, request_id, request_hash, outcome)
-        VALUES (@WorldId, @Scope, @RequestId, @RequestHash, @Outcome)
-        ON CONFLICT (world_id, scope, request_id) DO NOTHING
-        """;
-
-    private const string StoredRequestSql = """
-        SELECT request_hash AS "RequestHash", outcome AS "Outcome", payload::text AS "Payload"
-        FROM game.command_results
-        WHERE world_id = @WorldId AND scope = @Scope AND request_id = @RequestId
-        """;
-
-    private const string StoreOutcomeSql = """
-        UPDATE game.command_results
-        SET outcome = @Outcome, payload = CAST(@Payload AS jsonb)
-        WHERE world_id = @WorldId AND scope = @Scope AND request_id = @RequestId
-        """;
-
     // An inventory nobody has changed yet; every change raises it, and the zone keeps the highest
     // version it has seen. Matches the column default (migration 0005).
     private const int InitialInventoryVersion = 0;
@@ -327,11 +292,11 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
 
         // A request that already has an outcome is answered from it before authority is checked, for
         // the same reason as a repeated kill: the outcome was decided under the authority of its time.
-        StoredRequestRow? earlier = await connection.QuerySingleOrDefaultAsync<StoredRequestRow>(Cmd(StoredRequestSql, requestKey, tx, ct));
-        if (earlier is not null && earlier.Outcome != PendingOutcome)
+        StoredCommand? earlier = await CommandResults.ReadAsync(connection, tx, requestKey, ct);
+        if (earlier is { IsDecided: true })
         {
             await tx.CommitAsync(ct);
-            return earlier.RequestHash.AsSpan().SequenceEqual(hash)
+            return earlier.Matches(hash)
                 ? StoredPickup.Replay(earlier, command.ItemInstanceId)
                 : PickupResult.Refused(PickupOutcome.RequestMismatch);
         }
@@ -342,12 +307,10 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
             return PickupResult.Refused(PickupOutcome.StaleAuthority);
         }
 
-        int claimed = await connection.ExecuteAsync(Cmd(ClaimRequestSql, new { requestKey.WorldId, requestKey.Scope, requestKey.RequestId, RequestHash = hash, Outcome = PendingOutcome }, tx, ct));
-        if (claimed == 0)
+        if (await CommandResults.ClaimAsync(connection, tx, requestKey, hash, ct) is { } stored)
         {
-            StoredRequestRow stored = await connection.QuerySingleAsync<StoredRequestRow>(Cmd(StoredRequestSql, requestKey, tx, ct));
             await tx.CommitAsync(ct);
-            return stored.RequestHash.AsSpan().SequenceEqual(hash)
+            return stored.Matches(hash)
                 ? StoredPickup.Replay(stored, command.ItemInstanceId)
                 : PickupResult.Refused(PickupOutcome.RequestMismatch);
         }
@@ -405,14 +368,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
     /// <summary>Stores the outcome under the claimed request id and commits; the stored row is what a retry gets back.</summary>
     private static async Task<PickupResult> ConcludeAsync(NpgsqlConnection connection, NpgsqlTransaction tx, RequestKey requestKey, PickupResult result, CancellationToken ct)
     {
-        await connection.ExecuteAsync(Cmd(StoreOutcomeSql, new
-        {
-            Outcome = result.Outcome.ToString(),
-            Payload = StoredPickup.Serialize(result),
-            requestKey.WorldId,
-            requestKey.Scope,
-            requestKey.RequestId,
-        }, tx, ct));
+        await CommandResults.StoreAsync(connection, tx, requestKey, result.Outcome.ToString(), StoredPickup.Serialize(result), ct);
         await tx.CommitAsync(ct);
         return result;
     }
@@ -486,10 +442,6 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
     private static CommandDefinition Cmd(string sql, object parameters, NpgsqlTransaction tx, CancellationToken ct)
         => new(sql, parameters, tx, cancellationToken: ct);
 
-    private sealed record RequestKey(WorldId WorldId, string Scope, byte[] RequestId);
-
-    private sealed record OwnershipRow(ZoneId ZoneId, byte[] ZoneInstanceId, OwnerEpoch OwnerEpoch, string State, bool ZoneAlive);
-
     private sealed record ItemWhereabouts(string Location, ZoneId? ZoneId);
 
     private sealed record ReceiptRow(byte[] ZoneInstanceId, CharacterId KillerCharacterId);
@@ -506,8 +458,6 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
 
     private sealed record InventoryRow(int Capacity, int Version);
 
-    private sealed record StoredRequestRow(byte[] RequestHash, string Outcome, string Payload);
-
     /// <summary>The jsonb payload of a stored pickup: enough to rebuild the response for a retry.</summary>
     private sealed record StoredPickup(ItemTemplateId? ItemTemplateId, int? SlotNo, int InventoryVersion)
     {
@@ -516,7 +466,7 @@ internal sealed class EconomyRepository(NpgsqlDataSource dataSource, ContentCata
         public static string Serialize(PickupResult result)
             => JsonSerializer.Serialize(new StoredPickup(result.Item?.ItemTemplateId, result.Item?.SlotNo, result.InventoryVersion), Json);
 
-        public static PickupResult Replay(StoredRequestRow stored, ItemInstanceId itemId)
+        public static PickupResult Replay(StoredCommand stored, ItemInstanceId itemId)
         {
             var outcome = Enum.Parse<PickupOutcome>(stored.Outcome);
             StoredPickup payload = JsonSerializer.Deserialize<StoredPickup>(stored.Payload, Json)
