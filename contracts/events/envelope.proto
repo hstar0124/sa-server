@@ -45,3 +45,15 @@ message DroppedItemRef {
   bytes item_instance_id = 1;
   uint32 item_template_id = 2;
 }
+
+// A trade settled; one event per participant on that character's stream (ADR-0013).
+message TradeCompleted {
+  bytes trade_id = 1;
+  uint64 character_id = 2;
+  uint64 counterparty_id = 3;
+  uint64 gold_given = 4;
+  uint64 gold_received = 5;
+  repeated DroppedItemRef items_given = 6;
+  repeated DroppedItemRef items_received = 7;
+  uint32 inventory_version = 8;
+}

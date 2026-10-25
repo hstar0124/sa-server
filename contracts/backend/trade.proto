@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package sa.backend.v1;
+
+import "backend/authority.proto";
+
+option csharp_namespace = "Sa.Backend.V1";
+
+// Player-to-player trade (ADR-0013, see README "거래"). The Backend owns the negotiation: who is
+// trading with whom, what each side offers, which version each side accepted. The zone validates
+// proximity and relays; every call is one PostgreSQL transaction and idempotent on request_id (a
+// retry returns the stored outcome, a different body under the same id is refused).
+service Trade {
+  // Opens a trade between the caller and a counterparty the same zone instance owns. Refused
+  // when either is already in an open trade.
+  rpc OpenTrade(OpenTradeRequest) returns (TradeResponse);
+  // Replaces the caller's offer (items and gold). Bumps the version and clears both acceptances.
+  rpc OfferTrade(OfferTradeRequest) returns (TradeResponse);
+  // Accepts the given version. When both sides have accepted the same version the trade is
+  // settled in the same transaction: items change owner, gold moves, ledger and events are written.
+  rpc AcceptTrade(AcceptTradeRequest) returns (TradeResponse);
+  // Cancels the trade. With an empty trade_id every open trade of the character is cancelled,
+  // which is what the zone does when the character's session ends.
+  rpc CancelTrade(CancelTradeRequest) returns (TradeResponse);
+}
+
+message OpenTradeRequest {
+  bytes request_id = 1;              // 16 bytes, the zone's digest of the client's request
+  uint64 world_id = 2;
+  uint64 character_id = 3;
+  ZoneAuthority authority = 4;
+  uint64 counterparty_character_id = 5;
+}
+
+message OfferTradeRequest {
+  bytes request_id = 1;
+  uint64 world_id = 2;
+  uint64 character_id = 3;
+  ZoneAuthority authority = 4;
+  bytes trade_id = 5;
+  repeated bytes item_instance_ids = 6;
+  uint64 gold = 7;
+}
+
+message AcceptTradeRequest {
+  bytes request_id = 1;
+  uint64 world_id = 2;
+  uint64 character_id = 3;
+  ZoneAuthority authority = 4;
+  bytes trade_id = 5;
+  uint32 version = 6;                // the version the client saw; a stale one is refused
+}
+
+message CancelTradeRequest {
+  bytes request_id = 1;
+  uint64 world_id = 2;
+  uint64 character_id = 3;
+  ZoneAuthority authority = 4;
+  bytes trade_id = 5;                // empty: all open trades of the character
+}
+
+enum TradeOutcome {
+  TRADE_OUTCOME_UNSPECIFIED = 0;
+  TRADE_OUTCOME_APPLIED = 1;             // the change was recorded; the trade stays open
+  TRADE_OUTCOME_SETTLED = 2;             // this acceptance completed the trade
+  TRADE_OUTCOME_CANCELLED = 3;           // the trade is closed without settlement
+  TRADE_OUTCOME_STALE_AUTHORITY = 4;     // the zone does not own the caller
+  TRADE_OUTCOME_COUNTERPARTY_NOT_HERE = 5;  // the counterparty is not owned by the caller's zone instance
+  TRADE_OUTCOME_SELF_TRADE = 6;
+  TRADE_OUTCOME_ALREADY_TRADING = 7;     // the caller or the counterparty has an open trade
+  TRADE_OUTCOME_NOT_PARTICIPANT = 8;     // no such open trade for this character
+  TRADE_OUTCOME_TRADE_CLOSED = 9;        // completed, cancelled or expired meanwhile
+  TRADE_OUTCOME_VERSION_MISMATCH = 10;   // the offer changed since the client looked
+  TRADE_OUTCOME_ITEM_UNAVAILABLE = 11;   // not owned by the offerer or locked in another trade
+  TRADE_OUTCOME_INSUFFICIENT_GOLD = 12;
+  TRADE_OUTCOME_INVENTORY_FULL = 13;     // a side cannot hold what it would receive
+  TRADE_OUTCOME_REQUEST_MISMATCH = 14;   // same request_id, different body
+}
+
+enum TradeStatus {
+  TRADE_STATUS_UNSPECIFIED = 0;
+  TRADE_STATUS_OPEN = 1;
+  TRADE_STATUS_COMPLETED = 2;
+  TRADE_STATUS_CANCELLED = 3;
+}
+
+message TradeItem {
+  bytes item_instance_id = 1;
+  uint32 item_template_id = 2;
+}
+
+message TradeSide {
+  uint64 character_id = 1;
+  uint64 gold = 2;
+  repeated TradeItem items = 3;
+  bool accepted = 4;                 // accepted the current version
+}
+
+message TradeState {
+  bytes trade_id = 1;
+  TradeStatus status = 2;
+  uint32 version = 3;
+  TradeSide initiator = 4;
+  TradeSide counterparty = 5;
+}
+
+message TradeResponse {
+  TradeOutcome outcome = 1;
+  TradeState trade = 2;              // present whenever a trade row was found
+}
