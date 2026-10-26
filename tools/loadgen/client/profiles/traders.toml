@@ -1,0 +1,73 @@
+# Trade smoke: traders pair up with whoever is near, offer a gold coin each and accept, so every
+# settlement is one Backend transaction moving gold both ways (ADR-0013). PASS requires every bot
+# to enter, no inconsistency and at least min_trade_settlements settlements as the participants saw
+# them (each completed trade counts once per side). They start on the meadow's spawn points and
+# find each other there.
+[backend]
+base_url = "http://localhost:5100"
+
+# Optional: override the gateway address the Backend hands out.
+# [gateway]
+# host = "127.0.0.1"
+# port = 7777
+
+[world]
+id = 1
+class_id = 1
+
+[bots]
+wanderers = 0
+fighters = 0
+looters = 0
+travelers = 0
+traders = 6
+seed = 5
+account_prefix = "trader"
+password = "bots-trade-gold-2026"
+
+[run]
+duration_sec = 60
+min_bots_seeing_others = 1
+min_kills = 0
+min_pickups = 0
+min_zone_changes = 0
+min_trade_settlements = 4
+
+[client]
+tick_hz = 20
+ping_interval_ms = 1000
+connect_timeout_ms = 5000
+
+[wanderer]
+arrive_distance_m = 1.0
+retarget_after_ticks = 400
+idle_ticks_min = 0
+idle_ticks_max = 10
+margin_m = 2.0
+
+[fighter]
+engage_radius_m = 40.0
+attack_skill_id = 1
+attack_range_m = 2.5
+attack_interval_ms = 900
+
+[looter]
+loot_radius_m = 20.0
+pickup_range_m = 1.5
+pickup_retry_ms = 2000
+
+[traveler]
+dwell_ms = 5000
+request_retry_ms = 2000
+portal_approach_m = 1.0
+
+[trader]
+pair_radius_m = 60.0   # wide: six bots spread over the spawn points still find a partner
+open_range_m = 3.0     # inside the zone's trade.range_m (5 m), so client lag cannot push it out
+offer_gold = 1
+request_retry_ms = 2000
+give_up_ms = 15000
+cooldown_ms = 5000
+
+[logging]
+level = "info"

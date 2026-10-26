@@ -119,6 +119,8 @@ inline MovementRules Rules() {
                          .aoi_leave_radius_m = 25.0F,
                          .aoi_max_entities = 64,
                          .aoi_max_spawns_per_view = 64,
+                         .publish_velocity_delta_mps = 0.25F,
+                         .publish_position_error_m = 0.1F,
                          .commands_per_tick_budget = 1024,
                          .max_queued_per_player = 8};
 }
@@ -136,6 +138,7 @@ inline CombatRules Combat() {
 inline EconomyRules Economy() {
     return EconomyRules{.inventory_capacity = 20,
                         .pickup_range_m = 2.0F,
+                        .trade_range_m = 5.0F,
                         .ground_item_despawn = 3000ms,
                         .primary_currency = "gold"};
 }

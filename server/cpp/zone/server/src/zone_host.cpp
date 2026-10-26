@@ -1,10 +1,13 @@
 #include "zone_host.hpp"
 
 #include "codec.hpp"
+#include "snapshot_encoder.hpp"
+#include "trade_codec.hpp"
 
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -15,11 +18,13 @@ namespace sa::zone {
 using internal::v1::ZoneToGateway;
 
 ZoneHost::ZoneHost(sim::Zone& zone, Identity identity, EconomyGateway& economy,
-                   DirectoryGateway& directory, std::function<bool()> authoritative)
+                   DirectoryGateway& directory, TradeGateway& trades,
+                   std::function<bool()> authoritative)
     : zone_(zone),
       identity_(identity),
       economy_(economy),
       directory_(directory),
+      trades_(trades),
       authoritative_(std::move(authoritative)) {}
 
 // ---- GatewayLink::Handler -------------------------------------------------------------------
@@ -173,6 +178,18 @@ void ZoneHost::Input(const internal::v1::SessionInput& input) {
             zone_.Submit(codec::ToChangeZoneCommand(it->second.entity, message.change_zone()));
             ++stats_.inputs;
             return;
+        case game::v1::ClientMessage::kTradeOpen:
+            submit(codec::ToTradeCommand(it->second.entity, message.trade_open()));
+            return;
+        case game::v1::ClientMessage::kTradeOffer:
+            submit(codec::ToTradeCommand(it->second.entity, message.trade_offer()));
+            return;
+        case game::v1::ClientMessage::kTradeAccept:
+            submit(codec::ToTradeCommand(it->second.entity, message.trade_accept()));
+            return;
+        case game::v1::ClientMessage::kTradeCancel:
+            submit(codec::ToTradeCommand(it->second.entity, message.trade_cancel()));
+            return;
         case game::v1::ClientMessage::kHello:
         case game::v1::ClientMessage::kPing:
         case game::v1::ClientMessage::BODY_NOT_SET:
@@ -240,7 +257,8 @@ void ZoneHost::OnTick(common::TickIndex tick) {
         ++stats_.events_sent;
     }
 
-    // Kills, pickups and departures the zone adjudicated this tick go to the Backend now; their
+    // Kills, pickups, departures and trade steps the zone adjudicated this tick go to the Backend
+    // now; their
     // answers come back on this thread and are applied through the zone's answer entry points.
     for (const sim::HostRequest& request : zone_.DrainHostRequests()) {
         std::visit(
@@ -250,6 +268,8 @@ void ZoneHost::OnTick(common::TickIndex tick) {
                     RecordKill(r);
                 } else if constexpr (std::is_same_v<T, sim::PickupReservation>) {
                     SettlePickup(r);
+                } else if constexpr (std::is_same_v<T, sim::TradeRequest>) {
+                    Trade(r);
                 } else {
                     Transfer(r);
                 }
@@ -271,7 +291,8 @@ void ZoneHost::OnTick(common::TickIndex tick) {
 // one, so an older snapshot is never worth more than the next. A gateway that falls behind
 // therefore never makes the zone queue stale state for it. Each snapshot tick a link may grow to
 // its byte budget; within it the sessions that have waited longest go first, and the rest keep
-// their views uncollected until a later tick, losing nothing and catching up oldest first.
+// their views uncollected until a later tick, losing nothing and catching up oldest first
+// (ADR-0011). Each snapshot is encoded straight into the link's wire format (snapshot_encoder).
 void ZoneHost::SendSnapshots(common::TickIndex tick) {
     by_link_.clear();
     for (auto& [id, session] : sessions_) {
@@ -290,13 +311,13 @@ void ZoneHost::SendSnapshots(common::TickIndex tick) {
                 continue;
             }
             Session& session = *slot.session;
-            const sim::PlayerView view = zone_.CollectView(session.entity);
-            game::v1::ServerMessage message;
-            *message.mutable_world_snapshot() = codec::ToWorldSnapshot(view, tick);
-            queued += message.ByteSizeLong();
-            SendToSession(session, *slot.id, message);
+            EncodeSnapshotOutput(slot.id->ToWire(), zone_.CollectView(session.entity), tick,
+                                 snapshot_scratch_);
+            queued += snapshot_scratch_.size();
+            sink->SendPayload(std::as_bytes(std::span{snapshot_scratch_}));
             session.last_snapshot = tick;
             ++stats_.snapshots_sent;
+            stats_.snapshot_bytes += snapshot_scratch_.size();
         }
         link_queue_peak_ = std::max(link_queue_peak_, sink->QueuedBytes());
     }
@@ -343,6 +364,9 @@ void ZoneHost::RemoveSession(const common::InstanceId& session_id, bool despawn)
     const auto it = sessions_.find(session_id);
     if (it == sessions_.end()) {
         return;
+    }
+    if (it->second.trading) {
+        CancelTradesOf(it->second);  // whatever ended the session: detach, kick, link, eviction
     }
     if (despawn) {
         zone_.DespawnPlayer(it->second.entity);

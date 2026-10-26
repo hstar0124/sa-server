@@ -43,6 +43,7 @@ void WorldModel::OnWelcome(const game::v1::Welcome& welcome) {
         visible_.clear();
         cache_dirty_ = true;
         last_acked_input_ = 0;
+        trade_.reset();  // the old zone cancelled it before letting the character go
     }
     welcomed_ = true;
     self_ = common::EntityId{welcome.entity_id()};
@@ -91,6 +92,8 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
         }
         const Known known{.kind = ToKind(spawn.kind()),
                           .position = ToVec(spawn.position()),
+                          .velocity = ToVec(spawn.velocity()),
+                          .reported_tick = server_tick_,
                           .hp = static_cast<std::int32_t>(spawn.hp())};
         if (!visible_.emplace(id, known).second) {
             ++integrity_.spawn_of_known;
@@ -103,6 +106,8 @@ void WorldModel::OnSnapshot(const game::v1::WorldSnapshot& snapshot) {
             continue;
         }
         it->second.position = ToVec(update.position());
+        it->second.velocity = ToVec(update.velocity());
+        it->second.reported_tick = server_tick_;
         it->second.hp = static_cast<std::int32_t>(update.hp());
     }
     for (const std::uint64_t raw : snapshot.despawned()) {
@@ -145,6 +150,10 @@ void WorldModel::OnCommandResult(const game::v1::CommandResult& result) {
             ++VerdictCounter(result.status(), travel_.transfers_accepted,
                              travel_.transfers_rejected, travel_.transfers_unknown);
             return;
+        case RequestKind::kTrade:
+            ++VerdictCounter(result.status(), trades_.steps_accepted, trades_.steps_rejected,
+                             trades_.steps_unknown);
+            return;
     }
 }
 
@@ -172,17 +181,68 @@ void WorldModel::OnCombatEvent(const game::v1::CombatEvent& event) {
     }
 }
 
+void WorldModel::OnTradeUpdate(const game::v1::TradeUpdate& update) {
+    const auto id = common::TradeId::FromString(update.trade_id());
+    if (!id) {
+        ++integrity_.trade_version_regressed;  // no honest zone sends a malformed id
+        return;
+    }
+    if (trade_ && trade_->id == *id && update.version() < trade_->version) {
+        ++integrity_.trade_version_regressed;
+        return;
+    }
+    bot::SeenTrade seen{.id = *id,
+                        .status = bot::SeenTradeStatus::kOpen,
+                        .version = update.version(),
+                        .other = common::EntityId{update.other().entity_id()},
+                        .my_gold = update.you().gold(),
+                        .other_gold = update.other().gold(),
+                        .i_accepted = update.you().accepted(),
+                        .other_accepted = update.other().accepted()};
+    switch (update.status()) {
+        case game::v1::TRADE_STATUS_COMPLETED:
+            seen.status = bot::SeenTradeStatus::kCompleted;
+            ++trades_.settled;
+            break;
+        case game::v1::TRADE_STATUS_CANCELLED:
+            seen.status = bot::SeenTradeStatus::kCancelled;
+            ++trades_.cancelled;
+            break;
+        case game::v1::TRADE_STATUS_OPEN:
+        case game::v1::TRADE_STATUS_UNSPECIFIED:
+        case game::v1::TradeStatus_INT_MIN_SENTINEL_DO_NOT_USE_:
+        case game::v1::TradeStatus_INT_MAX_SENTINEL_DO_NOT_USE_:
+            break;
+    }
+    trade_ = seen;
+}
+
+void WorldModel::ForgetClosedTrade() {
+    if (trade_ && trade_->status != bot::SeenTradeStatus::kOpen) {
+        trade_.reset();
+    }
+}
+
 const std::vector<bot::SeenEntity>& WorldModel::Visible() {
     if (cache_dirty_) {
         visible_cache_.clear();
         visible_cache_.reserve(visible_.size());
         for (const auto& [id, known] : visible_) {
             visible_cache_.push_back(bot::SeenEntity{
-                .id = id, .kind = known.kind, .position = known.position, .hp = known.hp});
+                .id = id, .kind = known.kind, .position = Extrapolated(known), .hp = known.hp});
         }
         cache_dirty_ = false;
     }
     return visible_cache_;
+}
+
+common::Vec2 WorldModel::Extrapolated(const Known& known) const noexcept {
+    if (simulation_hz_ == 0 || server_tick_ <= known.reported_tick) {
+        return known.position;
+    }
+    const float elapsed_s =
+        static_cast<float>(server_tick_ - known.reported_tick) / static_cast<float>(simulation_hz_);
+    return known.position + known.velocity * elapsed_s;
 }
 
 }  // namespace sa::loadgen

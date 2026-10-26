@@ -16,6 +16,7 @@ message ServerMessage {
     CommandResult command_result = 11;
     CombatEvent combat_event = 12;
     InventoryUpdate inventory_update = 13;
+    TradeUpdate trade_update = 14;
   }
 }
 
@@ -55,6 +56,7 @@ enum KickReason {
   KICK_REASON_SERVICE_UNAVAILABLE = 7;   // backend or zone unreachable; retry later
   KICK_REASON_ZONE_UNAVAILABLE = 8;      // zone full or not authoritative
   KICK_REASON_IDLE_TIMEOUT = 9;          // nothing arrived for too long; a live client pings every second
+  KICK_REASON_SLOW_CLIENT = 10;          // the client read too little: its unsent output passed the gateway's limit
 }
 
 message Kick {
@@ -68,6 +70,9 @@ message EntitySpawn {
   Vec2 position = 4;
   uint32 hp = 5;
   uint32 max_hp = 6;
+  // 클라이언트는 다음 갱신까지 position + velocity × 경과 시간으로 외삽한다(dead reckoning).
+  // Zone은 그 외삽이 허용 오차를 넘을 때만 EntityUpdate를 다시 보낸다.
+  Vec2 velocity = 7;
 }
 
 message EntityUpdate {
@@ -128,6 +133,13 @@ enum RejectCode {
   REJECT_CODE_OUT_OF_PORTAL_RANGE = 31;
   REJECT_CODE_TRANSFER_IN_PROGRESS = 32; // 이미 이동 중
   REJECT_CODE_ZONE_UNAVAILABLE = 33;     // 도착 Zone이 없다. 나중에 다시
+  // 거래 (Trade*)
+  REJECT_CODE_TRADE_BUSY = 40;              // 나 또는 상대가 이미 거래 중
+  REJECT_CODE_TRADE_CLOSED = 41;            // 그 거래는 끝났거나 취소·만료됐다
+  REJECT_CODE_TRADE_VERSION_MISMATCH = 42;  // 내가 본 뒤 제안이 바뀌었다. TradeUpdate를 다시 보고 동의
+  REJECT_CODE_TRADE_ITEM_UNAVAILABLE = 43;  // 내 것이 아니거나 다른 거래에 올라가 있다
+  REJECT_CODE_NOT_ENOUGH_GOLD = 44;
+  REJECT_CODE_TRADE_COUNTERPARTY_LEFT = 45; // 상대가 이 Zone에 없다
 }
 
 message CommandResult {
@@ -159,4 +171,33 @@ message CombatEvent {
   uint32 damage = 4;
   uint32 target_hp = 5;     // 피해 적용 후
   bool killed = 6;
+}
+
+// 거래의 현재 상태. 변화마다 두 참여자 모두에게 간다. `you`와 `other`는 수신자 기준이다.
+enum TradeStatus {
+  TRADE_STATUS_UNSPECIFIED = 0;
+  TRADE_STATUS_OPEN = 1;
+  TRADE_STATUS_COMPLETED = 2;
+  TRADE_STATUS_CANCELLED = 3;
+}
+
+message TradeOfferedItem {
+  bytes item_instance_id = 1;
+  uint32 item_template_id = 2;
+}
+
+message TradeParty {
+  uint64 character_id = 1;
+  uint64 entity_id = 2;      // 0이면 이 Zone에 없다
+  uint64 gold = 3;
+  repeated TradeOfferedItem items = 4;
+  bool accepted = 5;         // 현재 version에 동의했다
+}
+
+message TradeUpdate {
+  bytes trade_id = 1;
+  TradeStatus status = 2;
+  uint32 version = 3;
+  TradeParty you = 4;
+  TradeParty other = 5;
 }

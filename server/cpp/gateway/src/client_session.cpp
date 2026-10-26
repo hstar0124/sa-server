@@ -109,7 +109,7 @@ void ClientSession::OnZoneTransfer(common::ZoneId zone,
     Apply(protocol_.OnZoneTransfer(zone, transfer));
 }
 void ClientSession::OnZoneOutput(common::ZoneId zone, const game::v1::ServerMessage& message) {
-    Apply(protocol_.OnZoneOutput(zone, message));
+    Apply(protocol_.OnZoneOutput(zone, message, connection_->QueuedBytes()));
 }
 void ClientSession::OnZoneLinkDown(common::ZoneId zone) {
     if (protocol_.zone() == zone) {

@@ -27,6 +27,7 @@ void Zone::SpawnMonster(std::size_t slot_index) {
     // Stagger decisions across slots so they do not all think on the same tick.
     monster.next_think = common::TickIndex{tick_.value() + 1 + (slot_index % think_period)};
     monster.attack_ready_at = tick_;
+    monster.published = Published{.position = slot.home, .velocity = {}, .at = tick_};
     monsters_.emplace(id, monster);
     kinds_.emplace(id, EntityKind::kMonster);
     grid_.Insert(id, slot.home);
@@ -65,16 +66,16 @@ void Zone::RespawnMonsters() {
 
 std::optional<common::EntityId> Zone::NearestLivePlayerWithin(common::Vec2 center,
                                                               float radius) const {
-    std::vector<common::EntityId> candidates;
-    grid_.QueryCandidates(center, radius, candidates);
+    std::vector<SpatialGrid::Entry> candidates;
+    grid_.QueryWithin(center, radius, candidates);
     std::optional<common::EntityId> best;
     float best_sq = radius * radius;
-    for (const common::EntityId id : candidates) {
+    for (const auto& [id, position] : candidates) {
         const auto player = players_.find(id);
         if (player == players_.end() || !player->second.vitals.IsAlive()) {
             continue;
         }
-        const float d_sq = common::DistanceSq(center, player->second.position);
+        const float d_sq = common::DistanceSq(center, position);
         if (d_sq < best_sq || (d_sq == best_sq && best && id < *best)) {
             best = id;
             best_sq = d_sq;
@@ -94,6 +95,8 @@ void Zone::UpdateMonsters() {
             monster.next_think = common::TickIndex{tick_.value() + think_period};
         }
         MoveMonster(id, monster);
+        PublishIfDeviated(monster.published, monster.position, monster.velocity,
+                          monster.changed_at);
     }
 }
 
@@ -149,8 +152,7 @@ void Zone::Think(common::EntityId id, Monster& monster) {
                 SettleAtHome(monster);
             } else if (Stalled(monster)) {
                 // Held by a wall on the way home: put it back rather than leave it out of place.
-                monster.position = monster.home;
-                monster.changed_at = tick_;
+                monster.position = monster.home;  // the dead-reckoning check reports the jump
                 grid_.Move(id, monster.home);
                 SettleAtHome(monster);
             }
@@ -192,19 +194,16 @@ bool Zone::Stalled(Monster& monster) {
 }
 
 void Zone::MoveMonster(common::EntityId id, Monster& monster) {
+    monster.velocity = {};
     if (!monster.goal) {
-        SetVelocity(monster.velocity, monster.changed_at, {});
         return;
     }
     const common::Vec2 next = StepTowards(monster.position, *monster.goal, monster.def->speed_mps);
     if (next == monster.position) {
-        SetVelocity(monster.velocity, monster.changed_at, {});
         return;
     }
-    SetVelocity(monster.velocity, monster.changed_at,
-                (next - monster.position) * (1.0F / dt_seconds_));
+    monster.velocity = (next - monster.position) * (1.0F / dt_seconds_);
     monster.position = next;
-    monster.changed_at = tick_;
     grid_.Move(id, next);
 }
 

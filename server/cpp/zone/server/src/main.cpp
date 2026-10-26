@@ -158,11 +158,11 @@ int Run(int argc, char** argv) {
         world->map.monster_spawns.size(), world->content.version, seed);
 
     auto created = sa::zone::sim::Zone::Create(
-        sa::zone::sim::ZoneConfig{
-            .world_id = config->world_id,
-            .zone_id = config->zone_id,
-            .simulation_rate = config->simulation_rate,
-            .command_retry_window = sa::common::protocol::kCommandRetryWindow},
+        sa::zone::sim::ZoneConfig{.world_id = config->world_id,
+                                  .zone_id = config->zone_id,
+                                  .simulation_rate = config->simulation_rate,
+                                  .command_retry_window = sa::common::protocol::kCommandRetryWindow,
+                                  .ticks_per_view = config->TicksPerSnapshot()},
         std::move(world->map), std::move(world->rules), std::move(world->content),
         sa::zone::sim::Rng{seed});
     if (!created) {
@@ -190,6 +190,7 @@ int Run(int argc, char** argv) {
                                                     .retry_delay = config->backend_retry_delay};
     sa::zone::EconomyClient economy{io, backend_channel, backend_calls};
     sa::zone::DirectoryClient directory{io, backend_channel, backend_calls};
+    sa::zone::TradeClient trades{io, backend_channel, backend_calls};
     sa::common::LeaseKeeper lease{
         io, "zone",
         sa::common::LeaseKeeperConfig{.renew_interval = config->lease_renew_interval,
@@ -204,7 +205,10 @@ int Run(int argc, char** argv) {
                                      .snapshot_budget_bytes = config->link_snapshot_budget_bytes,
                                      .ticks_per_checkpoint = config->TicksPerCheckpoint(),
                                      .max_sessions = config->max_sessions},
-        economy, directory, [&lease] { return lease.IsAlive(); }};
+        economy,
+        directory,
+        trades,
+        [&lease] { return lease.IsAlive(); }};
     lease.set_on_lost([&host] { host.EvictAll(sa::internal::v1::EVICT_REASON_LEASE_LOST); });
 
     sa::zone::GatewayLinkServer link_server{
@@ -214,7 +218,8 @@ int Run(int argc, char** argv) {
                                           .max_gateways = config->link_max_gateways,
                                           .frame_limits = config->link_frame_limits,
                                           .close_linger = config->link_close_linger,
-                                          .silence_timeout = config->link_silence_timeout},
+                                          .silence_timeout = config->link_silence_timeout,
+                                          .max_segment_bytes = config->link_max_segment_bytes},
         host};
     host.set_on_link_closed(
         [&link_server](sa::zone::GatewayLink& link) { link_server.Forget(link); });
@@ -238,10 +243,11 @@ int Run(int argc, char** argv) {
         }};
     runner.set_on_stats([&host, &link_server] {
         spdlog::info(
-            "sessions={} snapshots={} snapshots_deferred={} link_queue_peak_bytes={} "
-            "gateway_gap_max_ms={}",
-            host.session_count(), host.stats().snapshots_sent, host.stats().snapshots_deferred,
-            host.TakeLinkPressure().queue_peak_bytes, link_server.TakeLongestGap().count());
+            "sessions={} snapshots={} snapshot_bytes={} snapshots_deferred={} "
+            "link_queue_peak_bytes={} gateway_gap_max_ms={}",
+            host.session_count(), host.stats().snapshots_sent, host.stats().snapshot_bytes,
+            host.stats().snapshots_deferred, host.TakeLinkPressure().queue_peak_bytes,
+            link_server.TakeLongestGap().count());
     });
 
     // Shutdown: evict sessions (gateways kick their clients), stop the simulation, wait the grace
@@ -280,6 +286,9 @@ int Run(int argc, char** argv) {
         "pickups_refused={} backend_failures={}",
         host.stats().kills_recorded, host.stats().kills_refused, host.stats().pickups_acquired,
         host.stats().pickups_refused, host.stats().backend_failures);
+    spdlog::info("trades steps_sent={} steps_refused={} settled={} cancels_on_leave={}",
+                 host.stats().trade_steps_sent, host.stats().trade_steps_refused,
+                 host.stats().trades_settled, host.stats().trade_cancels_on_leave);
     spdlog::info(
         "placement checkpoints_saved={} checkpoints_refused={} transfers_completed={} "
         "transfers_refused={} stale_attaches={} superseded_sessions={}",

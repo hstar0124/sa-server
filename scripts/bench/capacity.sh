@@ -32,6 +32,11 @@ FIGHTERS=$((BOTS * 6 / 10)); LOOTERS=$((BOTS * 2 / 10)); WANDERERS=$((BOTS - FIG
 sed -e "s/@WANDERERS@/$WANDERERS/; s/@FIGHTERS@/$FIGHTERS/; s/@LOOTERS@/$LOOTERS/; s/@DURATION@/$DURATION/" \
   scripts/bench/capacity-profile.toml > "$PROFILE"
 
+# The stack's gateway admits as many clients as its config says; a bench beyond that raises the
+# limit for this run only, through the gateway's environment override.
+gateway_limit=$(awk -F' *= *' '/^max_connections/ {print $2; exit}' deploy/compose/config/gateway.toml)
+if [ "$BOTS" -gt "$gateway_limit" ]; then export SA_GATEWAY__LISTEN__MAX_CONNECTIONS="$BOTS"; fi
+
 scripts/dev-stack.sh down >/dev/null 2>&1 || true
 scripts/dev-stack.sh up >"$DEV_DIR/capacity-stack.log" 2>&1 || { cat "$DEV_DIR/capacity-stack.log"; exit 1; }
 loadgen_pid=""
@@ -57,10 +62,13 @@ declare -A pids=([eventworker]=$(cat "$DEV_DIR/eventworker.pid") [backend]=$(cat
 cpu_ticks() { awk '{print $14 + $15}' "/proc/$1/stat"; }  # utime + stime
 declare -A start_ticks
 for name in "${!pids[@]}"; do start_ticks[$name]=$(cpu_ticks "${pids[$name]}"); done
-declare -A first_stats_line deferred_before
+declare -A first_stats_line deferred_before snapshots_before bytes_before
 for zone in zone-a zone-b; do
   first_stats_line[$zone]=$(wc -l < "$DEV_DIR/$zone.log")
-  deferred_before[$zone]=$(grep -o 'snapshots_deferred=[0-9]*' "$DEV_DIR/$zone.log" | tail -1 | cut -d= -f2)
+  last_line=$(grep 'snapshots_deferred=' "$DEV_DIR/$zone.log" | tail -1)
+  deferred_before[$zone]=$(grep -o 'snapshots_deferred=[0-9]*' <<<"$last_line" | cut -d= -f2)
+  snapshots_before[$zone]=$(grep -o ' snapshots=[0-9]*' <<<"$last_line" | cut -d= -f2)
+  bytes_before[$zone]=$(grep -o 'snapshot_bytes=[0-9]*' <<<"$last_line" | cut -d= -f2)
 done
 start_ns=$(date +%s%N)
 sleep $((DURATION - SETTLE_SEC - TAIL_SEC))
@@ -85,20 +93,32 @@ docker stats --no-stream --format '| {{.Name}} | {{.CPUPerc}} | {{.MemUsage}} |'
 echo
 # Tick health over the window, from the zones' own 10 s statistics lines logged after sampling
 # began: ticks run and dropped, start lag, where the zone thread's time went (simulation step vs
-# host delivery), snapshots deferred by backpressure, the deepest gateway link queue and the longest
-# gap between frames from the gateway (against its silence timeout).
+# host delivery, then the simulation step by phase), snapshots deferred by backpressure, the
+# deepest gateway link queue, the longest gap between frames from the gateway (against its
+# silence timeout), and the snapshot rate and bytes sent to the gateways.
 for zone in zone-a zone-b; do
   tail -n +"$((first_stats_line[$zone] + 1))" "$DEV_DIR/$zone.log" \
-    | awk -v z="$zone" -v window="$elapsed" -v deferred_base="${deferred_before[$zone]:-0}" '
+    | awk -v z="$zone" -v window="$elapsed" -v deferred_base="${deferred_before[$zone]:-0}" \
+          -v snapshots_base="${snapshots_before[$zone]:-0}" -v bytes_base="${bytes_before[$zone]:-0}" '
     function field(name,   i) { for (i = 1; i <= NF; i++) if (index($i, name "=") == 1) return substr($i, length(name) + 2); return "" }
     /lag_us=/ { ran += field("ran"); dropped += field("dropped"); lag = field("lag_us") + 0; if (lag > lag_max) lag_max = lag
                 lag_sum += lag; n++; players = field("players"); sim += field("sim_us"); host += field("host_us") }
     /snapshots_deferred=/ { deferred = field("snapshots_deferred") + 0
+                            snapshots = field("snapshots") + 0; bytes = field("snapshot_bytes") + 0
                             q = field("link_queue_peak_bytes") + 0; if (q > queue_max) queue_max = q
                             g = field("gateway_gap_max_ms") + 0; if (g > gap_max) gap_max = g }
+    /interest_us=/ { for (i = 1; i <= NF; i++) if ($i ~ /_us=/) { split($i, kv, "="); sub(/_us$/, "", kv[1]); phase[kv[1]] += kv[2] }
+                     phases_seen = 1 }
     END { printf "%s: ticks=%d dropped=%d lag_us max=%d avg=%.0f players(last)=%d sim=%.2f host=%.2f (cores) snapshots_deferred=%d link_queue_peak=%.1f MiB gateway_gap_max=%d ms\n",
           z, ran, dropped, lag_max, (n ? lag_sum / n : 0), players, sim / 1e6 / window, host / 1e6 / window,
-          (deferred > 0 ? deferred - deferred_base : 0), queue_max / 1048576, gap_max }'
+          (deferred > 0 ? deferred - deferred_base : 0), queue_max / 1048576, gap_max
+          if (snapshots > snapshots_base) printf "%s: snapshots %.0f/s, %.2f MiB/s to the gateways, %.0f bytes each\n", z,
+                                                 (snapshots - snapshots_base) / window, (bytes - bytes_base) / window / 1048576,
+                                                 (bytes - bytes_base) / (snapshots - snapshots_base)
+          if (phases_seen) { printf "%s: simulation phases (cores):", z
+                             n_phases = split("commands casts players monsters projectiles upkeep interest", names, " ")
+                             for (i = 1; i <= n_phases; i++) printf " %s=%.3f", names[i], phase[names[i]] / 1e6 / window
+                             printf "\n" } }'
 done
 wait "$loadgen_pid" || true
 loadgen_pid=""

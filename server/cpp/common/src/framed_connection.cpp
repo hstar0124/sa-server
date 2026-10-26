@@ -50,11 +50,18 @@ std::expected<void, SendError> FramedConnection::Send(
     if (!message.SerializeToString(&serialize_scratch_)) {
         return std::unexpected(SendError::kSerializeFailed);
     }
+    return SendPayload(std::as_bytes(std::span{serialize_scratch_}));
+}
+
+std::expected<void, SendError> FramedConnection::SendPayload(std::span<const std::byte> payload) {
+    if (!stream_->is_open()) {
+        return std::unexpected(SendError::kClosed);
+    }
     std::vector<std::byte> frame;
-    if (!EncodeFrame(std::as_bytes(std::span{serialize_scratch_}), limits_, frame)) {
+    if (!EncodeFrame(payload, limits_, frame)) {
         return std::unexpected(SendError::kTooLarge);
     }
-    stream_->Write(std::move(frame));
+    stream_->Write(std::move(frame));  // counted in QueuedBytes() like any other frame
     return {};
 }
 

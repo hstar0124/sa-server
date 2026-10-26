@@ -38,7 +38,8 @@ protected:
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
 };
 
 TEST_F(ZoneHostBackpressure, ACongestedLinkDefersItsSnapshotsAndTheNextOneLosesNothing) {
@@ -59,10 +60,12 @@ TEST_F(ZoneHostBackpressure, ACongestedLinkDefersItsSnapshotsAndTheNextOneLosesN
     sink.queued = 0;  // drained
     SnapshotTick(zone, host);
     ASSERT_EQ(SnapshotRecipients(sink).size(), 2U);
+    std::size_t snapshot_bytes = 0;
     for (const ZoneToGateway& m : sink.OfCase(ZoneToGateway::kSessionOutput)) {
         if (!m.session_output().message().has_world_snapshot()) {
             continue;
         }
+        snapshot_bytes += m.ByteSizeLong();
         const std::string& me = m.session_output().gateway_session_id();
         const std::uint64_t other =
             entity_of.at(me == SessionWire("s1") ? SessionWire("s2") : SessionWire("s1"));
@@ -71,6 +74,7 @@ TEST_F(ZoneHostBackpressure, ACongestedLinkDefersItsSnapshotsAndTheNextOneLosesN
             return e.entity_id() == other;
         })) << "the other player, held back with the view, arrives now";
     }
+    EXPECT_EQ(host.stats().snapshot_bytes, snapshot_bytes) << "only what reached the link counts";
 }
 
 TEST_F(ZoneHostBackpressure, WithinTheBudgetTheLongestWaitingSessionsGoFirst) {

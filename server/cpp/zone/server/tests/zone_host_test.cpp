@@ -14,7 +14,8 @@ TEST(ZoneHost, AttachSpawnsAPlayerAndAcknowledgesTheSession) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink sink;
 
     host.Attach(sink, AttachFor("s1", 42));
@@ -29,7 +30,8 @@ TEST(ZoneHost, AttachWelcomesTheClientWithItsOwnEntityId) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink sink;
 
     host.Attach(sink, AttachFor("s1", 42));
@@ -47,7 +49,8 @@ TEST(ZoneHost, RefusesDuplicatesFullZoneAndWhenNotAuthoritative) {
     bool authoritative = true;
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(1), economy, directory, [&] { return authoritative; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(1), economy, directory, trades, [&] { return authoritative; }};
     FakeSink sink;
 
     host.Attach(sink, AttachFor("s1", 1));
@@ -71,7 +74,8 @@ TEST(ZoneHost, RefusesACharacterWhoseClassIsNotInTheContent) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink sink;
 
     auto attach = AttachFor("s1", 1);
@@ -89,7 +93,8 @@ TEST(ZoneHost, InputReachesTheSimulationAndSnapshotsFollowCadence) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink sink;
     host.Attach(sink, AttachFor("s1", 1));
     sink.sent.clear();
@@ -134,7 +139,8 @@ TEST(ZoneHost, SessionsOnDifferentGatewaysSeeEachOther) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink gateway_a;
     FakeSink gateway_b;
     host.Attach(gateway_a, AttachFor("a", 1));
@@ -154,7 +160,8 @@ TEST(ZoneHost, DetachDespawnsAndObserversAreTold) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink gateway_a;
     FakeSink gateway_b;
     host.Attach(gateway_a, AttachFor("a", 1));
@@ -176,7 +183,8 @@ TEST(ZoneHost, AnAttachWhoseSessionIdIsNotAnIdIsCountedAndIgnored) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink sink;
     internal::v1::SessionAttach attach = AttachFor("s1", 1);
     attach.set_gateway_session_id("short");  // ids are 16 bytes on the wire
@@ -191,7 +199,8 @@ TEST(ZoneHost, ANonFiniteInputIsCountedAndNeverSubmitted) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink sink;
     host.Attach(sink, AttachFor("s1", 1));
 
@@ -212,7 +221,8 @@ TEST(ZoneHost, CastSkillYieldsACommandResultOnTheNextTick) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink sink;
     host.Attach(sink, AttachFor("s1", 1));
     sink.sent.clear();
@@ -238,7 +248,8 @@ TEST(ZoneHost, LinkClosureAndEvictionRemoveEveryoneOnThatLink) {
     sim::Zone zone = MakeZone();
     FakeEconomy economy;
     FakeDirectory directory;
-    ZoneHost host{zone, Identity(), economy, directory, [] { return true; }};
+    FakeTrades trades;
+    ZoneHost host{zone, Identity(), economy, directory, trades, [] { return true; }};
     FakeSink gateway_a;
     FakeSink gateway_b;
     host.Attach(gateway_a, AttachFor("a1", 1));

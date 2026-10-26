@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(sa_server
-  VERSION 0.7.0
+  VERSION 0.9.0
   DESCRIPTION "MMORPG server: C++ gateway and zone"
   LANGUAGES CXX)
 

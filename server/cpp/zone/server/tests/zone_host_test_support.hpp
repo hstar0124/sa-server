@@ -8,6 +8,7 @@
 
 #include "directory_client.hpp"
 #include "economy_client.hpp"
+#include "trade_client.hpp"
 #include "zone_host.hpp"
 
 #include <gtest/gtest.h>
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <chrono>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -28,6 +30,13 @@ using internal::v1::ZoneToGateway;
 class FakeSink final : public LinkSink {
 public:
     void Send(const ZoneToGateway& message) override { sent.push_back(message); }
+    void SendPayload(std::span<const std::byte> payload) override {
+        ZoneToGateway message;
+        if (!message.ParseFromArray(payload.data(), static_cast<int>(payload.size()))) {
+            throw std::logic_error{"the host sent a payload that is not a ZoneToGateway"};
+        }
+        sent.push_back(std::move(message));
+    }
     [[nodiscard]] std::size_t QueuedBytes() const override { return queued; }
 
     [[nodiscard]] std::vector<ZoneToGateway> OfCase(ZoneToGateway::BodyCase c) const {
@@ -91,6 +100,37 @@ public:
     std::vector<Reply<backend::v1::TransferCharacterResponse>> transfer_replies;
 };
 
+// Records every trade step; a test answers it through the matching reply.
+class FakeTrades final : public TradeGateway {
+public:
+    void OpenTrade(backend::v1::OpenTradeRequest request,
+                   Reply<backend::v1::TradeResponse> reply) override {
+        opens.push_back(std::move(request));
+        replies.push_back(std::move(reply));
+    }
+    void OfferTrade(backend::v1::OfferTradeRequest request,
+                    Reply<backend::v1::TradeResponse> reply) override {
+        offers.push_back(std::move(request));
+        replies.push_back(std::move(reply));
+    }
+    void AcceptTrade(backend::v1::AcceptTradeRequest request,
+                     Reply<backend::v1::TradeResponse> reply) override {
+        accepts.push_back(std::move(request));
+        replies.push_back(std::move(reply));
+    }
+    void CancelTrade(backend::v1::CancelTradeRequest request,
+                     Reply<backend::v1::TradeResponse> reply) override {
+        cancels.push_back(std::move(request));
+        replies.push_back(std::move(reply));
+    }
+
+    std::vector<backend::v1::OpenTradeRequest> opens;
+    std::vector<backend::v1::OfferTradeRequest> offers;
+    std::vector<backend::v1::AcceptTradeRequest> accepts;
+    std::vector<backend::v1::CancelTradeRequest> cancels;
+    std::vector<Reply<backend::v1::TradeResponse>> replies;  // in call order
+};
+
 constexpr sim::MonsterTemplateId kRat{7};
 constexpr sim::ItemTemplateId kGel{2001};
 constexpr std::uint32_t kInventoryCapacity = 20;
@@ -139,7 +179,8 @@ inline sim::Zone MakeZone() {
         sim::ZoneConfig{.world_id = common::WorldId{1},
                         .zone_id = common::ZoneId{1},
                         .simulation_rate = sim::TickRate{.hz = 10},
-                        .command_retry_window = common::protocol::kCommandRetryWindow},
+                        .command_retry_window = common::protocol::kCommandRetryWindow,
+                        .ticks_per_view = 2},  // Identity().ticks_per_snapshot
         sim::MapData{.size = {100.0F, 100.0F},
                      .cell_size = 10.0F,
                      .obstacles = {},
@@ -157,6 +198,8 @@ inline sim::Zone MakeZone() {
                                                       .aoi_leave_radius_m = 25.0F,
                                                       .aoi_max_entities = 64,
                                                       .aoi_max_spawns_per_view = 64,
+                                                      .publish_velocity_delta_mps = 0.25F,
+                                                      .publish_position_error_m = 0.1F,
                                                       .commands_per_tick_budget = 100,
                                                       .max_queued_per_player = 8},
                        .combat = sim::CombatRules{.monster_think_hz = 5,
@@ -168,6 +211,7 @@ inline sim::Zone MakeZone() {
                                                   .monster_pack_ring_radius_m = 1.5F},
                        .economy = sim::EconomyRules{.inventory_capacity = kInventoryCapacity,
                                                     .pickup_range_m = 2.0F,
+                                                    .trade_range_m = 5.0F,
                                                     .ground_item_despawn = std::chrono::seconds{60},
                                                     .primary_currency = "gold"}},
         TestContent(), sim::Rng{1});

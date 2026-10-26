@@ -113,6 +113,7 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
     switch (message.body_case()) {
         case ServerMessage::kWelcome: {
             const bool first = !world_.welcomed();
+            trade_step_.reset();  // a new zone: the old one's steps are answered there or never
             world_.OnWelcome(message.welcome());
             report_.welcomed = true;
             report_.travel = world_.travel();
@@ -152,6 +153,24 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
                  status == game::v1::COMMAND_STATUS_REJECTED)) {
                 departure_.reset();  // decided; the next attempt is a new request
             }
+            if (trade_step_ &&
+                trade_step_->request == common::RequestId{message.command_result().request_id()}) {
+                switch (message.command_result().status()) {
+                    case game::v1::COMMAND_STATUS_ACCEPTED:
+                    case game::v1::COMMAND_STATUS_REJECTED:
+                        trade_step_.reset();  // decided; the brain may take the next step
+                        break;
+                    case game::v1::COMMAND_STATUS_UNKNOWN:
+                        trade_step_->resend_at =
+                            std::chrono::steady_clock::now() + profile_.trader.request_retry;
+                        break;
+                    case game::v1::COMMAND_STATUS_PENDING:  // the Backend is deciding
+                    case game::v1::COMMAND_STATUS_UNSPECIFIED:
+                    case game::v1::CommandStatus_INT_MIN_SENTINEL_DO_NOT_USE_:
+                    case game::v1::CommandStatus_INT_MAX_SENTINEL_DO_NOT_USE_:
+                        break;
+                }
+            }
             world_.OnCommandResult(message.command_result());
             report_.combat = world_.combat();
             report_.loot = world_.loot();
@@ -165,6 +184,11 @@ void BotSession::OnServerMessage(const game::v1::ServerMessage& message) {
         case ServerMessage::kInventoryUpdate:
             world_.OnInventoryUpdate(message.inventory_update());
             report_.loot = world_.loot();
+            report_.integrity = world_.integrity();
+            return;
+        case ServerMessage::kTradeUpdate:
+            world_.OnTradeUpdate(message.trade_update());
+            report_.trades = world_.trades();
             report_.integrity = world_.integrity();
             return;
         case ServerMessage::BODY_NOT_SET:
@@ -202,8 +226,12 @@ void BotSession::Tick() {
                                        .portals = world_.portals(),
                                        .zone = world_.zone(),
                                        .tick = common::TickIndex{world_.server_tick()},
-                                       .tick_hz = world_.simulation_hz()};
+                                       .tick_hz = world_.simulation_hz(),
+                                       .gold = world_.loot().gold,
+                                       .trade = world_.trade(),
+                                       .trade_step_pending = trade_step_.has_value()};
     const bot::Intent intent = brain_->Decide(observation);
+    world_.ForgetClosedTrade();
     game::v1::ClientMessage move;
     auto* input = move.mutable_move_input();
     input->set_input_seq(next_input_seq_++);
@@ -244,6 +272,48 @@ void BotSession::Tick() {
     }
     if (intent.change_zone) {
         SendChangeZone(*intent.change_zone);
+    }
+    if (trade_step_) {
+        if (trade_step_->resend_at && std::chrono::steady_clock::now() >= *trade_step_->resend_at) {
+            SendHeldTradeStep(*trade_step_);
+        }
+    } else if (intent.trade) {
+        SendTradeStep(*intent.trade);
+    }
+}
+
+void BotSession::SendTradeStep(const bot::TradeIntent& step) {
+    const common::RequestId request{++next_request_id_};
+    game::v1::ClientMessage message;
+    switch (step.step) {
+        case bot::TradeStep::kOpen:
+            message.mutable_trade_open()->set_request_id(request.value());
+            message.mutable_trade_open()->set_target_entity_id(step.target.value());
+            break;
+        case bot::TradeStep::kOffer:
+            message.mutable_trade_offer()->set_request_id(request.value());
+            message.mutable_trade_offer()->set_trade_id(step.trade.ToWire());
+            message.mutable_trade_offer()->set_gold(step.gold);
+            break;
+        case bot::TradeStep::kAccept:
+            message.mutable_trade_accept()->set_request_id(request.value());
+            message.mutable_trade_accept()->set_trade_id(step.trade.ToWire());
+            message.mutable_trade_accept()->set_version(step.version);
+            break;
+        case bot::TradeStep::kCancel:
+            message.mutable_trade_cancel()->set_request_id(request.value());
+            message.mutable_trade_cancel()->set_trade_id(step.trade.ToWire());
+            break;
+    }
+    SendHeldTradeStep(trade_step_.emplace(
+        HeldTradeStep{.request = request, .message = std::move(message), .resend_at = {}}));
+}
+
+void BotSession::SendHeldTradeStep(HeldTradeStep& step) {
+    step.resend_at.reset();
+    world_.ExpectResult(step.request, RequestKind::kTrade);
+    if (connection_->Send(step.message).has_value()) {
+        ++report_.trade_steps_sent;
     }
 }
 

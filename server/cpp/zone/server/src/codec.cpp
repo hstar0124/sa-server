@@ -12,14 +12,29 @@
 namespace sa::zone::codec {
 namespace {
 
-std::uint32_t Clamped(std::int32_t value) {
-    return static_cast<std::uint32_t>(std::max(0, value));
-}
-
 void Fill(game::v1::Vec2& out, common::Vec2 v) {
     out.set_x(v.x);
     out.set_y(v.y);
 }
+
+void Fill(game::v1::EntityUpdate& out, const sim::EntitySnapshot& s) {
+    out.set_entity_id(s.id.value());
+    Fill(*out.mutable_position(), s.position);
+    Fill(*out.mutable_velocity(), s.velocity);
+    out.set_hp(NonNegative(s.hp));
+}
+
+void Fill(game::v1::EntitySpawn& out, const sim::EntitySnapshot& s) {
+    out.set_entity_id(s.id.value());
+    out.set_kind(ToProto(s.kind));
+    out.set_template_id(s.template_id);
+    Fill(*out.mutable_position(), s.position);
+    out.set_hp(NonNegative(s.hp));
+    out.set_max_hp(NonNegative(s.max_hp));
+    Fill(*out.mutable_velocity(), s.velocity);
+}
+
+}  // namespace
 
 // 16 bytes naming one command of one character for its lifetime: the client's request id is
 // unique only within one session, and the ownership epoch changes on every entry and transfer.
@@ -37,23 +52,9 @@ common::HmacSha256Digest CommandDigest(std::string_view domain, common::Characte
     return common::HmacSha256(common::AsBytes(domain), material);
 }
 
-void Fill(game::v1::EntityUpdate& out, const sim::EntitySnapshot& s) {
-    out.set_entity_id(s.id.value());
-    Fill(*out.mutable_position(), s.position);
-    Fill(*out.mutable_velocity(), s.velocity);
-    out.set_hp(Clamped(s.hp));
+std::uint32_t NonNegative(std::int32_t value) {
+    return static_cast<std::uint32_t>(std::max(0, value));
 }
-
-void Fill(game::v1::EntitySpawn& out, const sim::EntitySnapshot& s) {
-    out.set_entity_id(s.id.value());
-    out.set_kind(ToProto(s.kind));
-    out.set_template_id(s.template_id);
-    Fill(*out.mutable_position(), s.position);
-    out.set_hp(Clamped(s.hp));
-    out.set_max_hp(Clamped(s.max_hp));
-}
-
-}  // namespace
 
 game::v1::EntityKind ToProto(sim::EntityKind kind) {
     switch (kind) {
@@ -109,6 +110,18 @@ game::v1::RejectCode ToProto(sim::RejectReason reason) {
             return game::v1::REJECT_CODE_TRANSFER_IN_PROGRESS;
         case sim::RejectReason::kZoneUnavailable:
             return game::v1::REJECT_CODE_ZONE_UNAVAILABLE;
+        case sim::RejectReason::kTradeBusy:
+            return game::v1::REJECT_CODE_TRADE_BUSY;
+        case sim::RejectReason::kTradeClosed:
+            return game::v1::REJECT_CODE_TRADE_CLOSED;
+        case sim::RejectReason::kTradeVersionMismatch:
+            return game::v1::REJECT_CODE_TRADE_VERSION_MISMATCH;
+        case sim::RejectReason::kTradeItemUnavailable:
+            return game::v1::REJECT_CODE_TRADE_ITEM_UNAVAILABLE;
+        case sim::RejectReason::kNotEnoughGold:
+            return game::v1::REJECT_CODE_NOT_ENOUGH_GOLD;
+        case sim::RejectReason::kTradeCounterpartyLeft:
+            return game::v1::REJECT_CODE_TRADE_COUNTERPARTY_LEFT;
     }
     return game::v1::REJECT_CODE_UNSPECIFIED;
 }
@@ -183,10 +196,10 @@ game::v1::WorldSnapshot ToWorldSnapshot(const sim::PlayerView& view, common::Tic
     }
     Fill(*out.mutable_self(), view.self);
     auto* vitals = out.mutable_self_vitals();
-    vitals->set_hp(Clamped(view.self_vitals.hp));
-    vitals->set_max_hp(Clamped(view.self_vitals.max_hp));
-    vitals->set_mp(Clamped(view.self_vitals.mp));
-    vitals->set_max_mp(Clamped(view.self_vitals.max_mp));
+    vitals->set_hp(NonNegative(view.self_vitals.hp));
+    vitals->set_max_hp(NonNegative(view.self_vitals.max_hp));
+    vitals->set_mp(NonNegative(view.self_vitals.mp));
+    vitals->set_max_mp(NonNegative(view.self_vitals.max_mp));
     return out;
 }
 
@@ -203,8 +216,8 @@ game::v1::CombatEvent ToCombatEvent(const sim::CombatEvent& event) {
     out.set_attacker_id(event.attacker.value());
     out.set_target_id(event.target.value());
     out.set_skill_id(event.skill.value());
-    out.set_damage(Clamped(event.damage));
-    out.set_target_hp(Clamped(event.target_hp));
+    out.set_damage(NonNegative(event.damage));
+    out.set_target_hp(NonNegative(event.target_hp));
     out.set_killed(event.killed);
     return out;
 }
@@ -243,14 +256,10 @@ game::v1::Welcome ToWelcome(const WelcomeInfo& info) {
 
 // ---- zone <-> backend ---------------------------------------------------------------------------
 
-namespace {
-
 void Fill(backend::v1::ZoneAuthority& out, const ZoneAuthority& authority) {
     out.set_zone_instance_id(authority.zone_instance.ToWire());
     out.set_owner_epoch(authority.epoch.value());
 }
-
-}  // namespace
 
 // ---- WorldDirectory (placement) ----------------------------------------------------------------
 

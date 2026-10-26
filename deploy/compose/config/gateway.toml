@@ -23,6 +23,9 @@ hello_timeout_ms = 5000
 # After the first message, the longest a client may stay silent before it is kicked (IDLE_TIMEOUT).
 # Clients ping every second; this catches peers that vanished without closing.
 idle_timeout_ms = 10000
+# Unsent output one client may hold before it is kicked as a slow reader (SLOW_CLIENT). About ten
+# seconds of snapshots at the visibility cap; a reader this far behind is not playing anyway.
+max_send_queue_bytes = 1048576
 
 [ticket]
 # Shared with the Backend (WorldDirectory:TicketSigningKey). Inject via SA_GATEWAY__TICKET__SIGNING_KEY_BASE64.

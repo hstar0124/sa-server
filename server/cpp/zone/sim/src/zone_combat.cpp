@@ -44,8 +44,7 @@ void Zone::ApplyCast(const CastCommand& command) {
 
     // Cost is paid when the cast starts so a second cast cannot spend the same MP; the cooldown
     // starts at activation so an interrupted cast does not lock the skill.
-    player.vitals.mp -= skill->cost_mp;
-    player.changed_at = tick_;
+    player.vitals.mp -= skill->cost_mp;  // MP is the player's own: no observer sees it change
     if (skill->cast_time.count() == 0) {
         Activate(command.player, player, *skill, command.target);
         return;
@@ -138,11 +137,11 @@ void Zone::Activate(common::EntityId caster, Player& player, const SkillDefiniti
         case SkillKind::kProjectile: {
             const common::Vec2 direction = std::get<common::Vec2>(target).Normalized();
             const common::EntityId id = AllocateEntityId();
-            projectiles_.emplace(id,
-                                 Projectile{.owner = caster,
-                                            .skill = &skill,
-                                            .position = player.position,
-                                            .velocity = direction * skill.projectile_speed_mps});
+            projectiles_.emplace(id, Projectile{.owner = caster,
+                                                .skill = &skill,
+                                                .position = player.position,
+                                                .velocity = direction * skill.projectile_speed_mps,
+                                                .changed_at = tick_});
             kinds_.emplace(id, EntityKind::kProjectile);
             grid_.Insert(id, player.position);
             return;
@@ -171,16 +170,17 @@ float DistanceSqToSegment(common::Vec2 p, common::Vec2 a, common::Vec2 b) {
 std::optional<common::EntityId> Zone::FirstMonsterAlong(common::Vec2 from, common::Vec2 to,
                                                         float radius) const {
     const common::Vec2 mid = (from + to) * 0.5F;
-    std::vector<common::EntityId> candidates;
-    grid_.QueryCandidates(mid, (common::Distance(from, to) * 0.5F) + radius, candidates);
+    std::vector<SpatialGrid::Entry> candidates;
+    // A body within `radius` of the segment is within half its length plus `radius` of the middle.
+    grid_.QueryWithin(mid, (common::Distance(from, to) * 0.5F) + radius, candidates);
     std::optional<common::EntityId> best;
     float best_sq = radius * radius;
-    for (const common::EntityId id : candidates) {
+    for (const auto& [id, position] : candidates) {
         const auto monster = monsters_.find(id);
         if (monster == monsters_.end()) {
             continue;
         }
-        const float d_sq = DistanceSqToSegment(monster->second.position, from, to);
+        const float d_sq = DistanceSqToSegment(position, from, to);
         if (d_sq < best_sq || (d_sq == best_sq && best && id < *best)) {
             best = id;
             best_sq = d_sq;
@@ -242,7 +242,7 @@ void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, Skill
                             .killed = killed};
     DeliverToObservers(target, event);
     if (const auto p = players_.find(attacker);
-        p != players_.end() && !SortedContainsInterest(p->second, target) && attacker != target) {
+        p != players_.end() && !Knows(p->second, target) && attacker != target) {
         Deliver(attacker, event);  // the attacker always learns the outcome
     }
     if (!killed) {
@@ -258,7 +258,10 @@ void Zone::ApplyDamage(common::EntityId attacker, common::EntityId target, Skill
 
 void Zone::OnPlayerDeath(common::EntityId /*id*/, Player& player) {
     player.cast.reset();
-    SetVelocity(player.velocity, player.changed_at, {});
+    // The body stops now, not at the next movement phase, so the view that reports the death
+    // does not leave observers extrapolating a walking corpse.
+    player.velocity = {};
+    Publish(player.published, player.position, player.velocity, player.changed_at);
     player.desired_direction = {};
     player.respawn_at = TicksFromNow(rules_.combat.player_respawn);
 }
@@ -275,7 +278,7 @@ void Zone::RespawnPlayers() {
         player.position = map_.spawn_points[index];
         player.vitals.hp = player.vitals.max_hp;
         player.vitals.mp = player.vitals.max_mp;
-        player.changed_at = tick_;
+        Publish(player.published, player.position, player.velocity, player.changed_at);
         grid_.Move(id, player.position);
     }
 }
@@ -290,7 +293,6 @@ void Zone::RegenerateMp() {
         if (whole > 0) {
             player.mp_regen_carry -= static_cast<float>(whole);
             player.vitals.mp = std::min(player.vitals.max_mp, player.vitals.mp + whole);
-            player.changed_at = tick_;
         }
     }
 }

@@ -7,13 +7,14 @@
 #include <game/server_messages.pb.h>
 
 #include <cstdint>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
 namespace sa::loadgen {
 
 // Which command a request id was spent on, so its result lands in the right counter.
-enum class RequestKind : std::uint8_t { kCast, kPickup, kChangeZone };
+enum class RequestKind : std::uint8_t { kCast, kPickup, kChangeZone, kTrade };
 
 // What one bot believes about the world, rebuilt from Welcome, WorldSnapshot, CommandResult and
 // InventoryUpdate messages. It is also the consistency checker: a message that contradicts earlier
@@ -45,6 +46,14 @@ public:
         std::uint64_t transfers_unknown = 0;   // the Backend did not answer; asked again as is
     };
 
+    struct Trades {
+        std::uint64_t steps_accepted = 0;  // open, offer, accept or cancel the Backend applied
+        std::uint64_t steps_rejected = 0;
+        std::uint64_t steps_unknown = 0;  // the zone could not learn the outcome; sent again
+        std::uint64_t settled = 0;        // TradeUpdates that closed a trade as completed
+        std::uint64_t cancelled = 0;      // ... or as cancelled
+    };
+
     struct Integrity {
         std::uint64_t despawn_of_unknown = 0;       // told to remove an entity never spawned
         std::uint64_t spawn_of_known = 0;           // told to spawn an entity already visible
@@ -56,11 +65,13 @@ public:
         std::uint64_t self_mismatch = 0;  // the snapshot's own entity is not the welcomed one
         std::uint64_t result_of_unknown_request = 0;    // a verdict for a request never sent
         std::uint64_t inventory_version_regressed = 0;  // an older inventory after a newer one
+        std::uint64_t trade_version_regressed = 0;      // an older state of a trade, or no valid id
 
         [[nodiscard]] std::uint64_t Total() const noexcept {
             return despawn_of_unknown + spawn_of_known + update_of_unknown + self_in_view +
                    input_seq_regressed + snapshot_before_welcome + server_tick_regressed +
-                   self_mismatch + result_of_unknown_request + inventory_version_regressed;
+                   self_mismatch + result_of_unknown_request + inventory_version_regressed +
+                   trade_version_regressed;
         }
     };
 
@@ -73,6 +84,7 @@ public:
     void OnCommandResult(const game::v1::CommandResult& result);
     void OnCombatEvent(const game::v1::CombatEvent& event);
     void OnInventoryUpdate(const game::v1::InventoryUpdate& update);
+    void OnTradeUpdate(const game::v1::TradeUpdate& update);
 
     [[nodiscard]] bool welcomed() const noexcept { return welcomed_; }
     [[nodiscard]] common::EntityId self() const noexcept { return self_; }
@@ -90,6 +102,11 @@ public:
     [[nodiscard]] const Combat& combat() const noexcept { return combat_; }
     [[nodiscard]] const Loot& loot() const noexcept { return loot_; }
     [[nodiscard]] const Travel& travel() const noexcept { return travel_; }
+    [[nodiscard]] const Trades& trades() const noexcept { return trades_; }
+    // The trade this bot is in, or the last closed one until the brain has seen it.
+    [[nodiscard]] const std::optional<bot::SeenTrade>& trade() const noexcept { return trade_; }
+    // After the brain has seen a closed trade it is forgotten, so the next decisions start afresh.
+    void ForgetClosedTrade();
     [[nodiscard]] common::ZoneId zone() const noexcept { return zone_; }
     [[nodiscard]] const std::vector<bot::SeenPortal>& portals() const noexcept { return portals_; }
     // Requests still waiting for a final answer (a pickup the Backend is deciding, or one the run
@@ -114,11 +131,17 @@ private:
     std::uint32_t simulation_hz_ = 0;
     common::ZoneId zone_;
     std::vector<bot::SeenPortal> portals_;
+    // The state last reported for an entity. The brain sees it extrapolated with the velocity
+    // to the latest server tick (dead reckoning), as the zone assumes every client does: an
+    // entity walking straight is reported once.
     struct Known {
         bot::SeenKind kind = bot::SeenKind::kOther;
         common::Vec2 position;
+        common::Vec2 velocity;
+        std::uint64_t reported_tick = 0;
         std::int32_t hp = 0;
     };
+    [[nodiscard]] common::Vec2 Extrapolated(const Known& known) const noexcept;
     std::unordered_map<common::EntityId, Known> visible_;
     std::unordered_map<common::RequestId, RequestKind> awaiting_;
     std::uint32_t inventory_version_ = 0;
@@ -127,6 +150,8 @@ private:
     Combat combat_;
     Loot loot_;
     Travel travel_;
+    Trades trades_;
+    std::optional<bot::SeenTrade> trade_;
     std::vector<bot::SeenEntity> visible_cache_;
     bool cache_dirty_ = true;
     Integrity integrity_;

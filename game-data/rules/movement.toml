@@ -17,6 +17,15 @@ max_entities = 128
 # player entering a crowd gets it over several snapshots instead of one huge one.
 max_spawns_per_view = 32
 
+[sync]
+# Dead reckoning. Clients extrapolate every entity as position + velocity x elapsed time, and the
+# zone reports an entity again only when that guess goes wrong: its velocity changed by more than
+# publish_velocity_delta_mps (a start, a stop, a turn of more than about 2 degrees at walking speed)
+# or its real position drifted more than publish_position_error_m from the extrapolation (a slow
+# curve, sliding along a wall). A straight walk costs one update instead of one per snapshot.
+publish_velocity_delta_mps = 0.25
+publish_position_error_m = 0.1
+
 [input]
 # How many queued casts and pickups one tick processes before deferring the rest (see README
 # "Zone의 한 틱"). Moves do not queue: only each player's newest move waits for the next tick.

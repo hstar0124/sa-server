@@ -41,6 +41,12 @@ RunReport RunReport::Aggregate(const std::vector<BotReport>& bots, PassCriteria 
         out.transfers_rejected += b.travel.transfers_rejected;
         out.transfers_unknown += b.travel.transfers_unknown;
         out.zone_changes += b.travel.zone_changes;
+        out.trade_steps_sent += b.trade_steps_sent;
+        out.trade_steps_accepted += b.trades.steps_accepted;
+        out.trade_steps_rejected += b.trades.steps_rejected;
+        out.trade_steps_unknown += b.trades.steps_unknown;
+        out.trade_settlements += b.trades.settled;
+        out.trade_cancellations += b.trades.cancelled;
         out.max_visible = std::max(out.max_visible, b.max_visible);
         rtts.insert(rtts.end(), b.ping_rtts.begin(), b.ping_rtts.end());
     }
@@ -60,7 +66,7 @@ bool RunReport::Succeeded() const noexcept {
     const bool enough_met = saw_another_player >= criteria.min_bots_seeing_others;
     return everyone_in && enough_met && kills >= criteria.min_kills &&
            pickups_acquired >= criteria.min_pickups && zone_changes >= criteria.min_zone_changes &&
-           integrity_errors == 0;
+           trade_settlements >= criteria.min_trade_settlements && integrity_errors == 0;
 }
 
 std::string RunReport::ToText() const {
@@ -85,6 +91,11 @@ std::string RunReport::ToText() const {
         "zone changes={} (required {}) transfers sent={} accepted={} rejected={} unknown={}\n",
         zone_changes, criteria.min_zone_changes, transfers_sent, transfers_accepted,
         transfers_rejected, transfers_unknown);
+    text += std::format(
+        "trade settlements={} (required {}) cancellations={} steps sent={} accepted={} "
+        "rejected={} unknown={}\n",
+        trade_settlements, criteria.min_trade_settlements, trade_cancellations, trade_steps_sent,
+        trade_steps_accepted, trade_steps_rejected, trade_steps_unknown);
     if (rtt_p50 && rtt_max) {
         text += std::format("ping_rtt_ms p50={} max={}\n", rtt_p50->count(), rtt_max->count());
     }

@@ -16,6 +16,10 @@ message ClientMessage {
     CastSkill cast_skill = 11;
     PickupItem pickup_item = 12;
     ChangeZone change_zone = 13;
+    TradeOpen trade_open = 14;
+    TradeOffer trade_offer = 15;
+    TradeAccept trade_accept = 16;
+    TradeCancel trade_cancel = 17;
   }
 }
 
@@ -57,4 +61,30 @@ message PickupItem {
 message ChangeZone {
   uint64 request_id = 1;  // 세션마다 1부터
   uint32 portal_id = 2;
+}
+
+// 거래 (ADR-0013). 협상 상태는 Backend가 갖고 Zone이 중계한다. 네 메시지 모두 CommandResult로
+// 수락·거절·대기를 받고, 거래의 상태 변화는 양쪽에 TradeUpdate로 온다. 결과를 못 받았으면 같은
+// request_id로 다시 보낸다.
+message TradeOpen {
+  uint64 request_id = 1;
+  uint64 target_entity_id = 2;  // 거래 범위 안의 플레이어
+}
+
+message TradeOffer {
+  uint64 request_id = 1;
+  bytes trade_id = 2;
+  repeated bytes item_instance_ids = 3;  // 내 인벤토리의 아이템. 이전 제안을 통째로 바꾼다
+  uint64 gold = 4;
+}
+
+message TradeAccept {
+  uint64 request_id = 1;
+  bytes trade_id = 2;
+  uint32 version = 3;  // 내가 본 제안의 버전. 그 사이 바뀌었으면 거절된다
+}
+
+message TradeCancel {
+  uint64 request_id = 1;
+  bytes trade_id = 2;
 }

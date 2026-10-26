@@ -5,6 +5,7 @@ using Sa.GameBackend.Modules.Auth;
 using Sa.GameBackend.Modules.Characters;
 using Sa.GameBackend.Modules.Economy;
 using Sa.GameBackend.Modules.Rankings;
+using Sa.GameBackend.Modules.Trading;
 using Sa.GameBackend.Modules.WorldDirectory;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -18,6 +19,7 @@ builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddCharactersModule(builder.Configuration);
 builder.Services.AddWorldDirectoryModule(builder.Configuration);
 builder.Services.AddEconomyModule();
+builder.Services.AddTradingModule(builder.Configuration);
 builder.Services.AddRankingsModule(builder.Configuration);
 
 builder.Services.AddGrpc();
@@ -40,6 +42,7 @@ app.MapCharacterEndpoints();
 app.MapRankingEndpoints();
 app.UseWorldDirectoryModule();
 app.UseEconomyModule();
+app.UseTradingModule();
 
 // Liveness answers while the process runs; readiness also requires the database.
 app.MapHealthChecks("/health/live", new() { Predicate = _ => false });

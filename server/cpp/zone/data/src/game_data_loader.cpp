@@ -94,10 +94,12 @@ std::expected<sim::MovementRules, LoadError> RulesFromTable(const toml::table& t
     const auto leave = RequireFloat(table, "aoi.leave_radius_m");
     const auto max_entities = RequireU32(table, "aoi.max_entities");
     const auto max_spawns = RequireU32(table, "aoi.max_spawns_per_view");
+    const auto velocity_delta = RequireFloat(table, "sync.publish_velocity_delta_mps");
+    const auto position_error = RequireFloat(table, "sync.publish_position_error_m");
     const auto budget = RequireU32(table, "input.commands_per_tick_budget");
     const auto queued = RequireU32(table, "input.max_queued_per_player");
-    if (auto err =
-            FirstError(speed, body, enter, leave, max_entities, max_spawns, budget, queued)) {
+    if (auto err = FirstError(speed, body, enter, leave, max_entities, max_spawns, velocity_delta,
+                              position_error, budget, queued)) {
         return std::unexpected(*err);
     }
     const sim::MovementRules rules{.max_speed_mps = *speed,
@@ -106,6 +108,8 @@ std::expected<sim::MovementRules, LoadError> RulesFromTable(const toml::table& t
                                    .aoi_leave_radius_m = *leave,
                                    .aoi_max_entities = *max_entities,
                                    .aoi_max_spawns_per_view = *max_spawns,
+                                   .publish_velocity_delta_mps = *velocity_delta,
+                                   .publish_position_error_m = *position_error,
                                    .commands_per_tick_budget = *budget,
                                    .max_queued_per_player = *queued};
     if (auto valid = rules.Validate(); !valid) {
@@ -142,14 +146,16 @@ std::expected<sim::CombatRules, LoadError> CombatFromTable(const toml::table& ta
 std::expected<sim::EconomyRules, LoadError> EconomyFromTable(const toml::table& table) {
     const auto capacity = RequireU32(table, "inventory.capacity");
     const auto range = RequireFloat(table, "pickup.range_m");
+    const auto trade_range = RequireFloat(table, "trade.range_m");
     const auto despawn = RequireMs(table, "pickup.despawn_ms");
     const auto scatter = RequireFloat(table, "drops.scatter_radius_m");
     const auto currency = RequireString(table, "currency.primary");
-    if (auto err = FirstError(capacity, range, despawn, scatter, currency)) {
+    if (auto err = FirstError(capacity, range, trade_range, despawn, scatter, currency)) {
         return std::unexpected(*err);
     }
     sim::EconomyRules rules{.inventory_capacity = *capacity,
                             .pickup_range_m = *range,
+                            .trade_range_m = *trade_range,
                             .ground_item_despawn = *despawn,
                             .drop_scatter_radius_m = *scatter,
                             .primary_currency = *currency};

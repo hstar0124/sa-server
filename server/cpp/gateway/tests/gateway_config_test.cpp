@@ -76,5 +76,12 @@ TEST(GatewayConfig, ASilenceTimeoutNoLongerThanTheHeartbeatIsRefused) {
     EXPECT_NE(config.error().message.find("zone_link.silence_timeout_ms"), std::string::npos);
 }
 
+TEST(GatewayConfig, AZeroSendQueueLimitIsRefused) {
+    std::string text = ShippedConfigWithKey();
+    const std::string limit = "max_send_queue_bytes = 1048576";
+    text.replace(text.find(limit), limit.size(), "max_send_queue_bytes = 0");
+    EXPECT_FALSE(Parse(text).has_value()) << "every client would be kicked at its first snapshot";
+}
+
 }  // namespace
 }  // namespace sa::gateway

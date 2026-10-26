@@ -22,6 +22,9 @@ struct GatewayLinkServerConfig {
     common::FrameLimits frame_limits;
     std::chrono::milliseconds close_linger{};     // bounds closing a link at shutdown
     std::chrono::milliseconds silence_timeout{};  // a link that carries nothing this long is dead
+    // TCP_MAXSEG on the listening socket: accepted links inherit it and advertise it, so it bounds
+    // the segments both ways. The kernel refuses values outside its own range at startup.
+    std::uint32_t max_segment_bytes = 0;
 };
 
 // Accepts gateway connections and keeps the live links so shutdown can close them.

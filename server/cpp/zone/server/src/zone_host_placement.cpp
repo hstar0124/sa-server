@@ -93,6 +93,21 @@ void ZoneHost::Transfer(const sim::ZoneTransferRequest& transfer) {
         zone_.FailTransfer(transfer, sim::TransferOutcome::kUnavailable);
         return;
     }
+    if (session->trading) {
+        // The Backend cancels a character's trades only for its owner, so the cancel goes first:
+        // once ownership moved, this zone could no longer close the trade (ADR-0013).
+        CancelTradesOf(*session, [this, transfer] { RequestTransfer(transfer); });
+        return;
+    }
+    RequestTransfer(transfer);
+}
+
+void ZoneHost::RequestTransfer(const sim::ZoneTransferRequest& transfer) {
+    const Session* session = SessionOf(transfer.player);
+    if (session == nullptr) {
+        zone_.FailTransfer(transfer, sim::TransferOutcome::kUnavailable);
+        return;
+    }
     directory_.TransferCharacter(
         codec::ToTransferRequest(transfer, zone_.config().world_id, AuthorityFor(*session)),
         [this, transfer](const std::optional<backend::v1::TransferCharacterResponse>& response) {

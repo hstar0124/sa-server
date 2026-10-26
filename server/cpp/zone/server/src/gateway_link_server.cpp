@@ -1,18 +1,32 @@
 #include "gateway_link_server.hpp"
 
+#include <asio/socket_base.hpp>
 #include <spdlog/spdlog.h>
+
+#include <netinet/tcp.h>
 
 #include <algorithm>
 #include <tuple>
 
 namespace sa::zone {
+namespace {
+
+// Asio names no portable option for this one.
+using MaxSegment = asio::detail::socket_option::integer<IPPROTO_TCP, TCP_MAXSEG>;
+
+}  // namespace
 
 GatewayLinkServer::GatewayLinkServer(asio::io_context& io, GatewayLinkServerConfig config,
                                      GatewayLink::Handler& handler)
     : acceptor_(io, asio::ip::tcp::endpoint{asio::ip::make_address(config.listen_address),
                                             config.listen_port}),
       config_(std::move(config)),
-      handler_(handler) {}
+      handler_(handler) {
+    // A link's receive window starts small and grows with traffic. While it is smaller than one
+    // segment the peer sends nothing but window probes, backing off to seconds: the link falls
+    // silent under load and is closed as dead (docs/issues/021). Smaller segments always fit.
+    acceptor_.set_option(MaxSegment{static_cast<int>(config_.max_segment_bytes)});
+}
 
 void GatewayLinkServer::Start() {
     spdlog::info("gateway link listening on {}:{} max_gateways={}", config_.listen_address,

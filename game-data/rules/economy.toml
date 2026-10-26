@@ -13,6 +13,11 @@ despawn_ms = 60000
 # Keep it well inside pickup.range_m so a player standing at the corpse reaches every drop.
 scatter_radius_m = 0.6
 
+[trade]
+# Two players must stand within this distance to open a trade with each other (ADR-0013). Later
+# steps are not range-checked: settlement only needs both characters owned by the same zone.
+range_m = 5.0
+
 [currency]
 # The only currency in the first version; stored as integer units.
 primary = "gold"

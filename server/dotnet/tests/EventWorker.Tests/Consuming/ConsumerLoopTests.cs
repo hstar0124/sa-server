@@ -60,7 +60,7 @@ public sealed class ConsumerLoopTests(InfrastructureFixture infra)
         Characters.Stats? stats = await EventuallyAsync(() => Characters.StatsAsync(infra.ConnectionString, character), s => s is { ItemsAcquired: 1 } && consumer.Duplicates >= 1);
         await consumer.StopAsync(CancellationToken.None);
 
-        Assert.Equal(new Characters.Stats(Kills: 1, ItemsAcquired: 1, GoldEarned: 7, LastEventSeq: 2), stats);
+        Assert.Equal(new Characters.Stats(Kills: 1, ItemsAcquired: 1, GoldEarned: 7, TradesCompleted: 0, LastEventSeq: 2), stats);
         Assert.Equal((1L, 1L), await Redis.PlaceAsync(infra, Outbox.World, character) is { } place ? (1L, place.Kills) : (0L, 0L));
         Assert.Equal(2, consumer.Applied);
         Assert.Equal(1, consumer.Duplicates);
