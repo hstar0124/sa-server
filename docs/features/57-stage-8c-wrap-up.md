@@ -20,7 +20,7 @@
 ## 구현
 - [ADR-0012](../adr/0012-dead-reckoning-and-interest-on-view-ticks.md): 움직임은 dead reckoning으로 보고하고, 관심 계산은 시야 주기에 나눠 한다
 - [보고서 04](../reports/04-dense-throughput.md): 조치별 효과(1,000명·2,000명)와 8c 뒤 용량 사다리
-- [설계 노트 12](../design-notes/12-dense-throughput.md): 무엇이 비쌌나, 어떤 순서로 고쳤나, 이전 이력의 장치 다섯 개를 왜 뺐나, 2,000명 링크 교착을 원인까지 따라간 과정
+- [설계 노트 12](../design-notes/12-dense-throughput.md): 무엇이 비쌌나, 어떤 순서로 고쳤나, 계획했던 장치 다섯 개를 왜 넣지 않았나, 2,000명 링크 교착을 원인까지 따라간 과정
 - README: "Zone의 한 틱"에 dead reckoning·관심 계산·세그먼트 상한, "밀집" 소절, 성능 표 세 줄, 봇과 뷰어의 외삽
 - CLAUDE.md: 단계 목록에 8c 완료, 기준선 범위 50~2,000명
 
