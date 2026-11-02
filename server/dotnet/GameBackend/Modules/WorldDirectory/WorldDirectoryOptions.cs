@@ -36,7 +36,19 @@ internal sealed class WorldDirectoryOptions
     [Range(1, 65535)]
     public int GatewayWebSocketPort { get; init; } = 7778;
 
+    /// <summary>
+    /// Complete WebSocket URL browsers connect to (scheme, host and path), for a gateway behind a
+    /// TLS-terminating proxy where host and port say nothing about the public address. Empty means
+    /// clients build ws://host:port themselves from the two values above.
+    /// </summary>
+    public string GatewayWebSocketUrl { get; init; } = string.Empty;
+
     public byte[] DecodedTicketSigningKey() => Convert.FromBase64String(TicketSigningKey);
+
+    public Uri? GatewayWebSocketUrlOrNull() => string.IsNullOrEmpty(GatewayWebSocketUrl) ? null : new Uri(GatewayWebSocketUrl, UriKind.Absolute);
+
+    public static bool IsWebSocketUrl(string value)
+        => Uri.TryCreate(value, UriKind.Absolute, out Uri? uri) && (uri.Scheme == Uri.UriSchemeWs || uri.Scheme == Uri.UriSchemeWss);
 }
 
 internal sealed class WorldDirectoryOptionsValidator : IValidateOptions<WorldDirectoryOptions>
@@ -53,8 +65,13 @@ internal sealed class WorldDirectoryOptionsValidator : IValidateOptions<WorldDir
             return ValidateOptionsResult.Fail("WorldDirectory:TicketSigningKey must be base64");
         }
 
-        return key.Length < WorldDirectoryOptions.MinTicketKeyBytes
-            ? ValidateOptionsResult.Fail($"WorldDirectory:TicketSigningKey must decode to at least {WorldDirectoryOptions.MinTicketKeyBytes} bytes")
+        if (key.Length < WorldDirectoryOptions.MinTicketKeyBytes)
+        {
+            return ValidateOptionsResult.Fail($"WorldDirectory:TicketSigningKey must decode to at least {WorldDirectoryOptions.MinTicketKeyBytes} bytes");
+        }
+
+        return options.GatewayWebSocketUrl.Length > 0 && !WorldDirectoryOptions.IsWebSocketUrl(options.GatewayWebSocketUrl)
+            ? ValidateOptionsResult.Fail("WorldDirectory:GatewayWebSocketUrl must be empty or an absolute ws:// or wss:// URL")
             : ValidateOptionsResult.Success;
     }
 }

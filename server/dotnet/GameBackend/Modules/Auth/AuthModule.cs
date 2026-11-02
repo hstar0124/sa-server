@@ -43,7 +43,8 @@ internal static class AuthModule
             });
         services.AddAuthorization();
 
-        // Credential endpoints are brute-force targets.
+        // Credential endpoints are brute-force targets. The partition key is the connection's
+        // address, or the address a trusted reverse proxy forwarded (Infrastructure/Http/ReverseProxyOptions).
         services.AddRateLimiter(limiter =>
         {
             limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;

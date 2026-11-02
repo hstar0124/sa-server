@@ -15,6 +15,10 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
     public Task<HttpResponseMessage> LoginAsync(string username, string password)
         => SendAsync(HttpMethod.Post, "/api/v1/auth/login", new { username, password });
 
+    /// <summary>Login with one extra request header, as a reverse proxy would add it.</summary>
+    public Task<HttpResponseMessage> LoginAsync(string username, string password, string headerName, string headerValue)
+        => SendAsync(HttpMethod.Post, "/api/v1/auth/login", new { username, password }, (headerName, headerValue));
+
     /// <summary>Registers a fresh account and returns its access token.</summary>
     public async Task<string> RegisterAndLoginAsync(string username, string password = "correct horse battery")
     {
@@ -64,6 +68,17 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
         return Convert.FromBase64String(body.EntryTicket);
     }
 
+    /// <summary>Creates a character and requests entry; returns the whole response.</summary>
+    public async Task<EnterResponse> CreateCharacterAndEnterForResponseAsync(long worldId, string name)
+    {
+        HttpResponseMessage created = await CreateCharacterAsync(worldId, name);
+        created.EnsureSuccessStatusCode();
+        long characterId = (await created.Content.ReadFromJsonAsync<CharacterResponse>(Json))!.CharacterId;
+        HttpResponseMessage enter = await EnterAsync(worldId, characterId);
+        enter.EnsureSuccessStatusCode();
+        return (await enter.Content.ReadFromJsonAsync<EnterResponse>(Json))!;
+    }
+
     /// <summary>Creates a character and requests entry; returns the signed ticket bytes and the character id.</summary>
     public async Task<(byte[] SignedTicket, long CharacterId)> CreateCharacterAndEnterAsync(long worldId, string name)
     {
@@ -82,12 +97,17 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
         return doc.RootElement.GetProperty("type").GetString() ?? string.Empty;
     }
 
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object? body)
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object? body, (string Name, string Value)? header = null)
     {
         using var request = new HttpRequestMessage(method, new Uri(path, UriKind.Relative));
         if (body is not null)
         {
             request.Content = JsonContent.Create(body, options: Json);
+        }
+
+        if (header is { } h)
+        {
+            request.Headers.Add(h.Name, h.Value);
         }
 
         if (bearerToken is not null)
@@ -102,7 +122,7 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
 
     public sealed record CharacterResponse(long CharacterId, long WorldId, string Name, int ClassId);
 
-    public sealed record GatewayEndpoint(string Host, int Port, int WebSocketPort);
+    public sealed record GatewayEndpoint(string Host, int Port, int WebSocketPort, Uri? WebSocketUrl);
 
     public sealed record EnterResponse(string EntryTicket, GatewayEndpoint Gateway, DateTimeOffset ExpiresAt);
 

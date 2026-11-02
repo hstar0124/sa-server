@@ -34,6 +34,6 @@ export class BackendApi {
     return this.#call('POST', `/api/v1/worlds/${worldId}/characters`, { name, classId });
   }
 
-  // Returns { entryTicket (base64), gateway: { host, port }, expiresAt }.
+  // Returns { entryTicket (base64), gateway: { host, port, webSocketPort, webSocketUrl|null }, expiresAt }.
   enter(worldId, characterId) { return this.#call('POST', `/api/v1/worlds/${worldId}/characters/${characterId}/enter`); }
 }

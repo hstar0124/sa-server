@@ -15,6 +15,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddDatabase(builder.Configuration);
 builder.Services.AddGameData(builder.Configuration);
 builder.Services.AddViewerCors(builder.Configuration);
+builder.Services.AddReverseProxyClientAddress(builder.Configuration);
 builder.Services.AddAuthModule(builder.Configuration);
 builder.Services.AddCharactersModule(builder.Configuration);
 builder.Services.AddWorldDirectoryModule(builder.Configuration);
@@ -30,6 +31,7 @@ builder.Services.AddHealthChecks()
 WebApplication app = builder.Build();
 
 app.UseGameData();
+app.UseReverseProxyClientAddress();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseCors(CorsOptions.PolicyName);
