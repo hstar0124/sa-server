@@ -1,7 +1,10 @@
+using System.Net;
 using System.Security.Cryptography;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Sa.GameBackend.IntegrationTests.Harness;
 
@@ -14,7 +17,10 @@ public sealed record BackendSettings(
     int? CredentialAttemptsPerMinute = null,
     int? RankingsMaxTop = null,
     int? RankingsDefaultTop = null,
-    string? RedisConnectionString = null);
+    string? RedisConnectionString = null,
+    IReadOnlyList<string>? TrustedProxyNetworks = null,
+    string? ClientAddressHeader = null,
+    IPAddress? ConnectionAddress = null);
 
 /// <summary>In-process GameBackend bound to the fixture database. Settings mirror production keys.</summary>
 public sealed class BackendFactory(string connectionString, BackendSettings? settings = null) : WebApplicationFactory<Program>
@@ -76,6 +82,40 @@ public sealed class BackendFactory(string connectionString, BackendSettings? set
             values["Auth:CredentialAttemptsPerMinutePerAddress"] = attempts.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
+        if (_settings.TrustedProxyNetworks is { } networks)
+        {
+            for (int i = 0; i < networks.Count; i++)
+            {
+                values[$"ReverseProxy:TrustedNetworks:{i}"] = networks[i];
+            }
+        }
+
+        if (_settings.ClientAddressHeader is { } header)
+        {
+            values["ReverseProxy:ClientAddressHeader"] = header;
+        }
+
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(values));
+        if (_settings.ConnectionAddress is { } address)
+        {
+            builder.ConfigureServices(services => services.AddSingleton<IStartupFilter>(new ConnectionAddressFilter(address)));
+        }
+    }
+
+    /// <summary>
+    /// The in-memory test server has no connection address. This runs first in the pipeline and
+    /// pretends every request arrived from one address, as connections through a proxy do.
+    /// </summary>
+    private sealed class ConnectionAddressFilter(IPAddress address) : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use((context, pipeline) =>
+            {
+                context.Connection.RemoteIpAddress = address;
+                return pipeline(context);
+            });
+            next(app);
+        };
     }
 }
