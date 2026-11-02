@@ -52,5 +52,21 @@ public sealed class EntryTicketTests(PostgresFixture postgres) : IDisposable
         Assert.Equal(0, tickets);
     }
 
+    [Fact]
+    public async Task Enter_hands_out_the_gateway_address_and_the_WebSocket_url_only_when_configured()
+    {
+        ApiClient owner = await Api.AsNewAccountAsync(Unique.Username());
+        ApiClient.EnterResponse plain = await owner.CreateCharacterAndEnterForResponseAsync(World, Unique.CharacterName());
+        Assert.Null(plain.Gateway.WebSocketUrl);
+        Assert.NotEmpty(plain.Gateway.Host);
+
+        var configured = new Uri("wss://play.example.test/game");
+        using var proxied = new BackendFactory(postgres.ConnectionString, new BackendSettings(GatewayWebSocketUrl: configured));
+        ApiClient proxiedOwner = await new ApiClient(proxied.CreateClient()).AsNewAccountAsync(Unique.Username());
+        ApiClient.EnterResponse behindProxy = await proxiedOwner.CreateCharacterAndEnterForResponseAsync(World, Unique.CharacterName());
+        Assert.Equal(configured, behindProxy.Gateway.WebSocketUrl);
+        Assert.Equal(plain.Gateway.Host, behindProxy.Gateway.Host);
+    }
+
     public void Dispose() => _factory.Dispose();
 }

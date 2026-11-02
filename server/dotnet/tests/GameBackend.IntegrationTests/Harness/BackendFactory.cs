@@ -14,6 +14,7 @@ public sealed record BackendSettings(
     TimeSpan? GatewayLeaseDuration = null,
     TimeSpan? ZoneLeaseDuration = null,
     TimeSpan? TicketLifetime = null,
+    Uri? GatewayWebSocketUrl = null,
     int? CredentialAttemptsPerMinute = null,
     int? RankingsMaxTop = null,
     int? RankingsDefaultTop = null,
@@ -65,6 +66,11 @@ public sealed class BackendFactory(string connectionString, BackendSettings? set
         if (_settings.TicketLifetime is { } ticket)
         {
             values["WorldDirectory:TicketLifetime"] = ticket.ToString();
+        }
+
+        if (_settings.GatewayWebSocketUrl is { } webSocketUrl)
+        {
+            values["WorldDirectory:GatewayWebSocketUrl"] = webSocketUrl.ToString();
         }
 
         if (_settings.RankingsMaxTop is { } maxTop)

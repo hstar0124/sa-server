@@ -68,6 +68,17 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
         return Convert.FromBase64String(body.EntryTicket);
     }
 
+    /// <summary>Creates a character and requests entry; returns the whole response.</summary>
+    public async Task<EnterResponse> CreateCharacterAndEnterForResponseAsync(long worldId, string name)
+    {
+        HttpResponseMessage created = await CreateCharacterAsync(worldId, name);
+        created.EnsureSuccessStatusCode();
+        long characterId = (await created.Content.ReadFromJsonAsync<CharacterResponse>(Json))!.CharacterId;
+        HttpResponseMessage enter = await EnterAsync(worldId, characterId);
+        enter.EnsureSuccessStatusCode();
+        return (await enter.Content.ReadFromJsonAsync<EnterResponse>(Json))!;
+    }
+
     /// <summary>Creates a character and requests entry; returns the signed ticket bytes and the character id.</summary>
     public async Task<(byte[] SignedTicket, long CharacterId)> CreateCharacterAndEnterAsync(long worldId, string name)
     {
@@ -111,7 +122,7 @@ internal sealed class ApiClient(HttpClient http, string? bearerToken = null)
 
     public sealed record CharacterResponse(long CharacterId, long WorldId, string Name, int ClassId);
 
-    public sealed record GatewayEndpoint(string Host, int Port, int WebSocketPort);
+    public sealed record GatewayEndpoint(string Host, int Port, int WebSocketPort, Uri? WebSocketUrl);
 
     public sealed record EnterResponse(string EntryTicket, GatewayEndpoint Gateway, DateTimeOffset ExpiresAt);
 

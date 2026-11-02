@@ -123,12 +123,18 @@ async function enter(characterId) {
       onKick: (reason) => status(`kicked: ${reason}`, 'error'),
       onClose: () => { stopLoops(); if (!$('status').classList.contains('error')) status('disconnected'); },
     });
-    // The Backend advertises the gateway's WebSocket port; ?ws= overrides it for port-forwarded setups.
-    const wsPort = Number(new URLSearchParams(location.search).get('ws') ?? grant.gateway.webSocketPort);
-    link.connect(`ws://${grant.gateway.host}:${wsPort}/game`, grant.entryTicket);
+    link.connect(gatewayUrl(grant.gateway), grant.entryTicket);
     show('panel-world', true);
     status('connecting…');
   } catch (e) { status(e.message, 'error'); }
+}
+
+// The Backend advertises the gateway's host and WebSocket port and, behind a proxy, the complete
+// URL to use instead. ?ws= overrides the port for port-forwarded setups.
+function gatewayUrl(gateway) {
+  const portOverride = new URLSearchParams(location.search).get('ws');
+  if (portOverride !== null) return `ws://${gateway.host}:${Number(portOverride)}/game`;
+  return gateway.webSocketUrl ?? `ws://${gateway.host}:${gateway.webSocketPort}/game`;
 }
 
 function startLoops() {
