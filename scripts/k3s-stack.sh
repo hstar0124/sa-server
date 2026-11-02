@@ -46,9 +46,13 @@ secrets() {
 
 # A Ready pod has its port open; the game processes can serve only once they hold a Backend lease
 # and the gateway has its zone link. scripts/e2e-local.sh waits for the same log lines.
+# The log is read whole, not piped into grep -q: grep exits at the first match, and under pipefail
+# a log larger than the pipe buffer then ends kubectl with SIGPIPE and the pipeline as a failure.
 wait_log() {  # deployment, pattern
+  local out
   for _ in $(seq 1 120); do
-    kubectl -n game logs "deployment/$1" 2>/dev/null | grep -q "$2" && return 0
+    out=$(kubectl -n game logs "deployment/$1" --tail=2000 2>/dev/null) || out=""
+    grep -q "$2" <<<"$out" && return 0
     sleep 0.5
   done
   echo "timed out waiting for '$2' from $1"; kubectl -n game logs "deployment/$1" --tail=20; return 1
